@@ -4,6 +4,9 @@ inputs:
   manifest:
     description: Consumer-relative JSON mutation manifest path
     required: true
+  policy:
+    description: Consumer-relative TOML authorization policy path
+    required: true
   repository:
     description: owner/name of the consumer repository
     required: true
@@ -30,6 +33,7 @@ runs:
         PYTHONPATH: ${{ github.action_path }}/../../../src
         GITHUB_TOKEN: ${{ inputs.token }}
         INPUT_MANIFEST: ${{ inputs.manifest }}
+        INPUT_POLICY: ${{ inputs.policy }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
         INPUT_CURRENT_RUN_ID: ${{ inputs.current-run-id }}
       run: |
