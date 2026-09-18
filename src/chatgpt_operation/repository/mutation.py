@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deterministic fail-closed repository mutation skill."""
 from __future__ import annotations
-import argparse, base64, json, os, re, socket, sys, tempfile
+import argparse, base64, json, os, re, socket, sys, tempfile, tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
@@ -40,6 +40,16 @@ def _branch(v,w):
 class MutationManifest:
     repository:str; resource:str; action:str; target:dict[str,Any]; expected:dict[str,Any]; desired:dict[str,Any]; commit_message:str|None=None
 
+@dataclass(frozen=True)
+class RepositoryPolicy:
+    repository:str
+    allow:dict[str,frozenset[str]]
+    protected_branches:frozenset[str]
+    allow_file_mutation_on_protected:bool
+    validation_mode:str
+    validation_workflows:frozenset[str]
+    ignore_current_run:bool
+
 def parse_manifest(raw:Any)->MutationManifest:
     if not isinstance(raw,dict): raise ManifestError("manifest root must be object")
     _keys(raw,{"schema_version","repository","resource","action","target","expected","desired","commit_message"},{"schema_version","repository","resource","action","target","expected","desired"},"manifest")
@@ -71,6 +81,51 @@ def load_manifest(path):
         return parse_manifest(json.loads(Path(path).read_text(encoding="utf-8")))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
         raise ManifestError(f"cannot load manifest {path}: {type(e).__name__}: {e}") from e
+
+def _str_list(v,w):
+    if not isinstance(v,list) or not all(isinstance(x,str) and x for x in v): raise ManifestError(f"{w} must be a list of non-empty strings")
+    if len(v)!=len(set(v)): raise ManifestError(f"{w} must not contain duplicates")
+    return list(v)
+
+def parse_policy(raw):
+    if not isinstance(raw,dict): raise ManifestError("policy root must be object")
+    _keys(raw,{"schema_version","repository","mutation","validation_gate"},{"schema_version","repository","mutation","validation_gate"},"policy")
+    if raw["schema_version"]!=1: raise ManifestError("policy schema_version must be 1")
+    repository=raw["repository"]
+    if not isinstance(repository,str) or not REPO.fullmatch(repository): raise ManifestError("policy.repository must be owner/name")
+    mutation=raw["mutation"]
+    if not isinstance(mutation,dict): raise ManifestError("policy.mutation must be object")
+    _keys(mutation,{"allow","protected_branches","allow_file_mutation_on_protected"},{"allow","protected_branches","allow_file_mutation_on_protected"},"policy.mutation")
+    allow_raw=mutation["allow"]
+    if not isinstance(allow_raw,dict): raise ManifestError("policy.mutation.allow must be object")
+    _keys(allow_raw,{"file","branch"},set(),"policy.mutation.allow")
+    allow={}
+    for resource in ("file","branch"):
+        actions=frozenset(_str_list(allow_raw.get(resource,[]),f"policy.mutation.allow.{resource}"))
+        unsupported=actions-ACTIONS[resource]
+        if unsupported: raise ManifestError(f"policy authorizes unsupported {resource} actions: {sorted(unsupported)}")
+        allow[resource]=actions
+    protected=frozenset(_str_list(mutation["protected_branches"],"policy.mutation.protected_branches"))
+    for name in protected: _branch(name,"policy.mutation.protected_branches[]")
+    allow_protected=mutation["allow_file_mutation_on_protected"]
+    if not isinstance(allow_protected,bool): raise ManifestError("policy.mutation.allow_file_mutation_on_protected must be boolean")
+    gate=raw["validation_gate"]
+    if not isinstance(gate,dict): raise ManifestError("policy.validation_gate must be object")
+    _keys(gate,{"mode","workflows","ignore_current_run"},{"mode","workflows","ignore_current_run"},"policy.validation_gate")
+    mode=gate["mode"]
+    if mode not in {"none","all_actions","named_workflows"}: raise ManifestError("policy.validation_gate.mode must be none|all_actions|named_workflows")
+    workflows=frozenset(_str_list(gate["workflows"],"policy.validation_gate.workflows"))
+    if mode=="named_workflows" and not workflows: raise ManifestError("named_workflows requires at least one workflow")
+    if mode!="named_workflows" and workflows: raise ManifestError("validation_gate.workflows must be empty unless mode=named_workflows")
+    ignore_current=gate["ignore_current_run"]
+    if not isinstance(ignore_current,bool): raise ManifestError("policy.validation_gate.ignore_current_run must be boolean")
+    return RepositoryPolicy(repository,allow,protected,allow_protected,mode,workflows,ignore_current)
+
+def load_policy(path):
+    try:
+        with Path(path).open("rb") as h: return parse_policy(tomllib.load(h))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise ManifestError(f"cannot load policy {path}: {type(e).__name__}: {e}") from e
 
 class GitHubTransport:
     def __init__(self,repository,token,api_url="https://api.github.com"): self.repository=repository; self.token=token; self.api_url=api_url.rstrip("/")
@@ -113,21 +168,30 @@ def _decode_content(raw):
         raise HardStop("GitHub file content is invalid base64 or non-UTF8") from e
 
 class Engine:
-    def __init__(self,transport,*,repository,current_run_id=None): self.t=transport; self.repository=repository; self.current_run_id=str(current_run_id) if current_run_id else None
+    def __init__(self,transport,*,repository,policy,current_run_id=None): self.t=transport; self.repository=repository; self.policy=policy; self.current_run_id=str(current_run_id) if current_run_id else None
     def _read(self,path,query=None):
         try: return self.t.get(path,query=query)
         except HardStop as e:
             if getattr(e,"status",None)==404: return None
             raise
     def _lock(self):
+        if self.policy.validation_mode=="none": return
         locked=[]
         for status in ("in_progress","queued"):
-            for run in self.t.get("/actions/runs",query={"status":status,"per_page":"100"}).get("workflow_runs",[]):
-                if self.current_run_id and str(run.get("id"))==self.current_run_id: continue
+            response=self.t.get("/actions/runs",query={"status":status,"per_page":"100"})
+            if not isinstance(response,dict) or not isinstance(response.get("workflow_runs"),list): raise HardStop("GitHub Actions response missing workflow_runs")
+            for run in response["workflow_runs"]:
+                if not isinstance(run,dict): raise HardStop("GitHub Actions run entry is not object")
+                if self.policy.ignore_current_run and self.current_run_id and str(run.get("id"))==self.current_run_id: continue
+                if self.policy.validation_mode=="named_workflows" and run.get("name") not in self.policy.validation_workflows: continue
                 locked.append({"id":run.get("id"),"name":run.get("name"),"status":run.get("status"),"head_sha":run.get("head_sha")})
-        if locked: raise HardStop("CI mutation lock active: "+json.dumps(locked,sort_keys=True))
+        if locked: raise HardStop("validation gate active (not a repository lease): "+json.dumps(locked,sort_keys=True))
     def execute(self,m):
         if m.repository!=self.repository: raise HardStop(f"manifest repository {m.repository} != execution repository {self.repository}")
+        if self.policy.repository!=self.repository: raise HardStop(f"policy repository {self.policy.repository} != execution repository {self.repository}")
+        if m.action not in self.policy.allow.get(m.resource,frozenset()): raise HardStop(f"policy denies {m.resource}/{m.action}")
+        if m.resource=="file" and m.target["branch"] in self.policy.protected_branches and not self.policy.allow_file_mutation_on_protected:
+            raise HardStop(f"policy denies direct file mutation on protected branch {m.target['branch']}")
         self._lock()
         return getattr(self,f"_{m.resource}")(m)
     def _id(self,m): return {"repository":m.repository,"resource":m.resource,"action":m.action,"target":m.target}
@@ -199,25 +263,41 @@ def M(resource,action,target,expected,desired,msg=None):
     if msg is not None: raw["commit_message"]=msg
     return parse_manifest(raw)
 
+def P(mode="none",workflows=None,allow_file=True,allow_branch=True,protected=None,allow_protected=True):
+    return parse_policy({
+        "schema_version":1,
+        "repository":"o/r",
+        "mutation":{
+            "allow":{"file":["create","update","delete"] if allow_file else [],"branch":["create"] if allow_branch else []},
+            "protected_branches":protected or [],
+            "allow_file_mutation_on_protected":allow_protected,
+        },
+        "validation_gate":{"mode":mode,"workflows":workflows or [],"ignore_current_run":True},
+    })
+
 def self_test():
     old="a"*40
-    f=Fake(); f.files[("x.txt","main")]={"sha":old,"content":base64.b64encode(b"old").decode()}; e=Engine(f,repository="o/r")
+    f=Fake(); f.files[("x.txt","main")]={"sha":old,"content":base64.b64encode(b"old").decode()}; e=Engine(f,repository="o/r",policy=P())
     assert e.execute(M("file","update",{"path":"x.txt","branch":"main"},{"sha":old},{"content":"new"},"update"))["status"]=="PASS"
     stale="0"*40
     assert e.execute(M("file","update",{"path":"x.txt","branch":"main"},{"sha":stale},{"content":"new"},"noop"))["status"]=="NO_MUTATION_NEEDED"
     assert e.execute(M("file","delete",{"path":"missing.txt","branch":"main"},{"sha":old},{},"delete"))["status"]=="NO_MUTATION_NEEDED"
-    b=Fake(); assert Engine(b,repository="o/r").execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old}))["status"]=="PASS"
-    assert Engine(b,repository="o/r").execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old}))["status"]=="NO_MUTATION_NEEDED"
+    b=Fake(); assert Engine(b,repository="o/r",policy=P()).execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old}))["status"]=="PASS"
+    assert Engine(b,repository="o/r",policy=P()).execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old}))["status"]=="NO_MUTATION_NEEDED"
     for resource,action in (("branch","move"),("branch","delete"),("issue","update"),("issue","close"),("issue","reopen")):
         try:
             M(resource,action,{}, {}, {}); raise AssertionError(f"{resource}/{action} unexpectedly allowed")
         except ManifestError: pass
     lock=Fake(); lock.runs=[{"id":10,"name":"CI","status":"in_progress","head_sha":old}]
-    try: Engine(lock,repository="o/r").execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old})); raise AssertionError
+    try: Engine(lock,repository="o/r",policy=P("all_actions")).execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old})); raise AssertionError
     except HardStop: pass
-    assert Engine(lock,repository="o/r",current_run_id="10").execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old}))["status"]=="PASS"
+    assert Engine(lock,repository="o/r",policy=P("all_actions"),current_run_id="10").execute(M("branch","create",{"name":"x"},{"absent":True},{"sha":old}))["status"]=="PASS"
     bad=Fake(); bad.files[("x.txt","main")]={"sha":old,"content":base64.b64encode(b"old").decode()}; bad.break_verify=True
-    try: Engine(bad,repository="o/r").execute(M("file","update",{"path":"x.txt","branch":"main"},{"sha":old},{"content":"new"},"bad")); raise AssertionError
+    try: Engine(bad,repository="o/r",policy=P()).execute(M("file","update",{"path":"x.txt","branch":"main"},{"sha":old},{"content":"new"},"bad")); raise AssertionError
+    except HardStop: pass
+    try: Engine(Fake(),repository="o/r",policy=P(allow_file=False)).execute(M("file","create",{"path":"x.txt","branch":"dev"},{"absent":True},{"content":"x"},"create")); raise AssertionError
+    except HardStop: pass
+    try: Engine(Fake(),repository="o/r",policy=P(protected=["main"],allow_protected=False)).execute(M("file","create",{"path":"x.txt","branch":"main"},{"absent":True},{"content":"x"},"create")); raise AssertionError
     except HardStop: pass
     print("REPOSITORY_MUTATION_SELF_TEST=PASS"); return 0
 
@@ -244,15 +324,15 @@ def _preflight_result(path):
         raise HardStop(f"result destination is not writable: {e}") from e
 
 def main(argv=None):
-    p=argparse.ArgumentParser(); p.add_argument("--self-test",action="store_true"); p.add_argument("--manifest"); p.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY")); p.add_argument("--token-env",default="GITHUB_TOKEN"); p.add_argument("--current-run-id",default=os.environ.get("GITHUB_RUN_ID")); p.add_argument("--result"); a=p.parse_args(argv)
+    p=argparse.ArgumentParser(); p.add_argument("--self-test",action="store_true"); p.add_argument("--manifest"); p.add_argument("--policy"); p.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY")); p.add_argument("--token-env",default="GITHUB_TOKEN"); p.add_argument("--current-run-id",default=os.environ.get("GITHUB_RUN_ID")); p.add_argument("--result"); a=p.parse_args(argv)
     if a.self_test: return self_test()
-    if not a.manifest or not a.repository: p.error("--manifest and repository/GITHUB_REPOSITORY required")
+    if not a.manifest or not a.policy or not a.repository: p.error("--manifest, --policy, and repository/GITHUB_REPOSITORY required")
     result=None
     try:
         _preflight_result(a.result)
         token=os.environ.get(a.token_env)
         if not token: raise ManifestError(f"{a.token_env} required")
-        result=Engine(GitHubTransport(a.repository,token),repository=a.repository,current_run_id=a.current_run_id).execute(load_manifest(a.manifest))
+        result=Engine(GitHubTransport(a.repository,token),repository=a.repository,policy=load_policy(a.policy),current_run_id=a.current_run_id).execute(load_manifest(a.manifest))
         _write_result(a.result,result)
         print("REPOSITORY_MUTATION="+result["status"]); print(json.dumps(result,sort_keys=True))
         return 0
