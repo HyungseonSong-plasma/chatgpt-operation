@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type":"object",
+  "additionalProperties":false,
+  "required":["schema_version","repository","resource","action","target","expected","desired"],
+  "properties":{
+    "schema_version":{"const":1},
+    "repository":{"type":"string"},
+    "resource":{"enum":["file","branch"]},
+    "action":{"enum":["create","update","delete"]},
+    "target":{"type":"object"},
+    "expected":{"type":"object"},
+    "desired":{"type":"object"},
+    "commit_message":{"type":"string"}
+  }
+}
