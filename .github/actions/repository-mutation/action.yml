@@ -1,0 +1,66 @@
+name: Repository mutation
+description: Execute portable repository-mutation v1 against the consumer repository.
+inputs:
+  manifest:
+    description: Consumer path to the JSON mutation manifest.
+    required: true
+  policy:
+    description: Consumer path to the JSON mutation policy.
+    required: true
+  repository:
+    description: Exact owner/name repository binding.
+    required: true
+  github-token:
+    description: Consumer workflow token. Pass github.token explicitly.
+    required: true
+  current-run-id:
+    description: Current Actions run ID for validation-gate self exclusion.
+    required: false
+    default: ""
+  result-path:
+    description: Consumer workspace path for structured result JSON.
+    required: false
+    default: .chatgpt-operation-result.json
+outputs:
+  status:
+    description: Mutation result status.
+    value: ${{ steps.mutate.outputs.status }}
+  operation-id:
+    description: Deterministic semantic operation identity.
+    value: ${{ steps.mutate.outputs.operation_id }}
+  result-path:
+    description: Structured result path.
+    value: ${{ inputs.result-path }}
+runs:
+  using: composite
+  steps:
+    - id: mutate
+      shell: bash
+      env:
+        CHATGPT_OPERATION_GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set +e
+        ACTION_ROOT="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
+        export PYTHONPATH="$ACTION_ROOT/src"
+        python3 -m chatgpt_operation.cli repository mutate \
+          --manifest "${{ inputs.manifest }}" \
+          --policy "${{ inputs.policy }}" \
+          --repository "${{ inputs.repository }}" \
+          --token-env CHATGPT_OPERATION_GITHUB_TOKEN \
+          --current-run-id "${{ inputs.current-run-id }}" \
+          --result "${{ inputs.result-path }}"
+        rc=$?
+        set -e
+
+        if [[ -f "${{ inputs.result-path }}" ]]; then
+          python3 - "${{ inputs.result-path }}" "$GITHUB_OUTPUT" <<'PY'
+        import json
+        import sys
+        from pathlib import Path
+        result=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+        with open(sys.argv[2],"a",encoding="utf-8") as out:
+            out.write(f"status={result.get('status','')}\n")
+            out.write(f"operation_id={result.get('operation_id','')}\n")
+        PY
+        fi
+        exit "$rc"
