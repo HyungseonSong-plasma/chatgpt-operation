@@ -1,0 +1,68 @@
+name: Governed work
+description: Execute a checked-in governed experiment/refactor manifest.
+inputs:
+  kind:
+    description: experiments or refactor.
+    required: true
+  manifest:
+    description: Absolute or workspace-relative path to the checked-in manifest.
+    required: true
+  control-root:
+    description: Checkout root that owns automation/manifests.
+    required: true
+  workspace:
+    description: Exact repository workspace on which commands execute.
+    required: true
+  base-sha:
+    description: Exact expected workspace Git HEAD.
+    required: true
+  issue:
+    description: Issue identity bound to the manifest.
+    required: true
+  sequence:
+    description: Monotonic issue-local sequence bound to the manifest.
+    required: true
+  results:
+    description: Directory for evidence.json, logs, and collected artifacts.
+    required: true
+outputs:
+  work-id:
+    description: Governed work identity.
+    value: ${{ steps.run.outputs.work_id }}
+  result:
+    description: PASS on successful complete execution.
+    value: ${{ steps.run.outputs.result }}
+  evidence:
+    description: Structured evidence path.
+    value: ${{ steps.run.outputs.evidence }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      run: |
+        set +e
+        ACTION_ROOT="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
+        export PYTHONPATH="$ACTION_ROOT/src"
+        log="$(mktemp)"
+        python3 -m chatgpt_operation.cli work run \
+          --kind "${{ inputs.kind }}" \
+          --manifest "${{ inputs.manifest }}" \
+          --control-root "${{ inputs.control-root }}" \
+          --workspace "${{ inputs.workspace }}" \
+          --base-sha "${{ inputs.base-sha }}" \
+          --issue "${{ inputs.issue }}" \
+          --sequence "${{ inputs.sequence }}" \
+          --results "${{ inputs.results }}" | tee "$log"
+        rc=${PIPESTATUS[0]}
+        set -e
+
+        work_id="$(sed -n 's/^WORK_ID=//p' "$log" | tail -n1)"
+        result="$(sed -n 's/^RESULT=//p' "$log" | tail -n1)"
+        evidence="$(sed -n 's/^EVIDENCE=//p' "$log" | tail -n1)"
+        {
+          echo "work_id=$work_id"
+          echo "result=$result"
+          echo "evidence=$evidence"
+        } >> "$GITHUB_OUTPUT"
+        exit "$rc"
