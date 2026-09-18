@@ -1,0 +1,66 @@
+name: Repository Mutation
+description: Execute the portable repository-mutation skill from this immutable action revision.
+inputs:
+  manifest:
+    description: Consumer-relative JSON mutation manifest path
+    required: true
+  repository:
+    description: owner/name of the consumer repository
+    required: true
+  token:
+    description: Consumer repository GitHub token
+    required: true
+  current-run-id:
+    description: Current GitHub Actions run ID
+    required: false
+    default: ""
+outputs:
+  status:
+    description: PASS, NO_MUTATION_NEEDED, or HARD_STOP
+    value: ${{ steps.mutate.outputs.status }}
+  result:
+    description: Compact structured result JSON
+    value: ${{ steps.mutate.outputs.result }}
+runs:
+  using: composite
+  steps:
+    - id: mutate
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../../src
+        GITHUB_TOKEN: ${{ inputs.token }}
+        INPUT_MANIFEST: ${{ inputs.manifest }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_CURRENT_RUN_ID: ${{ inputs.current-run-id }}
+      run: |
+        set -euo pipefail
+        result_file="$(mktemp "${RUNNER_TEMP}/chatgpt-operation-result.XXXXXX.json")"
+        set +e
+        python3 -m chatgpt_operation.repository.mutation           --manifest "$INPUT_MANIFEST"           --repository "$INPUT_REPOSITORY"           --current-run-id "$INPUT_CURRENT_RUN_ID"           --result "$result_file"
+        rc=$?
+        set -e
+
+        if [[ -s "$result_file" ]]; then
+          compact="$(python3 - "$result_file" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.dumps(json.load(handle), sort_keys=True, separators=(",", ":")))
+PY
+)"
+          status="$(python3 - "$result_file" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle).get("status", "HARD_STOP"))
+PY
+)"
+        else
+          compact='{"status":"HARD_STOP","error":"structured result file missing"}'
+          status='HARD_STOP'
+        fi
+
+        {
+          echo "status=$status"
+          echo "result=$compact"
+        } >> "$GITHUB_OUTPUT"
+        rm -f "$result_file"
+        exit "$rc"
