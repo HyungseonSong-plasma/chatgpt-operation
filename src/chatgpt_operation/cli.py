@@ -7,6 +7,9 @@ import sys
 from pathlib import Path
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
+from chatgpt_operation.work.manifest import ManifestError
+from chatgpt_operation.work.runner import execute as execute_work, self_test as work_self_test
+from chatgpt_operation.work.scaffold import create_manifest
 
 def persist(path: str | None, result: dict) -> None:
     if path:
@@ -59,6 +62,28 @@ def source_verify(args: argparse.Namespace) -> int:
         print(f"SOURCE_VERIFY=HARD_STOP {exc}",file=sys.stderr); return 2
     print("SOURCE_VERIFY=PASS"); return 0
 
+def work_new(args: argparse.Namespace) -> int:
+    try:
+        path=create_manifest(issue=args.issue,kind=args.kind,title=args.title,root=args.root)
+    except ValueError as exc:
+        print(f"WORK_SCAFFOLD_ERROR: {exc}",file=sys.stderr)
+        return 2
+    print(path)
+    return 0
+
+
+def work_run(args: argparse.Namespace) -> int:
+    try:
+        return execute_work(args)
+    except ManifestError as exc:
+        print(f"WORK_MANIFEST_ERROR: {exc}",file=sys.stderr)
+        return 2
+
+
+def work_test(args: argparse.Namespace) -> int:
+    return work_self_test()
+
+
 def parser() -> argparse.ArgumentParser:
     p=argparse.ArgumentParser(prog="chatgpt-op")
     sub=p.add_subparsers(dest="group",required=True)
@@ -72,6 +97,21 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("--token-env",default="GITHUB_TOKEN"); m.add_argument("--current-run-id",default=os.environ.get("GITHUB_RUN_ID"))
     m.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com")); m.add_argument("--result")
     m.set_defaults(func=mutate)
+
+    w=sub.add_parser("work"); ws=w.add_subparsers(dest="command",required=True)
+    wn=ws.add_parser("new")
+    wn.add_argument("--issue",required=True,type=int); wn.add_argument("--kind",required=True,choices=["experiments","refactor"])
+    wn.add_argument("--title",required=True); wn.add_argument("--root",default="automation/manifests")
+    wn.set_defaults(func=work_new)
+
+    wr=ws.add_parser("run")
+    wr.add_argument("--kind",required=True,choices=["experiments","refactor"])
+    wr.add_argument("--manifest",required=True); wr.add_argument("--control-root",required=True)
+    wr.add_argument("--workspace",required=True); wr.add_argument("--base-sha",required=True)
+    wr.add_argument("--issue",required=True,type=int); wr.add_argument("--sequence",required=True,type=int)
+    wr.add_argument("--results",required=True); wr.set_defaults(func=work_run)
+
+    wt=ws.add_parser("self-test"); wt.set_defaults(func=work_test)
     return p
 
 def main(argv=None) -> int:
