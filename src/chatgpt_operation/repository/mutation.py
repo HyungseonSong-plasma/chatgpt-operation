@@ -231,7 +231,14 @@ class Engine:
             if cur is not None:
                 if self._content(cur)==m.desired["content"]: return self._result(m,"NO_MUTATION_NEEDED",cur.get("sha"))
                 raise HardStop("file create target exists with different content")
-            self.t.request("PUT",api,payload={"message":m.commit_message,"content":base64.b64encode(m.desired["content"].encode()).decode(),"branch":branch})
+            try:
+                self.t.request("PUT",api,payload={"message":m.commit_message,"content":base64.b64encode(m.desired["content"].encode()).decode(),"branch":branch})
+            except ApiError as exc:
+                if exc.status not in {409,422}: raise
+                raced=self._read(api,{"ref":branch})
+                if raced is not None and self._content(raced)==m.desired["content"]:
+                    return self._result(m,"NO_MUTATION_NEEDED",raced.get("sha"))
+                raise HardStop("file create conflict produced unexpected state") from exc
         elif m.action=="update":
             if cur is None: raise HardStop("file update target absent")
             if self._content(cur)==m.desired["content"]: return self._result(m,"NO_MUTATION_NEEDED",cur.get("sha"))
@@ -252,7 +259,14 @@ class Engine:
             actual=cur.get("object",{}).get("sha")
             if actual==desired: return self._result(m,"NO_MUTATION_NEEDED",actual)
             raise HardStop(f"branch create target exists with different head: {actual}")
-        self.t.request("POST","/git/refs",payload={"ref":f"refs/heads/{name}","sha":desired})
+        try:
+            self.t.request("POST","/git/refs",payload={"ref":f"refs/heads/{name}","sha":desired})
+        except ApiError as exc:
+            if exc.status not in {409,422}: raise
+            raced=self._read(api)
+            actual=None if raced is None else raced.get("object",{}).get("sha")
+            if actual==desired: return self._result(m,"NO_MUTATION_NEEDED",actual)
+            raise HardStop("branch create conflict produced unexpected state") from exc
         actual=self.t.get(api).get("object",{}).get("sha")
         if actual!=desired: raise HardStop("post-write verification mismatch for branch create")
         return self._result(m,"PASS",actual)
