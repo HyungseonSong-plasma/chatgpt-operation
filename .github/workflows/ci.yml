@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Compile package
+        run: python3 -m compileall -q src
+      - name: Run tests
+        env:
+          PYTHONPATH: src
+        run: python3 -m unittest discover -s tests -v
+      - name: Verify CLI surface
+        env:
+          PYTHONPATH: src
+        run: |
+          python3 -m chatgpt_operation.cli --help
+          python3 -m chatgpt_operation.cli repository mutate --help
+          python3 -m chatgpt_operation.cli source verify --help
