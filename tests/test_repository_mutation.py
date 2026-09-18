@@ -76,6 +76,12 @@ class Tests(unittest.TestCase):
     def test_create_retry(self):
         f=Fake(); f.files[("docs/x.txt","issue-1-x")]={"sha":OLD,"content":base64.b64encode(b"new").decode()}
         self.assertEqual(self.engine(f).execute(mf("create"))["status"],"NO_MUTATION_NEEDED")
+    def test_github_wrapped_base64_content(self):
+        f=Fake()
+        wrapped=base64.encodebytes(b"new").decode()
+        f.files[("docs/x.txt","issue-1-x")]={"sha":OLD,"content":wrapped,"encoding":"base64"}
+        self.assertEqual(self.engine(f).execute(mf("create"))["status"],"NO_MUTATION_NEEDED")
+
     def test_update_retry_before_stale(self):
         f=Fake(); f.files[("docs/x.txt","issue-1-x")]={"sha":NEW,"content":base64.b64encode(b"new").decode()}
         self.assertEqual(self.engine(f).execute(mf("update"))["status"],"NO_MUTATION_NEEDED")
