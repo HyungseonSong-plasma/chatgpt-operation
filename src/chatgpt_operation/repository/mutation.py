@@ -1,6 +1,6 @@
 """Portable repository mutation v1."""
 from __future__ import annotations
-import base64, fnmatch, hashlib, json, re
+import base64, binascii, fnmatch, hashlib, json, re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Protocol
@@ -223,8 +223,12 @@ class Engine:
         try:
             c=payload["content"]
             if not isinstance(c,str): raise TypeError
-            return base64.b64decode(c,validate=True).decode("utf-8")
-        except (KeyError,TypeError,ValueError,UnicodeError) as exc: raise HardStop("GitHub file content could not be decoded") from exc
+            encoding=payload.get("encoding","base64")
+            if encoding != "base64": raise ValueError("unsupported content encoding")
+            compact="".join(c.split())
+            return base64.b64decode(compact,validate=True).decode("utf-8")
+        except (KeyError,TypeError,ValueError,UnicodeError,binascii.Error) as exc:
+            raise HardStop("GitHub file content could not be decoded") from exc
     def _file(self,m):
         path,branch=m.target["path"],m.target["branch"]; api="/contents/"+quote(path,safe="/"); cur=self._read(api,{"ref":branch})
         if m.action=="create":
