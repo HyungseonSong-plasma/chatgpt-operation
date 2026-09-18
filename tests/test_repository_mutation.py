@@ -1,5 +1,7 @@
 from __future__ import annotations
-import base64, unittest
+import base64, os, unittest
+from unittest.mock import patch
+from chatgpt_operation.cli import main as cli_main
 from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy
 from chatgpt_operation.source import canonical_github_repository
 
@@ -25,7 +27,7 @@ def pol(mode="off",workflows=None,file_allow=None,file_deny=None,branch_allow=No
 
 class Fake:
     def __init__(self):
-        self.files={}; self.branches={}; self.runs={"in_progress":[],"queued":[]}; self.fail_page=None; self.break_verify=False; self.requests=[]
+        self.files={}; self.branches={}; self.runs={"in_progress":[],"queued":[]}; self.fail_page=None; self.break_verify=False; self.requests=[]; self.file_create_race=False; self.branch_create_race=False
     def get(self,path,*,query=None):
         if path=="/actions/runs":
             status=query["status"]; page=int(query["page"])
@@ -46,10 +48,18 @@ class Fake:
         if path.startswith("/contents/"):
             key=(path.removeprefix("/contents/"),payload["branch"])
             if method=="DELETE": self.files.pop(key,None); return None
-            c=base64.b64decode(payload["content"]).decode(); stored="CORRUPTED" if self.break_verify else c
+            c=base64.b64decode(payload["content"]).decode()
+            if self.file_create_race and "sha" not in payload:
+                self.files[key]={"sha":NEW,"content":base64.b64encode(c.encode()).decode()}
+                raise ApiError("exists",status=422)
+            stored="CORRUPTED" if self.break_verify else c
             self.files[key]={"sha":"f"*40,"content":base64.b64encode(stored.encode()).decode()}; return {}
         if path=="/git/refs":
-            self.branches[payload["ref"].removeprefix("refs/heads/")]=payload["sha"]; return {}
+            name=payload["ref"].removeprefix("refs/heads/")
+            if self.branch_create_race:
+                self.branches[name]=payload["sha"]
+                raise ApiError("exists",status=422)
+            self.branches[name]=payload["sha"]; return {}
         raise AssertionError((method,path))
 
 class Tests(unittest.TestCase):
@@ -94,5 +104,21 @@ class Tests(unittest.TestCase):
     def test_path_normalization(self):
         for path in ("../x.txt","./x.txt","docs\\x.txt"):
             with self.assertRaises(ManifestError): mf("create",path=path)
+
+    def test_file_create_race_converges(self):
+        f=Fake(); f.file_create_race=True
+        self.assertEqual(self.engine(f).execute(mf("create"))["status"],"NO_MUTATION_NEEDED")
+    def test_branch_create_race_converges(self):
+        f=Fake(); f.branch_create_race=True
+        self.assertEqual(self.engine(f).execute(mb())["status"],"NO_MUTATION_NEEDED")
+    def test_result_persistence_failure_is_structured(self):
+        old=os.environ.get("TEST_TOKEN"); os.environ["TEST_TOKEN"]="x"
+        try:
+            with patch("chatgpt_operation.cli.execute_from_files",return_value={"status":"PASS","operation_id":"op"}), patch("chatgpt_operation.cli.persist",side_effect=OSError):
+                code=cli_main(["repository","mutate","--manifest","m","--policy","p","--repository","o/r","--token-env","TEST_TOKEN","--result","r"])
+            self.assertEqual(code,3)
+        finally:
+            if old is None: os.environ.pop("TEST_TOKEN",None)
+            else: os.environ["TEST_TOKEN"]=old
 
 if __name__=="__main__": unittest.main()
