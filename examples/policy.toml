@@ -1,0 +1,15 @@
+schema_version = 1
+repository = "owner/repository"
+
+[mutation]
+protected_branches = ["main"]
+allow_file_mutation_on_protected = false
+
+[mutation.allow]
+file = ["create", "update", "delete"]
+branch = ["create"]
+
+[validation_gate]
+mode = "all_actions"
+workflows = []
+ignore_current_run = true
