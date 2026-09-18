@@ -18,3 +18,27 @@ GitHub Actions consumers use the private composite action at an exact immutable 
 The central action executes code bundled in the same immutable action revision; mutation-target input must never select executable control-plane code.
 
 The implementation branch remains staging until the CodeRabbit/Greptile review in `moose-test-repo` is dispositioned.
+
+## Consumer policy
+
+Portable v1 requires a consumer-owned TOML authorization policy. Unknown fields fail closed.
+
+```toml
+schema_version = 1
+repository = "owner/repository"
+
+[mutation]
+protected_branches = ["main"]
+allow_file_mutation_on_protected = false
+
+[mutation.allow]
+file = ["create", "update", "delete"]
+branch = ["create"]
+
+[validation_gate]
+mode = "all_actions"
+workflows = []
+ignore_current_run = true
+```
+
+The validation gate is a point-in-time execution gate, not a repository lease. Mutation conflict safety comes from the supported GitHub write primitives, not from assuming the gate excludes every other writer.
