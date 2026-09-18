@@ -1,0 +1,19 @@
+name: Central Skill CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Compile package
+        run: python3 -m compileall -q src
+      - name: Run repository mutation self-test
+        run: PYTHONPATH=src python3 -m chatgpt_operation.repository.mutation --self-test
