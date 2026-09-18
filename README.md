@@ -64,3 +64,40 @@ PYTHONPATH=src python3 -m chatgpt_operation.cli source verify \
 - read-back verification after write;
 - structured failure results;
 - no force/history-rewrite surface.
+
+## Governed work v1
+
+The second portable skill owns deterministic checked-in work manifests and their execution.
+
+```text
+consumer repository
+  -> owns workflow entrypoints, permissions, checked-in manifests, and repo-specific guards
+
+chatgpt-operation
+  -> owns manifest parsing, dispatch identity validation, stage execution,
+     timeout/nonzero handling, logs, artifact collection, and evidence.json
+```
+
+GitHub Actions consumers pin:
+
+```yaml
+- uses: HyungseonSong-plasma/chatgpt-operation/.github/actions/governed-work@<exact-sha>
+  with:
+    kind: experiments
+    manifest: ${{ github.workspace }}/control/automation/manifests/experiments/Issue_123_experiments01.json
+    control-root: ${{ github.workspace }}/control
+    workspace: ${{ github.workspace }}/workspace
+    base-sha: <exact-workspace-sha>
+    issue: 123
+    sequence: 1
+    results: ${{ github.workspace }}/results
+```
+
+Local manifest scaffolding is available from an exact checkout of this repository:
+
+```bash
+PYTHONPATH=src python3 -m chatgpt_operation.cli work new \
+  --issue 123 --kind experiments --title "Example"
+```
+
+The portable core intentionally knows nothing about a consumer's GitHub workflow filenames or package architecture. Those remain consumer-local guards.
