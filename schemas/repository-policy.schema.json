@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","repository","mutation","validation_gate"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository": {"type":"string","pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "mutation": {
+      "type":"object","additionalProperties":false,
+      "required":["allow","file_paths","branch_names"],
+      "properties":{
+        "allow":{
+          "type":"object","additionalProperties":false,"required":["file","branch"],
+          "properties":{
+            "file":{"type":"array","uniqueItems":true,"items":{"enum":["create","update","delete"]}},
+            "branch":{"type":"array","uniqueItems":true,"items":{"const":"create"}}
+          }
+        },
+        "file_paths":{"$ref":"#/$defs/rules"},
+        "branch_names":{"$ref":"#/$defs/rules"}
+      }
+    },
+    "validation_gate":{
+      "type":"object","additionalProperties":false,
+      "required":["mode","workflows","ignore_current_run"],
+      "properties":{
+        "mode":{"enum":["off","all_actions","named_workflows"]},
+        "workflows":{"type":"array","items":{"type":"string","minLength":1}},
+        "ignore_current_run":{"type":"boolean"}
+      }
+    }
+  },
+  "$defs":{
+    "rules":{
+      "type":"object","additionalProperties":false,"required":["allow","deny"],
+      "properties":{
+        "allow":{"type":"array","items":{"type":"string","minLength":1}},
+        "deny":{"type":"array","items":{"type":"string","minLength":1}}
+      }
+    }
+  }
+}

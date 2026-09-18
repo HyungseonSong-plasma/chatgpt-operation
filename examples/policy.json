@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "repository": "owner/repository",
+  "mutation": {
+    "allow": {
+      "file": ["create","update","delete"],
+      "branch": ["create"]
+    },
+    "file_paths": {
+      "allow": ["docs/**","automation/mutations/**"],
+      "deny": [".github/**"]
+    },
+    "branch_names": {
+      "allow": ["issue-*"],
+      "deny": ["main"]
+    }
+  },
+  "validation_gate": {
+    "mode": "all_actions",
+    "workflows": [],
+    "ignore_current_run": true
+  }
+}
