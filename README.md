@@ -101,3 +101,35 @@ PYTHONPATH=src python3 -m chatgpt_operation.cli work new \
 ```
 
 The portable core intentionally knows nothing about a consumer's GitHub workflow filenames or package architecture. Those remain consumer-local guards.
+
+## Controller lifecycle v1
+
+The third portable skill prevents scheduled work controllers from disabling
+because of a single empty or incomplete repository observation.
+
+```text
+caller/controller
+  -> collects repository evidence using consumer-specific queries
+  -> persists prior terminal candidate in a durable checkpoint
+
+chatgpt-operation
+  -> evaluates lifecycle deterministically
+  -> never treats one empty scan as completion
+  -> requires two independent work scans
+  -> requires sentinel + active-work terminal witnesses
+  -> requires a later controller cycle to confirm completion
+```
+
+Only `VERIFIED_COMPLETE` (or explicit `PAUSED`) returns
+`can_disable=true`. Tool/query uncertainty and malformed evidence must be
+handled by callers as **no-disable** conditions.
+
+```bash
+PYTHONPATH=src python3 -m chatgpt_operation.cli controller evaluate \
+  --input controller-snapshot.json
+
+PYTHONPATH=src python3 -m chatgpt_operation.cli controller self-test
+```
+
+See `skills/controller-lifecycle/README.md` for the snapshot and scheduler
+integration contract.
