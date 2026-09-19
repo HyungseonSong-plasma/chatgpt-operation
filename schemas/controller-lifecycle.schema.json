@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Controller lifecycle snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "controller_id", "scope_id", "observation_id", "explicit_pause"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "controller_id": {"type": "string", "minLength": 1},
+    "scope_id": {"type": "string", "minLength": 1},
+    "observation_id": {"type": "string", "minLength": 1},
+    "explicit_pause": {"type": "boolean"},
+    "primary_work_scan": {"$ref": "#/$defs/scan"},
+    "confirmation_work_scan": {"$ref": "#/$defs/scan"},
+    "active_work_scan": {"$ref": "#/$defs/scan"},
+    "sentinel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "terminal", "method", "evidence_id"],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "terminal": {"type": "boolean"},
+        "method": {"type": "string", "minLength": 1},
+        "evidence_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "previous_candidate": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["token", "observation_id"],
+      "properties": {
+        "token": {"type": "string", "minLength": 1},
+        "observation_id": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"explicit_pause": {"const": false}},
+        "required": ["explicit_pause"]
+      },
+      "then": {
+        "required": [
+          "primary_work_scan", "confirmation_work_scan", "active_work_scan", "sentinel"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "open_count", "method", "evidence_id"],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "open_count": {"type": "integer", "minimum": 0},
+        "method": {"type": "string", "minLength": 1},
+        "evidence_id": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

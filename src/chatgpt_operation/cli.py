@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from chatgpt_operation.controller.lifecycle import LifecycleError, evaluate as evaluate_controller, self_test as controller_self_test
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
@@ -84,6 +85,31 @@ def work_test(args: argparse.Namespace) -> int:
     return work_self_test()
 
 
+def controller_evaluate(args: argparse.Namespace) -> int:
+    try:
+        snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
+        result=evaluate_controller(snapshot)
+    except (OSError,json.JSONDecodeError,LifecycleError) as exc:
+        print(f"CONTROLLER_LIFECYCLE=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_LIFECYCLE="+result["status"])
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(f"CONTROLLER_LIFECYCLE=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
+def controller_test(args: argparse.Namespace) -> int:
+    try:
+        return controller_self_test()
+    except LifecycleError as exc:
+        print(f"CONTROLLER_LIFECYCLE=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+
+
 def parser() -> argparse.ArgumentParser:
     p=argparse.ArgumentParser(prog="chatgpt-op")
     sub=p.add_subparsers(dest="group",required=True)
@@ -112,6 +138,11 @@ def parser() -> argparse.ArgumentParser:
     wr.add_argument("--results",required=True); wr.set_defaults(func=work_run)
 
     wt=ws.add_parser("self-test"); wt.set_defaults(func=work_test)
+
+    ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
+    ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
+    ce.set_defaults(func=controller_evaluate)
+    ct=ctls.add_parser("self-test"); ct.set_defaults(func=controller_test)
     return p
 
 def main(argv=None) -> int:

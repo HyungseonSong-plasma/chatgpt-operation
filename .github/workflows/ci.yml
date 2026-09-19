@@ -41,3 +41,5 @@ jobs:
           python3 -m chatgpt_operation.cli work new --help
           python3 -m chatgpt_operation.cli work run --help
           python3 -m chatgpt_operation.cli work self-test
+          python3 -m chatgpt_operation.cli controller evaluate --help
+          python3 -m chatgpt_operation.cli controller self-test
