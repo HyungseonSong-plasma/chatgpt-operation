@@ -49,10 +49,11 @@ def _scan(snapshot: Mapping[str, Any], name: str) -> tuple[bool, int, str, str]:
     return complete, open_count, method, evidence_id
 
 
-def _candidate_token(controller_id: str) -> str:
+def _candidate_token(controller_id: str, scope_id: str) -> str:
     witness = {
         "schema_version": 1,
         "controller_id": controller_id,
+        "scope_id": scope_id,
         "terminal_predicate": {
             "primary_open_count": 0,
             "confirmation_open_count": 0,
@@ -94,6 +95,7 @@ def evaluate(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         raise LifecycleError("schema_version must be 1")
 
     controller_id = _text(data.get("controller_id"), "controller_id")
+    scope_id = _text(data.get("scope_id"), "scope_id")
     observation_id = _text(data.get("observation_id"), "observation_id")
     explicit_pause = _boolean(data.get("explicit_pause", False), "explicit_pause")
 
@@ -163,7 +165,7 @@ def evaluate(snapshot: Mapping[str, Any]) -> dict[str, Any]:
             next_action="continue_controller",
         )
 
-    token = _candidate_token(controller_id)
+    token = _candidate_token(controller_id, scope_id)
     candidate = {"token": token, "observation_id": observation_id}
     previous_raw = data.get("previous_candidate")
     if previous_raw is None:
@@ -213,6 +215,7 @@ def self_test() -> int:
     base = {
         "schema_version": 1,
         "controller_id": "self-test",
+        "scope_id": "self-test-scope-v1",
         "observation_id": "cycle-1",
         "explicit_pause": False,
         "primary_work_scan": {
