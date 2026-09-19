@@ -29,7 +29,9 @@ The terminal predicate requires all of the following:
 
 The first valid terminal observation returns `TERMINAL_CANDIDATE` with
 `can_disable=false`. Persist its candidate token durably, then re-check on a
-later scheduled cycle.
+later scheduled cycle. `scope_id` identifies the exact terminal-policy scope;
+changing the work query/sentinel/active-work policy must change `scope_id`,
+which invalidates any older terminal candidate.
 
 ## Failure semantics
 
@@ -54,6 +56,7 @@ A malformed evaluator input is an operational error. The caller must fail safe:
 {
   "schema_version": 1,
   "controller_id": "refactor-controller",
+  "scope_id": "open-refactor-v1|controller-sentinel-v1|active-work-v1",
   "observation_id": "scheduled-run-2026-09-19T18:43:00+01:00",
   "explicit_pause": false,
   "primary_work_scan": {
