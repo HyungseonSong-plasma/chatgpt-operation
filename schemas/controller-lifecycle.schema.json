@@ -4,12 +4,12 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "controller_id", "observation_id", "explicit_pause",
-    "primary_work_scan", "confirmation_work_scan", "active_work_scan", "sentinel"
+    "schema_version", "controller_id", "scope_id", "observation_id", "explicit_pause"
   ],
   "properties": {
     "schema_version": {"const": 1},
     "controller_id": {"type": "string", "minLength": 1},
+    "scope_id": {"type": "string", "minLength": 1},
     "observation_id": {"type": "string", "minLength": 1},
     "explicit_pause": {"type": "boolean"},
     "primary_work_scan": {"$ref": "#/$defs/scan"},
@@ -36,6 +36,19 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"explicit_pause": {"const": false}},
+        "required": ["explicit_pause"]
+      },
+      "then": {
+        "required": [
+          "primary_work_scan", "confirmation_work_scan", "active_work_scan", "sentinel"
+        ]
+      }
+    }
+  ],
   "$defs": {
     "scan": {
       "type": "object",
