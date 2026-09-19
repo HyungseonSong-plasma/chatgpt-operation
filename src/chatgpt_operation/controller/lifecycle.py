@@ -206,3 +206,40 @@ def evaluate(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         next_action="disable_controller_complete",
         candidate=candidate,
     )
+
+
+def self_test() -> int:
+    """Run a minimal deterministic lifecycle sanity check."""
+    base = {
+        "schema_version": 1,
+        "controller_id": "self-test",
+        "observation_id": "cycle-1",
+        "explicit_pause": False,
+        "primary_work_scan": {
+            "complete": True, "open_count": 0,
+            "method": "primary", "evidence_id": "p1",
+        },
+        "confirmation_work_scan": {
+            "complete": True, "open_count": 0,
+            "method": "confirmation", "evidence_id": "c1",
+        },
+        "active_work_scan": {
+            "complete": True, "open_count": 0,
+            "method": "active", "evidence_id": "a1",
+        },
+        "sentinel": {
+            "complete": True, "terminal": True,
+            "method": "sentinel", "evidence_id": "s1",
+        },
+        "previous_candidate": None,
+    }
+    first = evaluate(base)
+    if first["status"] != "TERMINAL_CANDIDATE" or first["can_disable"]:
+        raise LifecycleError("self-test first-cycle candidate invariant failed")
+    second = dict(base)
+    second["observation_id"] = "cycle-2"
+    second["previous_candidate"] = first["candidate"]
+    verified = evaluate(second)
+    if verified["status"] != "VERIFIED_COMPLETE" or not verified["can_disable"]:
+        raise LifecycleError("self-test second-cycle completion invariant failed")
+    return 0
