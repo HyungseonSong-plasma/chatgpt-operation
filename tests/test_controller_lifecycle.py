@@ -10,6 +10,7 @@ def snapshot() -> dict:
     return {
         "schema_version": 1,
         "controller_id": "refactor-controller",
+        "scope_id": "refactor-label-v1|sentinel-157|active-pr-v1",
         "observation_id": "cycle-1",
         "explicit_pause": False,
         "primary_work_scan": {
@@ -123,6 +124,16 @@ class ControllerLifecycleTests(unittest.TestCase):
         data["confirmation_work_scan"]["method"] = "search"
         with self.assertRaises(LifecycleError):
             evaluate(data)
+
+    def test_scope_change_invalidates_previous_candidate(self):
+        first = evaluate(snapshot())
+        data = snapshot()
+        data["observation_id"] = "cycle-2"
+        data["scope_id"] = "different-terminal-policy-v2"
+        data["previous_candidate"] = first["candidate"]
+        result = evaluate(data)
+        self.assertEqual(result["status"], "TERMINAL_CANDIDATE")
+        self.assertFalse(result["can_disable"])
 
     def test_candidate_does_not_depend_on_evidence_ids(self):
         first = evaluate(snapshot())
