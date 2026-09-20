@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Controller throughput snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "authority", "validation", "max_lanes", "tasks"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desired_state", "durable_state", "synchronized"],
+      "properties": {
+        "desired_state": {"enum": ["ACTIVE", "PAUSED"]},
+        "durable_state": {"enum": ["ACTIVE", "PAUSED"]},
+        "synchronized": {"type": "boolean"}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required", "launch_expected", "exact_head_runs", "active_runs",
+        "terminal_runs", "lock_scope", "locked_resources"
+      ],
+      "properties": {
+        "required": {"type": "boolean"},
+        "launch_expected": {"type": "boolean"},
+        "exact_head_runs": {"type": "integer", "minimum": 0},
+        "active_runs": {"type": "integer", "minimum": 0},
+        "terminal_runs": {"type": "integer", "minimum": 0},
+        "lock_scope": {"enum": ["NONE", "SCOPED", "GLOBAL"]},
+        "locked_resources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "max_lanes": {"type": "integer", "minimum": 1, "maximum": 4},
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ready", "needs_mutation", "resources"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "ready": {"type": "boolean"},
+          "needs_mutation": {"type": "boolean"},
+          "resources": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  }
+}
