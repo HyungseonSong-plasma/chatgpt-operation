@@ -133,3 +133,30 @@ PYTHONPATH=src python3 -m chatgpt_operation.cli controller self-test
 
 See `skills/controller-lifecycle/README.md` for the snapshot and scheduler
 integration contract.
+
+
+## Controller throughput v1
+
+The fourth portable skill prevents scheduled controllers from wasting cycles on
+mechanical serialization and broken validation routes.
+
+```text
+one invocation
+  -> synchronize durable authority
+  -> repair missing validation route instead of waiting
+  -> execute a bounded synchronous work burst
+  -> use dependency-independent lanes under scoped locks
+  -> stop at the first real external wait boundary
+```
+
+A required exact-head validation with zero runs is classified
+`MISSING_VALIDATION_ROUTE`, not `WAIT_EXTERNAL`.
+
+```bash
+PYTHONPATH=src python3 -m chatgpt_operation.cli controller throughput \
+  --input controller-throughput.json
+
+PYTHONPATH=src python3 -m chatgpt_operation.cli controller throughput-self-test
+```
+
+See `skills/controller-throughput/README.md` for the portable contract.
