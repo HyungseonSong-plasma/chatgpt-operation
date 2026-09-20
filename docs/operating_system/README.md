@@ -2,175 +2,187 @@
 
 **Status:** canonical operating-system registry  
 **Canonical owner:** `HyungseonSong-plasma/chatgpt-operation`  
-**Current version name:** Calvin  
-**Current baseline date:** 2026-09-01  
-**Reserved successor:** Paul  
-**Successor state:** RESERVED
+**Current version name:** Paul  
+**Current baseline date:** 2026-09-20  
+**Current generation:** Rule-Minimal / Skill-Optimized  
+**Predecessor:** Calvin — historical
 
-This directory is the canonical owner of named ChatGPT operating-system baselines, their lifecycle, and cross-repository version-management policy.
+This directory owns named ChatGPT operating-system baselines, lifecycle, the minimal common rule layer, and cross-repository version-management policy.
 
-The operating system is broader than any single skill or consumer repository. It defines how reusable operating mechanics, rule-selection or skill-delegation architecture, bootstrap behavior, lifecycle controls, and empirical improvement are versioned as one coherent operating baseline.
+## Current operating system
+
+`Paul` is ACTIVE.
+
+Paul's live composition is:
+
+```text
+exact central revision
+  -> Paul essential rules
+  -> required deterministic skills
+  -> consumer-local semantic/scientific authority
+  -> current durable state and evidence
+  -> first real gate
+```
+
+Canonical Paul entry points:
+
+```text
+docs/operating_system/ESSENTIAL_RULES.md
+docs/operating_system/COMMON_RULE_EXTRACTION.md
+docs/operating_system/EVOLUTION.md
+docs/operating_system/versions/2026-09-20_paul.md
+skills/session-bootstrap/README.md
+```
+
+## Paul rule model
+
+Paul does not optimize by continuously growing, scoring, or tuning a large prompt-visible rule system.
+
+It keeps only irreducible common rules covering:
+
+```text
+durable authority
+exact central pinning
+read-only fail-closed initialization
+central-vs-consumer semantic ownership
+fresh mutable evidence before mutation/current-state claims
+evidence-class boundaries
+real unresolved gates
+durable checkpoint/resume
+documentation truth
+```
+
+Reusable deterministic procedure belongs in skills.
+
+The canonical minimal rule layer is `ESSENTIAL_RULES.md`.
 
 ## Ownership boundary
 
 ```text
 chatgpt-operation
-  -> OS version names and lifecycle
-  -> immutable OS baseline records
-  -> successor/promotion contracts
-  -> reusable deterministic operating mechanics
-  -> cross-repository consumer binding rules
+  -> OS identity/version lifecycle
+  -> Paul essential common rules
+  -> reusable deterministic operating skills
+  -> cross-repository binding rules
 
 consumer repository
   -> domain semantics
+  -> scientific meaning
+  -> compatibility commitments
   -> repository-specific policy
-  -> phase/role vocabulary where domain-specific
-  -> scientific/compatibility meaning
+  -> roles/modes where local
   -> local acceptance criteria
-  -> local metrics/evidence collection
-  -> local bootstrap additions and durable work state
+  -> durable current work state
+  -> domain/runtime/scientific metrics and evidence
 ```
 
-Central OS ownership does not make consumer-local domain truth generic.
-
-## Current operating system
-
-`Calvin` is the current named baseline and the **Rule-Optimized** operating-system generation.
-
-Calvin was first established in `moose-test-repo` as the Adaptive Rule Working Set baseline. Its immutable historical record is preserved at:
-
-```text
-docs/operating_system/versions/2026-09-01_calvin.md
-```
-
-That record intentionally retains the repository/ref and MOOSE/QPX terminology that described the system at baseline time. Migration into this repository changes canonical storage ownership; it does not rewrite historical evidence.
-
-Central ownership of the OS registry was established under tracking issue #16; the original historical baseline remains attributable to its source repository.
-
-Calvin's defining optimization problem is:
-
-```text
-given a canonical rule inventory,
-select the smallest relevant active rule working set
-subject to
-acceptable decision, prevention, and closure quality
-```
-
-Calvin therefore optimizes **rule selection, routing, and active-rule load**. Skills may be used, but they are supporting mechanisms rather than Calvin's defining optimization abstraction.
-
-The current central reusable mechanics are implemented under `skills/`. A named OS baseline may span multiple skills and consumer-local overlays; the historical baseline record is not itself executable code and does not override current canonical skill contracts.
+A central skill result cannot redefine consumer-domain truth.
 
 ## Consumer binding contract
 
-A consumer must bind operating-system authority to an **exact immutable commit SHA** of this repository for an operating decision cycle.
+A consumer binds to one **exact immutable commit SHA** of this repository for an operating decision cycle.
 
-Recommended consumer metadata:
+Recommended metadata:
 
 ```json
 {
   "operating_system": {
     "repository": "HyungseonSong-plasma/chatgpt-operation",
     "revision": "<exact-commit-sha>",
-    "index": "docs/operating_system/README.md"
+    "index": "docs/operating_system/README.md",
+    "expected_version": "Paul"
   }
 }
 ```
 
 Rules:
 
-1. do not follow `main`, `latest`, or another floating ref as OS authority during an active decision cycle;
-2. initialization resolves the exact central revision before loading central OS/skill contracts;
-3. a central OS promotion does not silently upgrade an already-pinned consumer;
-4. consumer adoption of a new OS revision is an explicit repository change with its own validation;
-5. consumer-local canonical rules remain authoritative for domain semantics within the ownership boundary above.
+1. do not follow `main`, `latest`, or another floating ref after binding;
+2. initialize by verifying Paul and `ESSENTIAL_RULES.md` at the exact revision;
+3. load only required init skills, then trigger-load later skills;
+4. a central update does not silently upgrade a pinned consumer;
+5. consumer adoption of a new central revision is an explicit repository change;
+6. consumer-local domain/scientific authority remains local.
 
-A consumer may pin one central repository revision for the entire operating decision cycle rather than independently mixing skill revisions from different central commits.
+## Paul initialization
 
-## Live composition model
+The portable generic sequence is owned by `skills/session-bootstrap`.
 
-The intended composition is:
-
-```text
-central OS registry / exact revision
-  -> central reusable operating mechanics
-  -> consumer bootstrap
-  -> consumer core invariants
-  -> consumer routing / working-set metadata
-  -> current durable work state
-  -> current mutable evidence
-```
-
-The central registry supplies OS identity and reusable mechanics. The consumer supplies repository identity and domain-specific operating meaning.
-
-Under Calvin, the principal context-control mechanism is adaptive rule loading/unloading. Under Paul, that mechanism remains available but becomes secondary to removing delegable deterministic procedure from the rule layer entirely.
-
-## Reserved successor
-
-`Paul` is reserved for the first materially upgraded operating-system baseline that supersedes Calvin.
-
-Paul is defined as the **Rule-Minimal / Skill-Optimized** generation:
+A consumer supplies only:
 
 ```text
-minimal irreducible rule layer
-+ explicit semantic/authority boundaries
-+ skill trigger/delegation contracts
-+ deterministic tested/versioned skills
-+ consumer-local domain semantics
+binding location
+consumer authority entry points
+durable work-state locator
+current-evidence queries
+required init skills
+consumer-specific report additions
 ```
 
-The transition is not "rules to no rules." It is:
+Initialization is read-only and fails closed when required operating authority cannot be verified.
+
+## Live skill set
+
+Paul's central reusable mechanics currently include:
 
 ```text
-Calvin: optimize the rule working set
-Paul:   minimize the rule layer and optimize skill delegation
+session-bootstrap
+state-refresh
+repository-mutation
+governed-work
+controller-throughput
+controller-lifecycle
 ```
 
-Paul is **not active** merely because skills, protocols, or consumer documents continue to evolve. Skills already exist under Calvin. Promotion requires evidence that reusable deterministic procedure has moved out of prompt-visible rule prose into validated skills while semantic ownership, safety, and closure quality are preserved.
+The existence of a skill does not imply permanent activation. Skills are loaded only when their trigger applies.
 
-The canonical cross-generation model is `docs/operating_system/EVOLUTION.md`.
+## Operating metrics retirement
 
-The successor contract is:
+The Calvin-era operating metrics used to assess rule loading/application and interaction efficiency are **retired from live Paul operation**.
+
+Paul does not require:
 
 ```text
-docs/operating_system/PAUL_CANDIDATE.md
+weighted rule-load scores
+GREEN/YELLOW/RED rule-load thresholds
+working-set effectiveness scores
+WCC / T-WCC / RVR / EVR / DBR / RWR / CLR / FBR
+rule-activation effectiveness percentages
+mandatory metrics context during initialization
 ```
+
+Historical values remain archival records of the Calvin period. They are not live authority, routing input, acceptance gates, or Paul evaluation requirements.
+
+This retirement does **not** apply to scientific, numerical, runtime, performance, or validation metrics owned by a consumer's technical domain.
+
+## Historical Calvin baseline
+
+Calvin was the Rule-Optimized generation. Its immutable baseline remains:
+
+```text
+docs/operating_system/versions/2026-09-01_calvin.md
+```
+
+Do not rewrite that file to Paul terminology.
+
+Calvin's historical optimization surface was the active rule working set. Paul supersedes it by minimizing common prompt-visible rules and delegating deterministic mechanics to skills.
 
 ## Version log
 
 | Baseline date | Version | Generation | Record | State |
 |---|---|---|---|---|
-| 2026-09-01 | Calvin | Rule-Optimized | `versions/2026-09-01_calvin.md` | ACTIVE |
-| future | Paul | Rule-Minimal / Skill-Optimized | `PAUL_CANDIDATE.md` until activation | RESERVED |
-
-## Version lifecycle
-
-```text
-Calvin = ACTIVE current baseline
-Paul   = RESERVED successor name
-```
-
-A successor may progress through:
-
-```text
-RESERVED -> CANDIDATE -> SHADOW -> ACTIVE
-                         \
-                          -> REJECTED
-```
-
-`SHADOW` is preferred when practical so a candidate can be compared against the current OS without silently changing consumer authority.
+| 2026-09-01 | Calvin | Rule-Optimized | `versions/2026-09-01_calvin.md` | HISTORICAL |
+| 2026-09-20 | Paul | Rule-Minimal / Skill-Optimized | `versions/2026-09-20_paul.md` | ACTIVE |
 
 ## Versioning discipline
 
-When the operating system is materially upgraded:
+For future OS changes:
 
-1. preserve the preceding immutable baseline;
-2. state the limitation or hypothesis motivating the successor;
-3. record the architecture/policy delta and expected measurable effect;
-4. compare observed metrics only where definitions, denominators, and coverage are compatible;
-5. separate OS changes from model-version, repository, workload-mix, and domain-policy changes;
-6. evaluate representative consumers before promotion;
-7. create a new dated immutable version record only when the successor is explicitly activated;
-8. update this registry;
-9. let each consumer adopt the new exact revision explicitly.
+1. preserve prior named baselines unchanged;
+2. distinguish essential rules from deterministic skill mechanics and consumer-local semantics;
+3. prefer contract tests, adversarial cases, fail-closed behavior, and consumer parity over rule-count or rule-application scores;
+4. preserve domain/scientific authority boundaries;
+5. create a new immutable baseline only for a material OS-generation change;
+6. require each consumer to adopt the new exact central revision explicitly.
 
-A version name identifies an operating-system baseline. It does not claim that every consumer, rule, skill, or activation pattern has independently reached the same validation maturity.
+A version name identifies an operating architecture, not a score.
