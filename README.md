@@ -1,6 +1,19 @@
 # chatgpt-operation
 
-Central source for reusable deterministic ChatGPT operating skills.
+Canonical source for ChatGPT operating-system version management and reusable deterministic operating skills.
+
+## Operating system
+
+Named operating-system baselines and successor lifecycle are owned here:
+
+```text
+docs/operating_system/README.md
+```
+
+Current named baseline: **Calvin** (2026-09-01).  
+Reserved successor: **Paul**.
+
+Consumer repositories bind to an exact immutable `chatgpt-operation` revision for an operating decision cycle. The central repository owns OS identity/lifecycle and reusable mechanics; consumers retain domain semantics, repository-specific policy, scientific/compatibility meaning, and local acceptance criteria.
 
 ## Repository mutation v1
 
