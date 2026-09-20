@@ -10,8 +10,8 @@ Named operating-system baselines and successor lifecycle are owned here:
 docs/operating_system/README.md
 ```
 
-Current named baseline: **Calvin** (2026-09-01) — the **Rule-Optimized** generation.  
-Reserved successor: **Paul** — the **Rule-Minimal / Skill-Optimized** generation.
+Current named baseline: **Paul** (2026-09-20) — the **Rule-Minimal / Skill-Optimized** generation.  
+Historical predecessor: **Calvin** — the **Rule-Optimized** generation.
 
 The generation transition is architectural:
 
@@ -25,9 +25,33 @@ Paul
   -> keep only irreducible semantic, authority, and trigger contracts as rules
 ```
 
-Skills can exist under Calvin; Paul is defined by making skill delegation, rather than rule-working-set tuning, the primary optimization surface. See `docs/operating_system/EVOLUTION.md`.
+Paul is ACTIVE. Its canonical minimal common rules live in `docs/operating_system/ESSENTIAL_RULES.md`; the extraction from current consumer repositories is recorded in `docs/operating_system/COMMON_RULE_EXTRACTION.md`.
 
-Consumer repositories bind to an exact immutable `chatgpt-operation` revision for an operating decision cycle. The central repository owns OS identity/lifecycle and reusable mechanics; consumers retain domain semantics, repository-specific policy, scientific/compatibility meaning, and local acceptance criteria.
+Consumer repositories bind to one exact immutable `chatgpt-operation` revision for an operating decision cycle. The central repository owns OS identity/lifecycle, the essential common rule layer, and reusable mechanics; consumers retain domain semantics, repository-specific policy, scientific/compatibility meaning, and local acceptance criteria.
+
+Calvin-era operating metrics for rule/application efficiency are archival only under Paul. They are not required for initialization, routing, or acceptance.
+
+## Session bootstrap
+
+Paul centralizes generic new/resumed-session initialization in:
+
+```text
+skills/session-bootstrap/README.md
+```
+
+The portable sequence is:
+
+```text
+exact consumer binding
+  -> verify Paul
+  -> load Paul essential rules
+  -> load required init skills
+  -> restore consumer-local authority and current state
+  -> identify first real gate
+  -> report and stop read-only
+```
+
+Consumer repositories supply only their local authority entry points, state/evidence locators, and required skill triggers.
 
 ## Repository mutation v1
 

@@ -1,18 +1,16 @@
 # Operating-System Evolution Model
 
 **Status:** canonical generation model  
-**Current generation:** Calvin — Rule-Optimized  
-**Reserved successor:** Paul — Rule-Minimal / Skill-Optimized
+**Current generation:** Paul — Rule-Minimal / Skill-Optimized  
+**Historical predecessor:** Calvin — Rule-Optimized
 
-This document defines the architectural distinction between named ChatGPT operating-system generations.
+The generation boundary is determined by the primary optimization surface.
 
-The generation boundary is determined by the **primary optimization surface**, not by whether a repository happens to contain rules or skills.
+## Calvin — Rule-Optimized generation
 
-## 1. Calvin — Rule-Optimized generation
+Calvin treated prompt-visible operating rules as the primary control surface.
 
-Calvin treats prompt-visible operating rules as the primary control surface.
-
-Its optimization problem is:
+Its optimization problem was:
 
 ```text
 given a canonical rule inventory,
@@ -20,96 +18,68 @@ select the smallest relevant active rule working set
 that preserves decision, prevention, and closure quality
 ```
 
-The dominant mechanisms are:
+Its main mechanisms were rule design, rule ownership, phase/rule routing, adaptive load/unload, active rule-load control, and incident-driven rule/routing refinement.
+
+Skills could exist under Calvin, but the operating architecture was still primarily organized around managing prompt-visible rules.
+
+Calvin is preserved as historical baseline evidence at:
 
 ```text
-rule design
--> rule ownership
--> phase/rule routing
--> adaptive load/unload
--> weighted active-rule control
--> incident-driven rule/routing refinement
+docs/operating_system/versions/2026-09-01_calvin.md
 ```
 
-The primary efficiency question is:
+## Paul — Rule-Minimal / Skill-Optimized generation
 
-> Which rules should be active for this context, and how can irrelevant rule context be avoided?
-
-Skills may exist and be used during Calvin. Their existence does **not** make the system Paul. Under Calvin, deterministic skills are supporting mechanisms while the main operating architecture is still organized around selecting and managing prompt-visible rules.
-
-Typical Calvin metrics therefore emphasize:
-
-```text
-active weighted rule load
-working-set miss rate
-false activation rate
-missed activation rate
-rule absent vs rule-not-loaded
-trigger/routing miss rate
-error rate versus active rule load
-```
-
-## 2. Paul — Rule-Minimal / Skill-Optimized generation
-
-Paul changes the primary optimization problem.
-
-Instead of mainly asking which rules should be loaded, Paul asks:
+Paul changes the primary question to:
 
 ```text
 what is the minimum irreducible rule layer,
-and which reusable operating mechanics can be delegated
-to deterministic, tested, versioned skills?
+and which reusable deterministic mechanics should be delegated
+to tested, versioned skills?
 ```
 
-The target composition is:
+Target composition:
 
 ```text
-MINIMAL RULE LAYER
-  irreducible invariants
-  user authority / approval boundaries
+MINIMAL COMMON RULE LAYER
+  authority boundaries
   semantic ownership boundaries
-  domain/scientific meaning
-  skill trigger and delegation contracts
-          |
-          v
-SKILL LAYER
-  deterministic reusable mechanics
-  state machines
-  validation/lifecycle evaluators
+  claim/evidence boundaries
+  real-gate invariants
+        |
+        v
+DETERMINISTIC SKILL LAYER
+  bootstrap
+  state refresh
   mutation mechanics
-  structured evidence transforms
-  repeatable bootstrap/controller mechanics
-          |
-          v
-CONSUMER OVERLAY
-  repository-specific policy
-  domain semantics
+  governed execution
+  controller lifecycle/throughput
+        |
+        v
+CONSUMER LOCAL LAYER
+  domain/scientific semantics
+  compatibility commitments
+  repository policy
   acceptance criteria
-  current durable work state
+  current durable state
 ```
 
-The primary efficiency question becomes:
+The canonical common rule layer is `ESSENTIAL_RULES.md`.
 
-> Which prompt-visible rules are truly irreducible, and which deterministic procedures should be moved into reusable skills?
+## Rule minimization
 
-Paul therefore optimizes **rule minimization and skill delegation together**.
-
-## 3. Rule-minimization rule
-
-Rule minimization is not blind deletion, compression for its own sake, or replacing semantic judgment with code.
-
-A rule is a candidate for skill delegation when its reusable part is substantially:
+A repeated operating behavior belongs in a skill when it is substantially:
 
 ```text
 deterministic
 parameterizable
 testable
 versionable
-portable across consumers
+portable
 safe to fail closed
 ```
 
-A rule should remain explicit when it owns or materially constrains:
+A rule remains explicit when it materially owns:
 
 ```text
 user authority
@@ -118,133 +88,95 @@ domain semantics
 scientific meaning
 consumer-specific acceptance
 irreducible judgment
-skill activation conditions
-skill output interpretation
+skill activation/output interpretation
 ```
 
-The preferred Paul transformation is:
+Preferred transformation:
 
 ```text
-verbose procedural rule
-    ->
-thin semantic/trigger contract
-    +
+verbose repeated procedural rule
+  ->
+thin essential/semantic contract
+  +
 tested deterministic skill
 ```
 
-not:
+## Common extraction
+
+The Paul activation extraction across `simulation-ontology`, `sol-adapter-moose`, and `moose-test-repo` is recorded in:
 
 ```text
-important semantic rule
-    ->
-hidden implementation assumption
+docs/operating_system/COMMON_RULE_EXTRACTION.md
 ```
 
-## 4. Skill delegation gate
-
-A local or central procedural rule may be minimized only after the proposed skill satisfies the applicable delegation gate:
+That document classifies repeated material as:
 
 ```text
-1. identify the deterministic mechanic being extracted
-2. preserve the semantic/authority owner
-3. define typed inputs, outputs, and failure states
-4. cover negative/adversarial cases
-5. require fail-closed behavior where uncertainty is material
-6. demonstrate parity against the prior rule-governed procedure
-7. pin an immutable skill revision
-8. remove duplicated procedural prose only after adoption is verified
+essential common rule
+deterministic skill mechanic
+consumer-local semantic rule
 ```
 
-No rule is considered successfully minimized merely because equivalent code exists somewhere.
+## Operating metrics retirement
 
-## 5. Paul working-set model
+Calvin used operating metrics because rule selection/application was itself the optimization target.
 
-Paul still has a working set, but it is intentionally narrower.
+Paul does not use numeric rule-application or interaction-efficiency metrics as a live control surface.
+
+Retired live OS metrics include:
 
 ```text
-Calvin working set
-  = CORE rules
-  + phase rules
-  + temporary rules
-  + supporting skills as needed
-
-Paul working set
-  = minimal semantic/authority rules
-  + current consumer-domain rules
-  + skill trigger/delegation contracts
-  + only the deterministic skills required by the current obligation
+active weighted rule load
+working-set miss/activation scores
+GREEN/YELLOW/RED rule thresholds
+WCC / T-WCC / RVR / EVR / DBR / RWR / CLR / FBR
+incident-rate percentages used as rule-quality scores
 ```
 
-Paul therefore does **not** replace rule overload with skill overload. Skill activation should also remain demand-driven and bounded.
+Historical records are preserved for provenance only.
 
-## 6. Calvin -> Paul architectural delta
+Paul is evaluated through:
+
+```text
+contract correctness
+negative/adversarial tests
+fail-closed behavior
+consumer parity
+exact-revision adoption
+absence of duplicated deterministic procedure
+preservation of semantic/scientific ownership
+real repository behavior
+```
+
+No aggregate rule-application score is required.
+
+Scientific/runtime/performance metrics used by consumer technical validation are not part of this retirement.
+
+## Calvin -> Paul delta
 
 | Dimension | Calvin | Paul |
 |---|---|---|
-| Primary optimization surface | active rule set | irreducible rule layer + skill delegation |
+| Primary optimization surface | active rule set | essential rules + skill delegation |
 | Prompt-visible procedure | substantial | minimized |
-| Deterministic mechanics | may remain in rules or skills | preferentially skill-owned |
-| Rule-working-set optimization | primary | retained but secondary |
-| Skill selection | supporting | first-class |
-| Portability mechanism | reusable rules/protocols | deterministic skills + thin semantic contracts |
-| Main context-cost control | load/unload rules | remove delegable procedure from rule context |
-| Main failure question | was the right rule loaded? | should this be a rule, a skill, or a consumer semantic contract? |
+| Deterministic mechanics | may remain in rules | skill-owned where portable |
+| Rule-working-set tuning | primary | historical/secondary |
+| Skill activation | supporting | first-class and trigger-based |
+| Common authority rules | distributed/repeated | centralized minimal layer |
+| Operating metrics | active optimization input | archival only |
+| Consumer semantics | local | local |
 
-## 7. Paul evaluation metrics
+## Future evolution
 
-Where measurement coverage permits, Paul should add metrics that directly test the architectural transition:
+A future OS generation should not be justified by a better rule score.
 
-```text
-irreducible active rule load
-procedural-rule reduction
-skill delegation coverage
-duplicate rule/skill ownership count
-skill activation miss rate
-false skill activation rate
-skill parity failure rate
-skill fail-closed correctness
-deterministic-mechanic recurrence after delegation
-prompt-context burden attributable to procedural rules
-closure-quality regression rate
-```
-
-These complement rather than erase Calvin metrics. Historical rule-working-set metrics remain useful for comparison.
-
-The target is not maximum skill count. A proliferation of narrow skills with overlapping ownership is also an operating-system failure.
-
-## 8. Promotion meaning
-
-Paul should become ACTIVE only when the system demonstrates that the new optimization axis is real:
+A material successor should change the operating architecture itself and preserve:
 
 ```text
-rule minimization is measurable
-+
-delegated mechanics are deterministic and tested
-+
-consumer semantics remain correctly owned
-+
-skill activation is reliable
-+
-closure/safety quality is preserved or improved
+explicit authority
+deterministic mechanics
+fail-closed uncertainty handling
+consumer semantic ownership
+traceable exact-revision adoption
 ```
 
-Adding several skills to a Calvin architecture is not sufficient.
-
-Likewise, deleting rules without validated skill delegation is not Paul.
-
-## 9. Historical preservation
-
-The immutable Calvin baseline at:
-
-```text
-docs/operating_system/versions/2026-09-01_calvin.md
-```
-
-records Calvin as it existed at its baseline date and must not be rewritten to use later Paul terminology.
-
-This document supplies the later cross-generation interpretation:
-
-```text
-Calvin = optimize the rule working set
-Paul   = minimize the rule layer and optimize skill delegation
-```
+Historical named baselines remain immutable records of the architecture that actually existed.
