@@ -9,7 +9,7 @@
 
 This directory is the canonical owner of named ChatGPT operating-system baselines, their lifecycle, and cross-repository version-management policy.
 
-The operating system is broader than any single skill or consumer repository. It defines how reusable operating mechanics, rule-selection architecture, bootstrap behavior, lifecycle controls, and empirical improvement are versioned as one coherent operating baseline.
+The operating system is broader than any single skill or consumer repository. It defines how reusable operating mechanics, rule-selection or skill-delegation architecture, bootstrap behavior, lifecycle controls, and empirical improvement are versioned as one coherent operating baseline.
 
 ## Ownership boundary
 
@@ -35,7 +35,7 @@ Central OS ownership does not make consumer-local domain truth generic.
 
 ## Current operating system
 
-`Calvin` is the current named baseline.
+`Calvin` is the current named baseline and the **Rule-Optimized** operating-system generation.
 
 Calvin was first established in `moose-test-repo` as the Adaptive Rule Working Set baseline. Its immutable historical record is preserved at:
 
@@ -47,13 +47,16 @@ That record intentionally retains the repository/ref and MOOSE/QPX terminology t
 
 Central ownership of the OS registry was established under tracking issue #16; the original historical baseline remains attributable to its source repository.
 
-Calvin's defining objective is:
+Calvin's defining optimization problem is:
 
 ```text
-minimum active rule load
+given a canonical rule inventory,
+select the smallest relevant active rule working set
 subject to
 acceptable decision, prevention, and closure quality
 ```
+
+Calvin therefore optimizes **rule selection, routing, and active-rule load**. Skills may be used, but they are supporting mechanisms rather than Calvin's defining optimization abstraction.
 
 The current central reusable mechanics are implemented under `skills/`. A named OS baseline may span multiple skills and consumer-local overlays; the historical baseline record is not itself executable code and does not override current canonical skill contracts.
 
@@ -99,11 +102,32 @@ central OS registry / exact revision
 
 The central registry supplies OS identity and reusable mechanics. The consumer supplies repository identity and domain-specific operating meaning.
 
+Under Calvin, the principal context-control mechanism is adaptive rule loading/unloading. Under Paul, that mechanism remains available but becomes secondary to removing delegable deterministic procedure from the rule layer entirely.
+
 ## Reserved successor
 
 `Paul` is reserved for the first materially upgraded operating-system baseline that supersedes Calvin.
 
-Paul is **not active** merely because skills, protocols, or consumer documents continue to evolve. Minor cleanup, routine skill additions, or evidence updates remain Calvin unless an explicit successor promotion is made.
+Paul is defined as the **Rule-Minimal / Skill-Optimized** generation:
+
+```text
+minimal irreducible rule layer
++ explicit semantic/authority boundaries
++ skill trigger/delegation contracts
++ deterministic tested/versioned skills
++ consumer-local domain semantics
+```
+
+The transition is not "rules to no rules." It is:
+
+```text
+Calvin: optimize the rule working set
+Paul:   minimize the rule layer and optimize skill delegation
+```
+
+Paul is **not active** merely because skills, protocols, or consumer documents continue to evolve. Skills already exist under Calvin. Promotion requires evidence that reusable deterministic procedure has moved out of prompt-visible rule prose into validated skills while semantic ownership, safety, and closure quality are preserved.
+
+The canonical cross-generation model is `docs/operating_system/EVOLUTION.md`.
 
 The successor contract is:
 
@@ -113,10 +137,10 @@ docs/operating_system/PAUL_CANDIDATE.md
 
 ## Version log
 
-| Baseline date | Version | Record | State |
-|---|---|---|---|
-| 2026-09-01 | Calvin | `versions/2026-09-01_calvin.md` | ACTIVE |
-| future | Paul | `PAUL_CANDIDATE.md` until activation | RESERVED |
+| Baseline date | Version | Generation | Record | State |
+|---|---|---|---|---|
+| 2026-09-01 | Calvin | Rule-Optimized | `versions/2026-09-01_calvin.md` | ACTIVE |
+| future | Paul | Rule-Minimal / Skill-Optimized | `PAUL_CANDIDATE.md` until activation | RESERVED |
 
 ## Version lifecycle
 

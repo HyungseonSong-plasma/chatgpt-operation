@@ -4,7 +4,7 @@
 **Reserved version name:** Paul  
 **Predecessor:** Calvin  
 **Canonical owner:** `HyungseonSong-plasma/chatgpt-operation`  
-**Purpose:** define the conditions and comparison contract for the next materially upgraded ChatGPT operating-system baseline without prematurely declaring that upgrade complete.
+**Purpose:** define the conditions and comparison contract for the first **Rule-Minimal / Skill-Optimized** ChatGPT operating-system baseline without prematurely declaring that upgrade complete.
 
 ## 1. Successor rule
 
@@ -18,24 +18,45 @@ Reserved successor = Paul
 Paul status = NOT ACTIVE
 ```
 
-Do not use `Paul` for minor wording cleanup, documentation-only edits, routine skill additions, or ordinary consumer-local policy changes. Paul should represent a material operating change that can be evaluated against Calvin.
+Do not use `Paul` for minor wording cleanup, documentation-only edits, routine skill additions, or ordinary consumer-local policy changes.
+
+Paul represents a change in the **primary optimization surface**:
+
+```text
+Calvin
+  = optimize the active rule working set
+
+Paul
+  = minimize the irreducible rule layer
+  + delegate reusable deterministic mechanics to tested/versioned skills
+  + optimize skill activation/delegation
+```
+
+Skills may already exist under Calvin. Paul requires a system-level shift toward **skill-first ownership of deterministic procedure**, not merely a larger skill catalog.
 
 ## 2. Material-upgrade criteria
 
-At least one material cross-repository operating change should exist before promotion, for example:
+Paul promotion requires a material architectural shift from rule-centric operation toward rule-minimal, skill-centric operation.
+
+At minimum, the candidate should demonstrate several of the following:
 
 ```text
-rule-selection / routing architecture materially changed
-session-bootstrap architecture materially changed
-activation or unloading policy materially changed
-working-set sizing policy materially changed
-controller lifecycle/throughput behavior materially changed
-authorization or delivery-gate mechanics materially changed
-incident-prevention loop materially changed
-a new measurable control reduces a known Calvin failure mode
+prompt-visible procedural rules materially reduced
+reusable deterministic procedure moved into tested/versioned skills
+skill trigger/delegation contracts made explicit
+duplicate rule/skill ownership reduced
+session/bootstrap mechanics delegated where deterministic
+authorization/lifecycle/delivery mechanics delegated where deterministic
+skill activation remains demand-driven rather than globally preloaded
+consumer semantic/scientific ownership remains local where appropriate
+known Calvin rule-routing/context failure modes measurably reduced
 ```
 
-A model upgrade, consumer-domain change, or repository-specific workflow change by itself does not automatically create Paul.
+Rule minimization is not sufficient by itself. A procedural rule may be minimized only when the deterministic mechanic is delegated with typed behavior, negative/adversarial coverage, immutable versioning, fail-closed handling where material, and demonstrated consumer parity.
+
+Rules remain explicit when they own user authority, normative policy, domain semantics, scientific meaning, consumer-specific acceptance, irreducible judgment, skill activation conditions, or skill-output interpretation.
+
+A model upgrade, consumer-domain change, repository-specific workflow change, or routine addition of more skills by itself does not create Paul.
 
 ## 3. Promotion gate
 
@@ -44,12 +65,15 @@ Before Paul becomes current, record:
 ```text
 1. Calvin observation window and data coverage
 2. the specific Calvin limitation or hypothesis being addressed
-3. Paul architecture/policy delta
-4. expected measurable effect
-5. compatibility of pre/post metric definitions
-6. known confounders: model version, repository changes, workload/complexity mix
-7. representative consumer compatibility/parity evidence
-8. activation date and central revision
+3. Paul rule-minimization delta
+4. deterministic mechanics delegated to skills
+5. retained irreducible rule/semantic ownership
+6. skill activation/delegation model
+7. expected measurable effect
+8. compatibility of pre/post metric definitions
+9. known confounders: model version, repository changes, workload/complexity mix
+10. representative consumer compatibility/parity evidence
+11. activation date and central revision
 ```
 
 Promotion must be explicit. Do not infer Paul activation merely because a central skill or consumer rule changed.
@@ -64,27 +88,45 @@ known recurrence rate
 pre-execution catch rate
 gate-bypass rate
 gate-defect rate
+
+Calvin continuity metrics:
 working-set miss rate
-false activation rate
-missed activation rate
-bootstrap/routing failure rate
+false rule activation rate
+missed rule activation rate
 active weighted rule load by phase/role
 error rate versus active weighted rule load
+
+Paul transition metrics:
+irreducible active rule load
+procedural-rule reduction
+skill delegation coverage
+duplicate rule/skill ownership count
+skill activation miss rate
+false skill activation rate
+skill parity failure rate
+skill fail-closed correctness
+deterministic-mechanic recurrence after delegation
+prompt-context burden attributable to procedural rules
+
+shared outcome metrics:
+bootstrap/routing failure rate
 avoidable external-wait / serialization rate
 closure-quality regressions
 ```
 
 Consumers may add domain-specific metrics, but those metrics remain consumer-owned unless separately centralized.
 
-The primary evaluation question is not whether Paul has more rules or more skills. It is whether Paul produces better operating decisions and prevention outcomes with equal or lower active-context/coordination burden and without weakening closure quality.
+The primary evaluation question is not whether Paul has more skills. It is whether Paul can **remove delegable deterministic procedure from the prompt-visible rule layer**, invoke the right validated skills when needed, and preserve or improve decision, safety, and closure quality with lower context/coordination burden.
 
 ## 5. Hypothesis template
 
 When Paul is proposed, create an explicit hypothesis such as:
 
 ```text
-Compared with Calvin, Paul will reduce <target failure/routing/coordination metric>
-while keeping <closure-quality guardrail> unchanged or improved,
+Compared with Calvin, Paul will reduce <procedural rule/context burden>
+by delegating <named deterministic mechanics> to validated skills,
+while reducing or not worsening <target failure/routing/coordination metric>
+and keeping <closure-quality guardrail> unchanged or improved,
 under comparable workload and measurement coverage.
 ```
 
@@ -97,9 +139,11 @@ Before activation, evaluate at least the representative consumers named by the a
 For each consumer distinguish:
 
 ```text
-central mechanic parity
+central skill-mechanic parity
+procedural rules removed/compressed
+irreducible local rules retained
 consumer-local semantic parity
-bootstrap/routing compatibility
+skill activation/routing compatibility
 mutation/validation safety
 observed operating metrics
 known unsupported surfaces
@@ -121,9 +165,11 @@ That baseline should contain:
 activation date
 central repository revision
 Calvin comparison window
-Paul architectural delta
-initial working-set/bootstrap policy
-changed activation patterns
+Paul rule-minimization delta
+skills receiving delegated deterministic mechanics
+retained irreducible rule/semantic boundaries
+skill activation/delegation model
+initial rule/skill working-set policy
 retained Calvin invariants
 retired or modified Calvin assumptions
 representative consumer evidence
