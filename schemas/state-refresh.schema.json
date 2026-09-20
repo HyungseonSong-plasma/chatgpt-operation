@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Controller state refresh snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "checkpoint", "surfaces", "planned_mutations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "present", "trustworthy", "phase_changed", "rule_revision_changed",
+        "scope_changed", "evidence_contradiction", "next_action_known"
+      ],
+      "properties": {
+        "present": {"type": "boolean"},
+        "trustworthy": {"type": "boolean"},
+        "phase_changed": {"type": "boolean"},
+        "rule_revision_changed": {"type": "boolean"},
+        "scope_changed": {"type": "boolean"},
+        "evidence_contradiction": {"type": "boolean"},
+        "next_action_known": {"type": "boolean"}
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "stability", "locator_kind", "decision_critical", "pin_verified",
+          "checkpoint_fingerprint", "current_fingerprint", "probe_state",
+          "probe_reads", "detail_reads", "prewrite_reads"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "stability": {"enum": ["MUTABLE", "PINNED_IMMUTABLE"]},
+          "locator_kind": {"enum": ["FLOATING", "EXACT"]},
+          "decision_critical": {"type": "boolean"},
+          "pin_verified": {"type": "boolean"},
+          "checkpoint_fingerprint": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "current_fingerprint": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "probe_state": {"enum": ["NOT_RUN", "OK", "ERROR"]},
+          "probe_reads": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "detail_reads": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "prewrite_reads": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "planned_mutations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
