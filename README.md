@@ -10,8 +10,22 @@ Named operating-system baselines and successor lifecycle are owned here:
 docs/operating_system/README.md
 ```
 
-Current named baseline: **Calvin** (2026-09-01).  
-Reserved successor: **Paul**.
+Current named baseline: **Calvin** (2026-09-01) — the **Rule-Optimized** generation.  
+Reserved successor: **Paul** — the **Rule-Minimal / Skill-Optimized** generation.
+
+The generation transition is architectural:
+
+```text
+Calvin
+  -> optimize which prompt-visible rules are active
+
+Paul
+  -> minimize prompt-visible rules
+  -> delegate reusable deterministic mechanics to tested/versioned skills
+  -> keep only irreducible semantic, authority, and trigger contracts as rules
+```
+
+Skills can exist under Calvin; Paul is defined by making skill delegation, rather than rule-working-set tuning, the primary optimization surface. See `docs/operating_system/EVOLUTION.md`.
 
 Consumer repositories bind to an exact immutable `chatgpt-operation` revision for an operating decision cycle. The central repository owns OS identity/lifecycle and reusable mechanics; consumers retain domain semantics, repository-specific policy, scientific/compatibility meaning, and local acceptance criteria.
 
