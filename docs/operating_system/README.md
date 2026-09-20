@@ -45,6 +45,8 @@ docs/operating_system/versions/2026-09-01_calvin.md
 
 That record intentionally retains the repository/ref and MOOSE/QPX terminology that described the system at baseline time. Migration into this repository changes canonical storage ownership; it does not rewrite historical evidence.
 
+Central ownership of the OS registry was established under tracking issue #16; the original historical baseline remains attributable to its source repository.
+
 Calvin's defining objective is:
 
 ```text
