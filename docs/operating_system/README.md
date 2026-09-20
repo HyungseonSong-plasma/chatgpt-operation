@@ -9,7 +9,7 @@
 
 This directory is the canonical owner of named ChatGPT operating-system baselines, their lifecycle, and cross-repository version-management policy.
 
-The operating system is broader than any single skill or consumer repository. It defines how reusable operating mechanics, rule-selection architecture, bootstrap behavior, lifecycle controls, and empirical improvement are versioned as one coherent operating baseline.
+The operating system is broader than any single skill or consumer repository. It defines how reusable operating mechanics, rule-selection or skill-delegation architecture, bootstrap behavior, lifecycle controls, and empirical improvement are versioned as one coherent operating baseline.
 
 ## Ownership boundary
 
@@ -137,10 +137,10 @@ docs/operating_system/PAUL_CANDIDATE.md
 
 ## Version log
 
-| Baseline date | Version | Record | State |
-|---|---|---|---|
-| 2026-09-01 | Calvin | `versions/2026-09-01_calvin.md` | ACTIVE |
-| future | Paul | `PAUL_CANDIDATE.md` until activation | RESERVED |
+| Baseline date | Version | Generation | Record | State |
+|---|---|---|---|---|
+| 2026-09-01 | Calvin | Rule-Optimized | `versions/2026-09-01_calvin.md` | ACTIVE |
+| future | Paul | Rule-Minimal / Skill-Optimized | `PAUL_CANDIDATE.md` until activation | RESERVED |
 
 ## Version lifecycle
 
