@@ -160,3 +160,30 @@ PYTHONPATH=src python3 -m chatgpt_operation.cli controller throughput-self-test
 ```
 
 See `skills/controller-throughput/README.md` for the portable contract.
+
+
+## State refresh v1
+
+The fifth portable skill makes controller fresh-read scope deterministic and
+delta-based without weakening mutation-time authority checks.
+
+```text
+durable checkpoint
+  -> cheap mutable fingerprints
+  -> expand only changed decision-critical surfaces
+  -> skip verified exact immutable pins
+  -> authoritative prewrite read for every mutation target
+```
+
+Checkpoint uncertainty, phase/rule/scope changes, contradictory evidence, or an
+unknown next action escalate to `FULL_REFRESH_REQUIRED`. Probe failures block
+instead of silently falling back to stale state.
+
+```bash
+PYTHONPATH=src python3 -m chatgpt_operation.cli controller state-refresh \
+  --input state-refresh.json
+
+PYTHONPATH=src python3 -m chatgpt_operation.cli controller state-refresh-self-test
+```
+
+See `skills/state-refresh/README.md` for the portable contract.

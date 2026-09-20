@@ -45,3 +45,5 @@ jobs:
           python3 -m chatgpt_operation.cli controller self-test
           python3 -m chatgpt_operation.cli controller throughput --help
           python3 -m chatgpt_operation.cli controller throughput-self-test
+          python3 -m chatgpt_operation.cli controller state-refresh --help
+          python3 -m chatgpt_operation.cli controller state-refresh-self-test

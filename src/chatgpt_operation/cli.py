@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from chatgpt_operation.controller.lifecycle import LifecycleError, evaluate as evaluate_controller, self_test as controller_self_test
 from chatgpt_operation.controller.throughput import ThroughputError, evaluate as evaluate_throughput, self_test as throughput_self_test
+from chatgpt_operation.controller.state_refresh import StateRefreshError, evaluate as evaluate_state_refresh, self_test as state_refresh_self_test
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
@@ -136,6 +137,31 @@ def controller_throughput_test(args: argparse.Namespace) -> int:
         return 2
 
 
+def controller_state_refresh(args: argparse.Namespace) -> int:
+    try:
+        snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
+        result=evaluate_state_refresh(snapshot)
+    except (OSError,json.JSONDecodeError,StateRefreshError) as exc:
+        print(f"CONTROLLER_STATE_REFRESH=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_STATE_REFRESH="+result["status"])
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(f"CONTROLLER_STATE_REFRESH=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
+def controller_state_refresh_test(args: argparse.Namespace) -> int:
+    try:
+        return state_refresh_self_test()
+    except StateRefreshError as exc:
+        print(f"CONTROLLER_STATE_REFRESH=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+
+
 def parser() -> argparse.ArgumentParser:
     p=argparse.ArgumentParser(prog="chatgpt-op")
     sub=p.add_subparsers(dest="group",required=True)
@@ -172,6 +198,9 @@ def parser() -> argparse.ArgumentParser:
     ctp=ctls.add_parser("throughput"); ctp.add_argument("--input",required=True); ctp.add_argument("--result")
     ctp.set_defaults(func=controller_throughput)
     ctt=ctls.add_parser("throughput-self-test"); ctt.set_defaults(func=controller_throughput_test)
+    csr=ctls.add_parser("state-refresh"); csr.add_argument("--input",required=True); csr.add_argument("--result")
+    csr.set_defaults(func=controller_state_refresh)
+    csrt=ctls.add_parser("state-refresh-self-test"); csrt.set_defaults(func=controller_state_refresh_test)
     return p
 
 def main(argv=None) -> int:
