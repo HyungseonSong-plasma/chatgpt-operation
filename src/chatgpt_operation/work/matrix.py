@@ -302,8 +302,22 @@ def create_bundle(
             if not item.exists() or not _under(item, work):
                 raise MatrixError(f"bundle path missing/outside workspace: {relative}")
             if item.is_symlink():
-                raise MatrixError(f"bundle path cannot be a symlink: {relative}")
-            archive.add(item, arcname=relative, recursive=True, filter=safe_info)
+                try:
+                    resolved = item.resolve(strict=True)
+                except OSError as exc:
+                    raise MatrixError(f"bundle symlink cannot be resolved: {relative}: {exc}") from exc
+                if not _under(resolved, work) or not resolved.is_file():
+                    raise MatrixError(
+                        f"bundle symlink target must be a file inside workspace: {relative}"
+                    )
+                archive.add(
+                    resolved,
+                    arcname=relative,
+                    recursive=False,
+                    filter=safe_info,
+                )
+            else:
+                archive.add(item, arcname=relative, recursive=True, filter=safe_info)
     return {
         "path": str(target),
         "sha256": _hash_file(target),
@@ -499,12 +513,19 @@ def self_test() -> int:
         executable.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
         executable.chmod(0o755)
         payload = workspace / "payload"
+        real_library = workspace / "libreal.so.1"
+        real_library.write_text("shared-library-bytes\n", encoding="utf-8")
+        explicit_link = workspace / "libalias.so.0"
+        explicit_link.symlink_to(real_library.name)
         cache = payload / ".jitcache"
         cache.mkdir(parents=True)
         (payload / "input.txt").write_text("input\n", encoding="utf-8")
         (cache / "root-owned-cache").write_text("ephemeral\n", encoding="utf-8")
         cache.chmod(0)
-        subprocess.run(["git", "-C", str(workspace), "add", "tool", "payload/input.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(workspace), "add", "tool", "payload/input.txt", "libreal.so.1", "libalias.so.0"],
+            check=True,
+        )
         subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "x"], check=True)
         sha = _git_head(workspace)
         prep = manifests / "prep.json"
@@ -533,7 +554,7 @@ def self_test() -> int:
                     "sequence": 1,
                     "title": "matrix",
                     "prepare_manifest": "automation/manifests/experiments/prep.json",
-                    "bundle_paths": ["tool", "payload"],
+                    "bundle_paths": ["tool", "payload", "libalias.so.0"],
                     "max_parallel": 2,
                     "cases": [
                         {
@@ -573,6 +594,10 @@ def self_test() -> int:
         assert os.access(extracted / "tool", os.X_OK)
         assert (extracted / "payload" / "input.txt").is_file()
         assert not (extracted / "payload" / ".jitcache").exists()
+        extracted_alias = extracted / "libalias.so.0"
+        assert extracted_alias.is_file()
+        assert not extracted_alias.is_symlink()
+        assert extracted_alias.read_text(encoding="utf-8") == "shared-library-bytes\n"
         args = argparse.Namespace(
             manifest=str(matrix),
             control_root=str(control),

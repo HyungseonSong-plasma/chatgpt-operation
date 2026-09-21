@@ -84,6 +84,7 @@ jobs:
 - `fail-fast` is false.
 - Matrix width is manifest-bounded to 1..8 concurrent lanes.
 - Bundle paths are exact repository-relative files/directories, not globs.
+- An explicitly listed top-level symlink file is allowed only when it resolves to a regular file inside the workspace; it is dereferenced into the tar as a regular file. Recursive directory symlinks remain forbidden.
 - Bundle paths may not overlap and links are rejected.
 - Shared bundles are tar archives, preserving executable mode without host-side chmod of root-owned build outputs.
 - Ephemeral cache directories (`.git`, `.jitcache`, `__pycache__`, `.pytest_cache`) are excluded before recursion so root-owned runtime caches cannot block bundle creation.
