@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Paul skill activation telemetry event",
+  "type": "object",
+  "required": ["event", "skill", "skill_path", "consumer", "central_revision", "trigger", "observed_at"],
+  "properties": {
+    "event": {"const": "skill_activation"},
+    "activation_id": {"type": "string", "minLength": 1},
+    "skill": {"type": "string", "minLength": 1},
+    "skill_path": {"type": "string", "pattern": "^skills/[^/]+/README\\.md$"},
+    "consumer": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+    "central_revision": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "trigger": {"type": "string", "minLength": 1},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "source": {"enum": ["github_execution", "interactive_explicit"]},
+    "outcome": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}
