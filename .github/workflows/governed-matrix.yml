@@ -1,0 +1,218 @@
+name: Governed matrix
+
+on:
+  workflow_call:
+    inputs:
+      issue:
+        required: true
+        type: string
+      sequence:
+        required: true
+        type: string
+      manifest:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      operation_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      max_parallel: ${{ steps.plan.outputs.max_parallel }}
+      prepare_manifest: ${{ steps.plan.outputs.prepare_manifest }}
+      has_aggregate: ${{ steps.plan.outputs.has_aggregate }}
+    steps:
+      - name: Checkout exact consumer control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: control
+          fetch-depth: 1
+
+      - name: Checkout exact operation source
+        uses: actions/checkout@v4
+        with:
+          repository: HyungseonSong-plasma/chatgpt-operation
+          ref: ${{ inputs.operation_sha }}
+          path: operation
+          fetch-depth: 1
+
+      - name: Verify central source and plan matrix
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C operation rev-parse HEAD)" = "${{ inputs.operation_sha }}"
+          PYTHONPATH=operation/src python3 -m chatgpt_operation.cli matrix plan             --manifest "control/${{ inputs.manifest }}"             --control-root control             --issue "${{ inputs.issue }}"             --sequence "${{ inputs.sequence }}"             --github-output "$GITHUB_OUTPUT"
+
+  prepare:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact consumer control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: control
+          fetch-depth: 1
+
+      - name: Checkout exact consumer workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: target
+          fetch-depth: 1
+
+      - name: Checkout exact operation source
+        uses: actions/checkout@v4
+        with:
+          repository: HyungseonSong-plasma/chatgpt-operation
+          ref: ${{ inputs.operation_sha }}
+          path: operation
+          fetch-depth: 1
+
+      - name: Run governed prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=operation/src python3 -m chatgpt_operation.cli work run             --kind experiments             --manifest "control/${{ needs.plan.outputs.prepare_manifest }}"             --control-root control             --workspace target             --base-sha "${{ inputs.base_sha }}"             --issue "${{ inputs.issue }}"             --sequence "${{ inputs.sequence }}"             --results "$GITHUB_WORKSPACE/prepare-results"
+
+      - name: Pack shared build bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=operation/src python3 -m chatgpt_operation.cli matrix bundle             --manifest "control/${{ inputs.manifest }}"             --control-root control             --workspace target             --issue "${{ inputs.issue }}"             --sequence "${{ inputs.sequence }}"             --output "$GITHUB_WORKSPACE/shared-bundle.tar.gz"
+
+      - name: Upload shared bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: governed-matrix-${{ inputs.issue }}-${{ inputs.sequence }}-bundle
+          path: shared-bundle.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload prepare evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governed-matrix-${{ inputs.issue }}-${{ inputs.sequence }}-prepare
+          path: prepare-results/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  case:
+    needs: [plan, prepare]
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 125
+    steps:
+      - name: Checkout exact consumer control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: control
+          fetch-depth: 1
+
+      - name: Checkout exact consumer workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: target
+          fetch-depth: 1
+
+      - name: Checkout exact operation source
+        uses: actions/checkout@v4
+        with:
+          repository: HyungseonSong-plasma/chatgpt-operation
+          ref: ${{ inputs.operation_sha }}
+          path: operation
+          fetch-depth: 1
+
+      - name: Download shared bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: governed-matrix-${{ inputs.issue }}-${{ inputs.sequence }}-bundle
+          path: bundle
+
+      - name: Restore shared bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=operation/src python3 -m chatgpt_operation.cli matrix extract             --archive bundle/shared-bundle.tar.gz             --workspace target
+
+      - name: Run governed matrix case
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=operation/src python3 -m chatgpt_operation.cli matrix run-case             --manifest "control/${{ inputs.manifest }}"             --control-root control             --workspace target             --base-sha "${{ inputs.base_sha }}"             --issue "${{ inputs.issue }}"             --sequence "${{ inputs.sequence }}"             --case "${{ matrix.id }}"             --results "$GITHUB_WORKSPACE/case-results"
+
+      - name: Upload case evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governed-matrix-${{ inputs.issue }}-${{ inputs.sequence }}-case-${{ matrix.id }}
+          path: case-results/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    if: ${{ always() && needs.prepare.result == 'success' && needs.plan.outputs.has_aggregate == 'true' }}
+    needs: [plan, prepare, case]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact consumer control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: control
+          fetch-depth: 1
+
+      - name: Checkout exact consumer workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: target
+          fetch-depth: 1
+
+      - name: Checkout exact operation source
+        uses: actions/checkout@v4
+        with:
+          repository: HyungseonSong-plasma/chatgpt-operation
+          ref: ${{ inputs.operation_sha }}
+          path: operation
+          fetch-depth: 1
+
+      - name: Download case evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: governed-matrix-${{ inputs.issue }}-${{ inputs.sequence }}-case-*
+          path: case-evidence
+
+      - name: Run aggregate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=operation/src python3 -m chatgpt_operation.cli matrix aggregate             --manifest "control/${{ inputs.manifest }}"             --control-root control             --workspace target             --base-sha "${{ inputs.base_sha }}"             --issue "${{ inputs.issue }}"             --sequence "${{ inputs.sequence }}"             --evidence-root "$GITHUB_WORKSPACE/case-evidence"             --results "$GITHUB_WORKSPACE/aggregate-results"
+
+      - name: Upload aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governed-matrix-${{ inputs.issue }}-${{ inputs.sequence }}-aggregate
+          path: aggregate-results/**
+          if-no-files-found: warn
+          retention-days: 30

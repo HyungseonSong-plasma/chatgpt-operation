@@ -238,3 +238,19 @@ PYTHONPATH=src python3 -m chatgpt_operation.cli controller state-refresh-self-te
 ```
 
 See `skills/state-refresh/README.md` for the portable contract.
+
+
+## Governed matrix v1
+
+The sixth portable skill centralizes build-once / fan-out / fan-in experiment execution.
+
+```text
+consumer matrix manifest
+  -> central plan validation
+  -> governed prepare/build once
+  -> mode-preserving tar bundle
+  -> independent matrix runners
+  -> optional aggregate over case evidence
+```
+
+Consumers call `.github/workflows/governed-matrix.yml` at an exact immutable central SHA and pass the same SHA as `operation_sha`. See `skills/governed-matrix/README.md`.

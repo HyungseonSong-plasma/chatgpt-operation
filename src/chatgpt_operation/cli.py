@@ -11,6 +11,7 @@ from chatgpt_operation.controller.state_refresh import StateRefreshError, evalua
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
+from chatgpt_operation.work.matrix import MatrixError, create_bundle, extract_bundle, plan as matrix_plan, run_aggregate as execute_matrix_aggregate, run_case as execute_matrix_case, self_test as matrix_self_test
 from chatgpt_operation.work.runner import execute as execute_work, self_test as work_self_test
 from chatgpt_operation.work.scaffold import create_manifest
 
@@ -85,6 +86,82 @@ def work_run(args: argparse.Namespace) -> int:
 
 def work_test(args: argparse.Namespace) -> int:
     return work_self_test()
+
+
+
+def matrix_plan_cmd(args: argparse.Namespace) -> int:
+    try:
+        result = matrix_plan(
+            manifest_path=args.manifest,
+            control_root=args.control_root,
+            issue=args.issue,
+            sequence=args.sequence,
+        )
+    except MatrixError as exc:
+        print(f"MATRIX_MANIFEST_ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.github_output:
+        with Path(args.github_output).open("a", encoding="utf-8") as handle:
+            handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "\n")
+            handle.write("max_parallel=" + str(result["max_parallel"]) + "\n")
+            handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "\n")
+            handle.write("has_aggregate=" + ("true" if result["has_aggregate"] else "false") + "\n")
+    print("MATRIX_PLAN=PASS")
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def matrix_bundle_cmd(args: argparse.Namespace) -> int:
+    try:
+        result = create_bundle(
+            manifest_path=args.manifest,
+            control_root=args.control_root,
+            workspace=args.workspace,
+            issue=args.issue,
+            sequence=args.sequence,
+            output=args.output,
+        )
+    except MatrixError as exc:
+        print(f"MATRIX_BUNDLE_ERROR: {exc}", file=sys.stderr)
+        return 2
+    print("MATRIX_BUNDLE=PASS")
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def matrix_extract_cmd(args: argparse.Namespace) -> int:
+    try:
+        result = extract_bundle(archive_path=args.archive, workspace=args.workspace)
+    except MatrixError as exc:
+        print(f"MATRIX_EXTRACT_ERROR: {exc}", file=sys.stderr)
+        return 2
+    print("MATRIX_EXTRACT=PASS")
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def matrix_case_cmd(args: argparse.Namespace) -> int:
+    try:
+        return execute_matrix_case(args)
+    except MatrixError as exc:
+        print(f"MATRIX_CASE_ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+def matrix_aggregate_cmd(args: argparse.Namespace) -> int:
+    try:
+        return execute_matrix_aggregate(args)
+    except MatrixError as exc:
+        print(f"MATRIX_AGGREGATE_ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+def matrix_test_cmd(args: argparse.Namespace) -> int:
+    try:
+        return matrix_self_test()
+    except MatrixError as exc:
+        print(f"GOVERNED_MATRIX=HARD_STOP {exc}", file=sys.stderr)
+        return 2
 
 
 def controller_evaluate(args: argparse.Namespace) -> int:
@@ -190,6 +267,34 @@ def parser() -> argparse.ArgumentParser:
     wr.add_argument("--results",required=True); wr.set_defaults(func=work_run)
 
     wt=ws.add_parser("self-test"); wt.set_defaults(func=work_test)
+
+
+    mx=sub.add_parser("matrix"); mxs=mx.add_subparsers(dest="command",required=True)
+    mp=mxs.add_parser("plan")
+    mp.add_argument("--manifest",required=True); mp.add_argument("--control-root",required=True)
+    mp.add_argument("--issue",required=True,type=int); mp.add_argument("--sequence",required=True,type=int)
+    mp.add_argument("--github-output"); mp.set_defaults(func=matrix_plan_cmd)
+    mb=mxs.add_parser("bundle")
+    mb.add_argument("--manifest",required=True); mb.add_argument("--control-root",required=True)
+    mb.add_argument("--workspace",required=True); mb.add_argument("--issue",required=True,type=int)
+    mb.add_argument("--sequence",required=True,type=int); mb.add_argument("--output",required=True)
+    mb.set_defaults(func=matrix_bundle_cmd)
+    me=mxs.add_parser("extract")
+    me.add_argument("--archive",required=True); me.add_argument("--workspace",required=True)
+    me.set_defaults(func=matrix_extract_cmd)
+    mc=mxs.add_parser("run-case")
+    mc.add_argument("--manifest",required=True); mc.add_argument("--control-root",required=True)
+    mc.add_argument("--workspace",required=True); mc.add_argument("--base-sha",required=True)
+    mc.add_argument("--issue",required=True,type=int); mc.add_argument("--sequence",required=True,type=int)
+    mc.add_argument("--case",required=True); mc.add_argument("--results",required=True)
+    mc.set_defaults(func=matrix_case_cmd)
+    ma=mxs.add_parser("aggregate")
+    ma.add_argument("--manifest",required=True); ma.add_argument("--control-root",required=True)
+    ma.add_argument("--workspace",required=True); ma.add_argument("--base-sha",required=True)
+    ma.add_argument("--issue",required=True,type=int); ma.add_argument("--sequence",required=True,type=int)
+    ma.add_argument("--evidence-root",required=True); ma.add_argument("--results",required=True)
+    ma.set_defaults(func=matrix_aggregate_cmd)
+    mt=mxs.add_parser("self-test"); mt.set_defaults(func=matrix_test_cmd)
 
     ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
