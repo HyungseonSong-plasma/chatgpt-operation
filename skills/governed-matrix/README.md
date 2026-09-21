@@ -86,6 +86,7 @@ jobs:
 - Bundle paths are exact repository-relative files/directories, not globs.
 - Bundle paths may not overlap and links are rejected.
 - Shared bundles are tar archives, preserving executable mode without host-side chmod of root-owned build outputs.
+- Ephemeral cache directories (`.git`, `.jitcache`, `__pycache__`, `.pytest_cache`) are excluded before recursion so root-owned runtime caches cannot block bundle creation.
 - Every case is exact-`base_sha` bound.
 - Every case writes deterministic evidence and its upload step uses `always()`.
 - Aggregate runs after case completion even when a case fails, provided prepare succeeded.

@@ -21,6 +21,7 @@ from chatgpt_operation.work.manifest import load_manifest, validate_dispatch
 SCHEMA_VERSION = 1
 _CASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _FORBIDDEN_GLOB = re.compile(r"[*?[]")
+_BUNDLE_EPHEMERAL_DIRS = {".git", ".jitcache", "__pycache__", ".pytest_cache"}
 
 
 class MatrixError(ValueError):
@@ -287,7 +288,10 @@ def create_bundle(
     target = Path(output).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    def safe_info(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    def safe_info(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        name = PurePosixPath(info.name)
+        if any(part in _BUNDLE_EPHEMERAL_DIRS for part in name.parts):
+            return None
         if info.issym() or info.islnk():
             raise MatrixError(f"bundle refuses link member: {info.name}")
         return info
@@ -494,7 +498,13 @@ def self_test() -> int:
         executable = workspace / "tool"
         executable.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
         executable.chmod(0o755)
-        subprocess.run(["git", "-C", str(workspace), "add", "tool"], check=True)
+        payload = workspace / "payload"
+        cache = payload / ".jitcache"
+        cache.mkdir(parents=True)
+        (payload / "input.txt").write_text("input\n", encoding="utf-8")
+        (cache / "root-owned-cache").write_text("ephemeral\n", encoding="utf-8")
+        cache.chmod(0)
+        subprocess.run(["git", "-C", str(workspace), "add", "tool", "payload/input.txt"], check=True)
         subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "x"], check=True)
         sha = _git_head(workspace)
         prep = manifests / "prep.json"
@@ -523,7 +533,7 @@ def self_test() -> int:
                     "sequence": 1,
                     "title": "matrix",
                     "prepare_manifest": "automation/manifests/experiments/prep.json",
-                    "bundle_paths": ["tool"],
+                    "bundle_paths": ["tool", "payload"],
                     "max_parallel": 2,
                     "cases": [
                         {
@@ -547,17 +557,22 @@ def self_test() -> int:
         )
         assert planned["matrix"]["include"] == [{"id": "a"}]
         bundle = root / "bundle.tar.gz"
-        create_bundle(
-            manifest_path=matrix,
-            control_root=control,
-            workspace=workspace,
-            issue=1,
-            sequence=1,
-            output=bundle,
-        )
+        try:
+            create_bundle(
+                manifest_path=matrix,
+                control_root=control,
+                workspace=workspace,
+                issue=1,
+                sequence=1,
+                output=bundle,
+            )
+        finally:
+            cache.chmod(0o700)
         extracted = root / "extracted"
         extract_bundle(archive_path=bundle, workspace=extracted)
         assert os.access(extracted / "tool", os.X_OK)
+        assert (extracted / "payload" / "input.txt").is_file()
+        assert not (extracted / "payload" / ".jitcache").exists()
         args = argparse.Namespace(
             manifest=str(matrix),
             control_root=str(control),
