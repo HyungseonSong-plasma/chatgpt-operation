@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatgpt-operation.local/schemas/github-actions-dispatch-action.schema.json",
+  "title": "ChatGPT GitHub Connector workflow_dispatch Action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request", "result"],
+  "properties": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "workflow",
+        "ref",
+        "inputs",
+        "correlation_id",
+        "correlation_input",
+        "expected_head_sha",
+        "return_run_details"
+      ],
+      "properties": {
+        "repository": {"type": "string", "minLength": 3},
+        "workflow": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "integer", "minimum": 1}]},
+        "ref": {"type": "string", "minLength": 1},
+        "inputs": {"type": "object"},
+        "correlation_id": {"type": "string", "minLength": 1},
+        "correlation_input": {"type": ["string", "null"]},
+        "expected_head_sha": {"type": ["string", "null"]},
+        "return_run_details": {"const": true}
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_id",
+        "workflow_name",
+        "workflow_path",
+        "dispatch_status",
+        "requested_at",
+        "workflow_run_id",
+        "run_url",
+        "html_url"
+      ],
+      "properties": {
+        "workflow_id": {"type": "integer", "minimum": 1},
+        "workflow_name": {"type": ["string", "null"]},
+        "workflow_path": {"type": ["string", "null"]},
+        "dispatch_status": {"enum": [200, 204]},
+        "requested_at": {"type": "string", "format": "date-time"},
+        "workflow_run_id": {"type": ["integer", "null"], "minimum": 1},
+        "run_url": {"type": ["string", "null"]},
+        "html_url": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
