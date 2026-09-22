@@ -104,8 +104,6 @@ def build_dispatch_action_request(
         "expected_head_sha": expected_head_sha,
         "return_run_details": True,
     }
-    if _contains_forbidden_credential_key(request):
-        raise ConnectorDispatchError("dispatch request must not contain credentials")
     return request
 
 
