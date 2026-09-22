@@ -39,14 +39,16 @@ class ConnectorDispatchContractTests(unittest.TestCase):
         request = build_dispatch_action_request(
             repository="HyungseonSong-plasma/moose-test-repo",
             workflow="refactor.yml",
-            ref="main",
+            ref="issue-309-standard-moose-sheath-refactor",
             inputs=inputs,
             correlation_id="issue-309-refactor01",
             correlation_input=None,
             expected_head_sha=inputs["base_sha"],
         )
         self.assertEqual(request["inputs"], inputs)
-        self.assertEqual(request["ref"], "main")
+        self.assertEqual(
+            request["ref"], "issue-309-standard-moose-sheath-refactor"
+        )
         self.assertTrue(request["return_run_details"])
         self.assertNotIn("token", request)
 

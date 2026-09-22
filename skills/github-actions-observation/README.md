@@ -185,10 +185,14 @@ A connector action is an external host capability. Repository code can define,
 test, and consume this contract, but cannot make an unavailable ChatGPT
 connector action appear or access the connector-held GitHub credential.
 
-The first validation target is `moose-test-repo#309`, using `refactor.yml`
-on `main` without adding a temporary push-trigger workflow. Its workflow does
-not declare a correlation input, so the dispatch should preserve its supplied
-inputs exactly and rely on direct run details when available.
+The first validation target is `moose-test-repo#309`, using the
+default-branch-registered `refactor.yml` dispatched against
+`issue-309-standard-moose-sheath-refactor`. The Issue 309 manifest currently
+exists on that feature branch rather than `main`, so dispatching `ref: main`
+would select a control-plane revision that cannot resolve the manifest. The
+request therefore pairs the feature-branch ref with its exact expected head SHA.
+The workflow does not declare a correlation input, so the dispatch preserves its
+supplied inputs exactly and relies on direct run details when available.
 
 
 ## Consumer mapping
