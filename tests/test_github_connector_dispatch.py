@@ -1,10 +1,30 @@
 import unittest
 
+from datetime import datetime, timezone
+
+from chatgpt_operation.github.actions_runtime import observe_dispatch_once
 from chatgpt_operation.github.connector_dispatch import (
     ConnectorDispatchError,
     build_dispatch_action_request,
     normalize_dispatch_action_result,
 )
+
+
+class DirectRunTransport:
+    def get(self, path, *, query=None):
+        if path == "/actions/runs/31001":
+            return {
+                "id": 31001,
+                "workflow_id": 31,
+                "event": "workflow_dispatch",
+                "head_sha": "abc123",
+                "head_branch": "main",
+                "created_at": "2026-09-22T22:15:01Z",
+                "run_attempt": 1,
+                "status": "completed",
+                "conclusion": "success",
+            }
+        raise AssertionError(f"unexpected GET {path}")
 
 
 class ConnectorDispatchContractTests(unittest.TestCase):
@@ -112,6 +132,36 @@ class ConnectorDispatchContractTests(unittest.TestCase):
         self.assertIsNone(receipt["workflow_run_id"])
         self.assertEqual(receipt["workflow_id"], 31)
         self.assertEqual(receipt["ref"], "main")
+
+    def test_connector_receipt_flows_into_existing_observer(self):
+        request = build_dispatch_action_request(
+            repository="o/r",
+            workflow="refactor.yml",
+            ref="main",
+            correlation_id="req-31",
+            expected_head_sha="abc123",
+        )
+        receipt = normalize_dispatch_action_result(
+            request,
+            {
+                "workflow_id": 31,
+                "workflow_name": "Governed refactor entrypoint",
+                "workflow_path": ".github/workflows/refactor.yml",
+                "dispatch_status": 200,
+                "requested_at": "2026-09-22T22:15:00Z",
+                "workflow_run_id": 31001,
+                "run_url": "https://api.github.com/repos/o/r/actions/runs/31001",
+                "html_url": "https://github.com/o/r/actions/runs/31001",
+            },
+        )
+        result = observe_dispatch_once(
+            DirectRunTransport(),
+            receipt,
+            expected_head_sha=receipt["expected_head_sha"],
+            now=lambda: datetime(2026, 9, 22, 22, 15, 10, tzinfo=timezone.utc),
+        )
+        self.assertEqual(result["status"], "MATCHED_TERMINAL")
+        self.assertEqual(result["matched_run_ids"], [31001])
 
     def test_connector_must_not_return_raw_credential_material(self):
         request = build_dispatch_action_request(
