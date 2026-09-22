@@ -1,0 +1,60 @@
+name: Issue 26 dispatch bootstrap
+
+on:
+  push:
+    branches: [issue-26-actions-observation]
+    paths:
+      - .github/workflows/issue-26-dispatch-bootstrap.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-and-observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact feature commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -c http.extraheader="AUTHORIZATION: basic $auth" fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Dispatch feature-branch science workflow and observe terminal state
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          correlation_id="issue26-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PYTHONPATH=src python3 -m chatgpt_operation.cli github dispatch-actions \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow issue-26-observation-e2e.yml \
+            --ref "$GITHUB_REF_NAME" \
+            --correlation-id "$correlation_id" \
+            --expected-head-sha "$GITHUB_SHA" \
+            --visibility-grace 60 \
+            --timeout 300 \
+            --poll-interval 2 \
+            --wait \
+            --result issue-26-e2e-result.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          result=json.loads(Path("issue-26-e2e-result.json").read_text())
+          assert result["dispatch"]["workflow_run_id"], result
+          assert result["observation"]["status"] == "MATCHED_TERMINAL", result
+          print("issue26_e2e=PASS")
+          print("workflow_run_id="+str(result["dispatch"]["workflow_run_id"]))
+          print("correlation_id="+str(result["dispatch"]["correlation_id"]))
+          PY
