@@ -1,0 +1,30 @@
+name: Issue 26 observation E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      correlation_id:
+        description: Exact experiment/request correlation identifier
+        required: true
+        type: string
+
+jobs:
+  science-experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record observable correlation evidence
+        env:
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+        run: |
+          printf 'correlation_id=%s\n' "$CORRELATION_ID"
+          printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+          printf 'head_sha=%s\n' "$GITHUB_SHA"
+          printf 'ref=%s\n' "$GITHUB_REF"
+
+      - name: Simulate bounded science execution
+        run: |
+          python - <<'PY'
+          # This is execution evidence only. It deliberately makes no scientific
+          # validity or experiment-acceptance claim.
+          print("science_execution=completed")
+          PY
