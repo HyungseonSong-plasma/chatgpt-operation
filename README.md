@@ -257,6 +257,24 @@ that a dispatchable workflow be registered on the default branch. Execution
 success remains execution evidence only and does not imply scientific validity
 or consumer acceptance. See `skills/github-actions-observation/README.md`.
 
+## Characterized ownership migration
+
+The trigger-loaded `characterized-ownership-migration` skill defines reusable cutover and retirement gates for accepted ownership refactors.
+
+```text
+owner/caller census
+  -> source-contract characterization
+  -> target readiness
+  -> bounded migration
+  -> parity
+  -> canonical caller cutover
+  -> zero-source-caller proof
+  -> retirement
+  -> exact-head validation
+```
+
+It is intentionally domain-agnostic: it does not decide scientific semantics, backend realization policy, compatibility commitments, or architecture desirability. See `skills/characterized-ownership-migration/README.md`.
+
 ## Governed matrix v1
 
 The sixth portable skill centralizes build-once / fan-out / fan-in experiment execution.
