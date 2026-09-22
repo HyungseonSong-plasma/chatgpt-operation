@@ -257,6 +257,11 @@ that a dispatchable workflow be registered on the default branch. Execution
 success remains execution evidence only and does not imply scientific validity
 or consumer acceptance. See `skills/github-actions-observation/README.md`.
 
+For ChatGPT-hosted GitHub connectors, issue #31 defines a credential-free
+workflow-dispatch action contract and response normalization in
+`src/chatgpt_operation/github/connector_dispatch.py`. This repository does not
+own the connector-held credential or the host's callable tool inventory.
+
 ## Characterized ownership migration
 
 The trigger-loaded `characterized-ownership-migration` skill defines reusable cutover and retirement gates for accepted ownership refactors.
