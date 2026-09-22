@@ -219,6 +219,39 @@ def load_matrix_manifest(path: str | Path) -> MatrixManifest:
     )
 
 
+def detect_execution_mode(path: str | Path) -> dict[str, object]:
+    """Classify an experiment manifest as serial or matrix from declared cases.
+
+    Routing is shape-based, never sequence-number based:
+      * no cases field -> serial;
+      * one or more declared cases -> matrix;
+      * an explicitly empty cases array -> invalid.
+
+    The full matrix loader remains authoritative for matrix validation.
+    """
+    source = Path(path).resolve()
+    try:
+        raw = json.loads(source.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise MatrixError(f"invalid experiment manifest JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise MatrixError("experiment manifest root must be an object")
+
+    if "cases" not in raw:
+        return {"mode": "serial", "case_count": 0}
+
+    cases = raw["cases"]
+    if not isinstance(cases, list):
+        raise MatrixError("cases must be an array when present")
+    if not cases:
+        raise MatrixError(
+            "cases is present but empty; omit cases for serial execution or "
+            "declare at least one case for governed-matrix"
+        )
+    if len(cases) > 16:
+        raise MatrixError("cases must contain 1..16 entries")
+    return {"mode": "matrix", "case_count": len(cases)}
+
 def _matrix_path(control_root: Path, manifest_path: Path) -> None:
     expected = control_root / "automation" / "manifests" / "experiments"
     if not _under(manifest_path, expected):

@@ -13,7 +13,7 @@ from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, Action
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
-from chatgpt_operation.work.matrix import MatrixError, create_bundle, extract_bundle, plan as matrix_plan, run_aggregate as execute_matrix_aggregate, run_case as execute_matrix_case, self_test as matrix_self_test
+from chatgpt_operation.work.matrix import MatrixError, create_bundle, detect_execution_mode, extract_bundle, plan as matrix_plan, run_aggregate as execute_matrix_aggregate, run_case as execute_matrix_case, self_test as matrix_self_test
 from chatgpt_operation.work.runner import execute as execute_work, self_test as work_self_test
 from chatgpt_operation.work.scaffold import create_manifest
 
@@ -90,6 +90,20 @@ def work_test(args: argparse.Namespace) -> int:
     return work_self_test()
 
 
+
+def matrix_route_cmd(args: argparse.Namespace) -> int:
+    try:
+        result = detect_execution_mode(args.manifest)
+    except MatrixError as exc:
+        print(f"MATRIX_ROUTE_ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.github_output:
+        with Path(args.github_output).open("a", encoding="utf-8") as handle:
+            handle.write("mode=" + str(result["mode"]) + "\n")
+            handle.write("case_count=" + str(result["case_count"]) + "\n")
+    print("MATRIX_ROUTE=PASS")
+    print(json.dumps(result, sort_keys=True))
+    return 0
 
 def matrix_plan_cmd(args: argparse.Namespace) -> int:
     try:
@@ -349,6 +363,10 @@ def parser() -> argparse.ArgumentParser:
 
 
     mx=sub.add_parser("matrix"); mxs=mx.add_subparsers(dest="command",required=True)
+    mr=mxs.add_parser("route")
+    mr.add_argument("--manifest",required=True)
+    mr.add_argument("--github-output")
+    mr.set_defaults(func=matrix_route_cmd)
     mp=mxs.add_parser("plan")
     mp.add_argument("--manifest",required=True); mp.add_argument("--control-root",required=True)
     mp.add_argument("--issue",required=True,type=int); mp.add_argument("--sequence",required=True,type=int)

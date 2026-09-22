@@ -20,6 +20,28 @@ This is deliberately separate from `governed-work`:
 - `governed-work` owns serial P0..Pn execution.
 - `governed-matrix` owns parallel case topology and build artifact transfer.
 
+## Mandatory routing rule
+
+Experiment execution topology is selected from the manifest shape, never from an
+issue number or sequence number.
+
+```text
+cases absent       -> governed-work serial execution
+cases length >= 1  -> governed-matrix execution
+cases = []         -> invalid manifest
+```
+
+When an experiment has one or more independent cases, the cases **must** be
+declared in the matrix manifest and executed through `governed-matrix`.
+A serial `governed-work` stage must not hide a multi-case sweep inside an
+internal Python/shell loop.  Prepare/build work belongs in the prepare manifest;
+independent cases fan out through matrix runners; cross-case interpretation
+belongs in the optional aggregate step.
+
+Consumer workflows must route from this manifest classification. They must not
+hard-code matrix eligibility by issue number, sequence number, case name, or
+historical allowlist.
+
 ## Consumer contract
 
 The consumer checks in one matrix manifest plus one ordinary prepare manifest.
