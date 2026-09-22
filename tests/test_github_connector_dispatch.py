@@ -30,6 +30,16 @@ class ConnectorDispatchContractTests(unittest.TestCase):
         self.assertTrue(request["return_run_details"])
         self.assertNotIn("token", request)
 
+    def test_workflow_inputs_are_not_filtered_by_secret_like_names(self):
+        inputs = {"token": "consumer-owned-value", "mode": "smoke"}
+        request = build_dispatch_action_request(
+            repository="o/r",
+            workflow="experiment.yml",
+            ref="feature",
+            inputs=inputs,
+        )
+        self.assertEqual(request["inputs"], inputs)
+
     def test_explicit_correlation_input_is_injected_only_when_requested(self):
         request = build_dispatch_action_request(
             repository="o/r",
