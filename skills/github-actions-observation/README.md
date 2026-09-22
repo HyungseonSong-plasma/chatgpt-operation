@@ -139,6 +139,58 @@ PYTHONPATH=src python3 -m chatgpt_operation.cli github dispatch-actions \
 Dispatch/observation success remains execution evidence only. Consumers retain
 all scientific, acceptance, scheduling, and domain decisions.
 
+
+## ChatGPT connector dispatch action contract
+
+Issue #31 separates the authenticated connector action from the deterministic
+runtime. A ChatGPT-hosted GitHub connector action should accept credential-free
+arguments equivalent to:
+
+```text
+repository
+workflow
+ref
+inputs
+correlation_id
+correlation_input
+expected_head_sha
+return_run_details = true
+```
+
+The connector/tool host owns the GitHub App credential and authenticated REST
+transport. The raw credential must never be returned to the model, written into
+the repository, or embedded in the dispatch receipt.
+
+The portable helper
+`chatgpt_operation.github.connector_dispatch.build_dispatch_action_request`
+constructs this credential-free request. The connector action must resolve the
+workflow registered on the default branch, dispatch it against the requested
+branch/tag ref, and return:
+
+```text
+workflow_id
+workflow_name/path
+dispatch_status = 200 | 204
+requested_at
+workflow_run_id / run_url / html_url when GitHub supplies direct details
+```
+
+`normalize_dispatch_action_result` converts that response into the same receipt
+consumed by the #26 observation runtime. A direct `workflow_run_id` is the
+strongest causal binding. When direct details are absent, observation retains
+the existing complete-enumeration/fail-closed rules; repeated same-ref/SHA
+dispatches must not be silently conflated.
+
+A connector action is an external host capability. Repository code can define,
+test, and consume this contract, but cannot make an unavailable ChatGPT
+connector action appear or access the connector-held GitHub credential.
+
+The first validation target is `moose-test-repo#309`, using `refactor.yml`
+on `main` without adding a temporary push-trigger workflow. Its workflow does
+not declare a correlation input, so the dispatch should preserve its supplied
+inputs exactly and rely on direct run details when available.
+
+
 ## Consumer mapping
 
 Consumers may map observation statuses into their own state machines. For example, a controller may map `MATCHED_ACTIVE` to an external wait; a science workflow may report execution progress. Such mappings are consumer semantics and are not owned here.
