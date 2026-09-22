@@ -17,7 +17,7 @@ class ActionsObservationTests(unittest.TestCase):
         base.update(request)
         return {"request": base, "observation": {"observed_at": observed, "enumeration_complete": complete, "runs": runs or []}}
 
-    def run(self, **overrides):
+    def candidate_run(self, **overrides):
         base = {
             "run_id": 100,
             "workflow": "experiment.yml",
@@ -34,8 +34,8 @@ class ActionsObservationTests(unittest.TestCase):
         return base
 
     def test_active_and_terminal_match(self):
-        self.assertEqual(evaluate(self.snapshot(runs=[self.run()]))["status"], "MATCHED_ACTIVE")
-        self.assertEqual(evaluate(self.snapshot(runs=[self.run(status="completed", conclusion="success")]))["status"], "MATCHED_TERMINAL")
+        self.assertEqual(evaluate(self.snapshot(runs=[self.candidate_run()]))["status"], "MATCHED_ACTIVE")
+        self.assertEqual(evaluate(self.snapshot(runs=[self.candidate_run(status="completed", conclusion="success")]))["status"], "MATCHED_TERMINAL")
 
     def test_immediate_zero_is_pending_but_grace_expired_is_no_match(self):
         self.assertEqual(evaluate(self.snapshot())["status"], "PENDING_VISIBILITY")
@@ -49,24 +49,24 @@ class ActionsObservationTests(unittest.TestCase):
             {"workflow": "other.yml"}, {"event": "push"}, {"correlation_id": "other"},
             {"head_sha": "def456"}, {"ref": "refs/heads/other"}
         ):
-            self.assertEqual(evaluate(self.snapshot(observed="2026-09-21T10:02:00Z", runs=[self.run(**change)]))["status"], "NO_MATCH")
+            self.assertEqual(evaluate(self.snapshot(observed="2026-09-21T10:02:00Z", runs=[self.candidate_run(**change)]))["status"], "NO_MATCH")
 
     def test_stale_only(self):
-        stale = self.run(created_at="2026-09-21T09:59:59Z")
+        stale = self.candidate_run(created_at="2026-09-21T09:59:59Z")
         self.assertEqual(evaluate(self.snapshot(runs=[stale]))["status"], "STALE_ONLY")
 
     def test_duplicate_candidates_are_ambiguous(self):
-        runs = [self.run(run_id=100), self.run(run_id=101, created_at="2026-09-21T10:00:06Z")]
+        runs = [self.candidate_run(run_id=100), self.candidate_run(run_id=101, created_at="2026-09-21T10:00:06Z")]
         self.assertEqual(evaluate(self.snapshot(runs=runs))["status"], "AMBIGUOUS_MATCH")
 
     def test_run_attempt_distinguishes_rerun(self):
-        runs = [self.run(run_id=100, run_attempt=1), self.run(run_id=100, run_attempt=2)]
+        runs = [self.candidate_run(run_id=100, run_attempt=1), self.candidate_run(run_id=100, run_attempt=2)]
         result = evaluate(self.snapshot(runs=runs, run_attempt=2))
         self.assertEqual(result["status"], "MATCHED_ACTIVE")
         self.assertEqual(result["matched_run_ids"], [100])
 
     def test_missing_requested_evidence_fails_closed(self):
-        candidate = self.run(correlation_id=None)
+        candidate = self.candidate_run(correlation_id=None)
         self.assertEqual(evaluate(self.snapshot(runs=[candidate]))["status"], "OBSERVATION_INCOMPLETE")
 
 
