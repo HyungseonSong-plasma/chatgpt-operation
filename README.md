@@ -240,6 +240,23 @@ PYTHONPATH=src python3 -m chatgpt_operation.cli controller state-refresh-self-te
 See `skills/state-refresh/README.md` for the portable contract.
 
 
+## GitHub Actions observation v1
+
+The trigger-loaded `github-actions-observation` skill provides deterministic
+GitHub Actions run correlation plus a portable Python dispatch/observe runtime.
+
+```text
+workflow_dispatch request
+  -> optional direct workflow_run_id receipt
+  -> exact run observation
+  -> deterministic MATCHED_ACTIVE / MATCHED_TERMINAL / fail-closed status
+```
+
+It supports non-default branch/tag refs while preserving GitHub's requirement
+that a dispatchable workflow be registered on the default branch. Execution
+success remains execution evidence only and does not imply scientific validity
+or consumer acceptance. See `skills/github-actions-observation/README.md`.
+
 ## Governed matrix v1
 
 The sixth portable skill centralizes build-once / fan-out / fan-in experiment execution.

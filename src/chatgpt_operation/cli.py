@@ -8,6 +8,8 @@ from pathlib import Path
 from chatgpt_operation.controller.lifecycle import LifecycleError, evaluate as evaluate_controller, self_test as controller_self_test
 from chatgpt_operation.controller.throughput import ThroughputError, evaluate as evaluate_throughput, self_test as throughput_self_test
 from chatgpt_operation.controller.state_refresh import StateRefreshError, evaluate as evaluate_state_refresh, self_test as state_refresh_self_test
+from chatgpt_operation.github.actions_observation import evaluate as evaluate_actions_observation
+from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
@@ -164,6 +166,83 @@ def matrix_test_cmd(args: argparse.Namespace) -> int:
         return 2
 
 
+def actions_observe(args: argparse.Namespace) -> int:
+    try:
+        snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
+        result=evaluate_actions_observation(snapshot)
+    except (OSError,json.JSONDecodeError) as exc:
+        print(f"GITHUB_ACTIONS_OBSERVATION=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("GITHUB_ACTIONS_OBSERVATION="+result["status"])
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(f"GITHUB_ACTIONS_OBSERVATION=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
+def _action_inputs(values: list[str]) -> dict[str,str]:
+    result={}
+    for item in values:
+        if "=" not in item:
+            raise ValueError("--input must use KEY=VALUE")
+        key,value=item.split("=",1)
+        if not key or key in result:
+            raise ValueError("--input keys must be non-empty and unique")
+        result[key]=value
+    return result
+
+
+def actions_dispatch(args: argparse.Namespace) -> int:
+    token=os.environ.get(args.token_env)
+    if not token:
+        print(f"{args.token_env} is required",file=sys.stderr)
+        return 2
+    try:
+        inputs=_action_inputs(args.input)
+        transport=GitHubActionsTransport(
+            args.repository,
+            token,
+            api_url=args.api_url,
+            api_version=args.api_version,
+        )
+        correlation_input=None if args.no_correlation_input else args.correlation_input
+        receipt=dispatch_workflow(
+            transport,
+            workflow=args.workflow,
+            ref=args.ref,
+            inputs=inputs,
+            correlation_id=args.correlation_id,
+            correlation_input=correlation_input,
+        )
+        result={"dispatch":receipt}
+        if args.wait:
+            result["observation"]=wait_for_dispatch(
+                transport,
+                receipt,
+                visibility_grace_seconds=args.visibility_grace,
+                expected_head_sha=args.expected_head_sha,
+                run_attempt=args.run_attempt,
+                timeout_seconds=args.timeout,
+                poll_interval_seconds=args.poll_interval,
+            )
+    except (ActionsRuntimeError,ValueError) as exc:
+        print(f"GITHUB_ACTIONS_DISPATCH=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("GITHUB_ACTIONS_DISPATCH=PASS")
+    if "observation" in result:
+        print("GITHUB_ACTIONS_OBSERVATION="+result["observation"]["status"])
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(f"GITHUB_ACTIONS_DISPATCH=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
 def controller_evaluate(args: argparse.Namespace) -> int:
     try:
         snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -296,6 +375,24 @@ def parser() -> argparse.ArgumentParser:
     ma.set_defaults(func=matrix_aggregate_cmd)
     mt=mxs.add_parser("self-test"); mt.set_defaults(func=matrix_test_cmd)
 
+    gh=sub.add_parser("github"); ghs=gh.add_subparsers(dest="command",required=True)
+    go=ghs.add_parser("observe-actions")
+    go.add_argument("--input",required=True); go.add_argument("--result")
+    go.set_defaults(func=actions_observe)
+    gd=ghs.add_parser("dispatch-actions")
+    gd.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
+    gd.add_argument("--workflow",required=True); gd.add_argument("--ref",required=True)
+    gd.add_argument("--input",action="append",default=[])
+    gd.add_argument("--correlation-id"); gd.add_argument("--correlation-input",default="correlation_id")
+    gd.add_argument("--no-correlation-input",action="store_true"); gd.add_argument("--wait",action="store_true")
+    gd.add_argument("--expected-head-sha"); gd.add_argument("--run-attempt",type=int)
+    gd.add_argument("--visibility-grace",type=int,default=60)
+    gd.add_argument("--timeout",type=float,default=600); gd.add_argument("--poll-interval",type=float,default=5)
+    gd.add_argument("--token-env",default="GITHUB_TOKEN")
+    gd.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
+    gd.add_argument("--api-version",default=DEFAULT_API_VERSION); gd.add_argument("--result")
+    gd.set_defaults(func=actions_dispatch)
+
     ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
     ce.set_defaults(func=controller_evaluate)
@@ -311,6 +408,8 @@ def parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     p=parser(); args=p.parse_args(argv)
     if args.group=="repository" and not args.repository:
+        p.error("--repository or GITHUB_REPOSITORY is required")
+    if args.group=="github" and args.command=="dispatch-actions" and not args.repository:
         p.error("--repository or GITHUB_REPOSITORY is required")
     return args.func(args)
 

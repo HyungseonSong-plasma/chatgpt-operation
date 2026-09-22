@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatgpt-operation.local/schemas/github-actions-observation.schema.json",
+  "title": "GitHub Actions Observation Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request", "observation"],
+  "properties": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "event", "requested_at", "visibility_grace_seconds"],
+      "properties": {
+        "workflow": {"type": "string", "minLength": 1},
+        "event": {"enum": ["workflow_dispatch", "pull_request", "push", "schedule"]},
+        "correlation_id": {"type": ["string", "null"]},
+        "head_sha": {"type": ["string", "null"]},
+        "ref": {"type": ["string", "null"]},
+        "requested_at": {"type": "string", "format": "date-time"},
+        "visibility_grace_seconds": {"type": "integer", "minimum": 0},
+        "run_attempt": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed_at", "enumeration_complete", "runs"],
+      "properties": {
+        "observed_at": {"type": "string", "format": "date-time"},
+        "enumeration_complete": {"type": "boolean"},
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["run_id", "workflow", "event", "created_at", "run_attempt", "status"],
+            "properties": {
+              "run_id": {"type": "integer", "minimum": 1},
+              "workflow": {"type": "string", "minLength": 1},
+              "event": {"type": "string", "minLength": 1},
+              "correlation_id": {"type": ["string", "null"]},
+              "head_sha": {"type": ["string", "null"]},
+              "ref": {"type": ["string", "null"]},
+              "created_at": {"type": "string", "format": "date-time"},
+              "run_attempt": {"type": "integer", "minimum": 1},
+              "status": {"type": "string", "minLength": 1},
+              "conclusion": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

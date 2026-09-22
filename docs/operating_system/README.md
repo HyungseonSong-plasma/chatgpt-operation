@@ -132,6 +132,7 @@ repository-mutation
 governed-work
 controller-throughput
 controller-lifecycle
+github-actions-observation
 ```
 
 The existence of a skill does not imply permanent activation. Skills are loaded only when their trigger applies.
