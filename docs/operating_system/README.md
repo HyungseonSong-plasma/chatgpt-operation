@@ -132,6 +132,7 @@ repository-mutation
 governed-work
 controller-throughput
 controller-lifecycle
+github-actions-execution
 github-actions-observation
 ```
 
