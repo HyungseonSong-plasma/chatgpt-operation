@@ -26,6 +26,17 @@ class SkillCatalogTests(unittest.TestCase):
         for skill in validate_catalog(self.catalog()):
             self.assertTrue(Path(skill["path"]).is_file(), skill["path"])
 
+    def test_catalog_covers_every_live_skill_directory(self):
+        catalog_names = {
+            skill["name"] for skill in validate_catalog(self.catalog())
+        }
+        live_names = {
+            path.name
+            for path in Path("skills").iterdir()
+            if path.is_dir() and (path / "README.md").is_file()
+        }
+        self.assertEqual(catalog_names, live_names)
+
     def test_actions_execution_is_immediately_resolvable(self):
         result = resolve_triggers(
             self.catalog(), ["GITHUB_ACTIONS_EXECUTION"]
