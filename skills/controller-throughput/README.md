@@ -57,6 +57,16 @@ expected launch + exact_head_runs == 0
 
 Retargeting a PR to a monitored base is a common failure mode because workflow event filters may not run on a base edit unless the consumer explicitly covers that event.
 
+
+When the missing route is a GitHub Actions execution problem, delegate route
+selection to the trigger-loaded `github-actions-execution` skill. The
+throughput skill should consume its result rather than deciding between
+`workflow_dispatch`, existing triggers, reruns, or one-shot workflows itself.
+
+`ROUTE_READY` means the validation route is repairable/executable through the
+selected route. Only `NO_AUTHORIZED_ROUTE` or `NO_SAFE_EQUIVALENT_ROUTE`
+constitutes a real execution-route gate.
+
 ## Work-burst rule
 
 Within one invocation:
