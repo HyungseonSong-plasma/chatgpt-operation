@@ -32,6 +32,7 @@ docs/operating_system/COMMON_RULE_EXTRACTION.md
 docs/operating_system/EVOLUTION.md
 docs/operating_system/versions/2026-09-20_paul.md
 skills/session-bootstrap/README.md
+skills/catalog.json
 ```
 
 ## Paul rule model
@@ -120,6 +121,11 @@ consumer-specific report additions
 ```
 
 Initialization is read-only and fails closed when required operating authority cannot be verified.
+
+The lightweight central trigger registry is `skills/catalog.json`. During
+initialization, `session-bootstrap` indexes this metadata and may trigger-load
+the skill required by the immediate obligation after current consumer state is
+known. This does not preload every skill and does not grant execution authority.
 
 ## Live skill set
 
