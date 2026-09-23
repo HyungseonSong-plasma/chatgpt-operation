@@ -262,6 +262,26 @@ workflow-dispatch action contract and response normalization in
 `src/chatgpt_operation/github/connector_dispatch.py`. This repository does not
 own the connector-held credential or the host's callable tool inventory.
 
+
+## GitHub Actions execution v1
+
+The trigger-loaded `github-actions-execution` skill selects a safe execution
+route without treating `workflow_dispatch` as an implicit requirement.
+
+```text
+required execution claim
+  -> fresh route capabilities
+  -> deterministic sufficiency filter
+  -> direct dispatch / existing trigger / rerun / one-shot
+  -> repository-mutation handoff when needed
+  -> github-actions-observation
+  -> cleanup obligation for one-shot routes
+```
+
+A missing preferred mechanism is not a missing execution route. Event identity
+is preserved only when the event itself is part of the required claim. See
+`skills/github-actions-execution/README.md`.
+
 ## Characterized ownership migration
 
 The trigger-loaded `characterized-ownership-migration` skill defines reusable cutover and retirement gates for accepted ownership refactors.
