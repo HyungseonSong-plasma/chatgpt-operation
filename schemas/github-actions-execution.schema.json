@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatgpt-operation.local/schemas/github-actions-execution.schema.json",
+  "title": "GitHub Actions execution route snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request", "routes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_claim",
+        "required_event",
+        "require_exact_head",
+        "mutation_authorized"
+      ],
+      "properties": {
+        "required_claim": {"type": "string", "minLength": 1},
+        "required_event": {"type": ["string", "null"]},
+        "require_exact_head": {"type": "boolean"},
+        "mutation_authorized": {"type": "boolean"}
+      }
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "available",
+          "authorized",
+          "event",
+          "preserves_exact_head",
+          "observable",
+          "bounded",
+          "requires_repository_mutation",
+          "cleanup_available"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {
+            "enum": [
+              "DIRECT_WORKFLOW_DISPATCH",
+              "EXISTING_WORKFLOW_TRIGGER",
+              "RERUN_EXISTING_RUN",
+              "ONE_SHOT_WORKFLOW"
+            ]
+          },
+          "available": {"type": "boolean"},
+          "authorized": {"type": "boolean"},
+          "event": {"type": "string", "minLength": 1},
+          "preserves_exact_head": {"type": "boolean"},
+          "observable": {"type": "boolean"},
+          "bounded": {"type": "boolean"},
+          "requires_repository_mutation": {"type": "boolean"},
+          "cleanup_available": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}
