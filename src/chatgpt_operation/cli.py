@@ -9,6 +9,7 @@ from chatgpt_operation.controller.lifecycle import LifecycleError, evaluate as e
 from chatgpt_operation.controller.throughput import ThroughputError, evaluate as evaluate_throughput, self_test as throughput_self_test
 from chatgpt_operation.controller.state_refresh import StateRefreshError, evaluate as evaluate_state_refresh, self_test as state_refresh_self_test
 from chatgpt_operation.github.actions_observation import evaluate as evaluate_actions_observation
+from chatgpt_operation.github.actions_execution import ActionsExecutionError, evaluate as evaluate_actions_execution, self_test as actions_execution_self_test
 from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
@@ -195,6 +196,31 @@ def actions_observe(args: argparse.Namespace) -> int:
         print(f"GITHUB_ACTIONS_OBSERVATION=HARD_STOP result persistence: {exc}",file=sys.stderr)
         return 3
     return 0
+
+
+def actions_execution_plan(args: argparse.Namespace) -> int:
+    try:
+        snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
+        result=evaluate_actions_execution(snapshot)
+    except (OSError,json.JSONDecodeError,ActionsExecutionError) as exc:
+        print(f"GITHUB_ACTIONS_EXECUTION=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("GITHUB_ACTIONS_EXECUTION="+result["status"])
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(f"GITHUB_ACTIONS_EXECUTION=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
+def actions_execution_test(args: argparse.Namespace) -> int:
+    try:
+        return actions_execution_self_test()
+    except ActionsExecutionError as exc:
+        print(f"GITHUB_ACTIONS_EXECUTION=HARD_STOP {exc}",file=sys.stderr)
+        return 2
 
 
 def _action_inputs(values: list[str]) -> dict[str,str]:
@@ -397,6 +423,11 @@ def parser() -> argparse.ArgumentParser:
     go=ghs.add_parser("observe-actions")
     go.add_argument("--input",required=True); go.add_argument("--result")
     go.set_defaults(func=actions_observe)
+    gp=ghs.add_parser("plan-actions-execution")
+    gp.add_argument("--input",required=True); gp.add_argument("--result")
+    gp.set_defaults(func=actions_execution_plan)
+    gt=ghs.add_parser("actions-execution-self-test")
+    gt.set_defaults(func=actions_execution_test)
     gd=ghs.add_parser("dispatch-actions")
     gd.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
     gd.add_argument("--workflow",required=True); gd.add_argument("--ref",required=True)
