@@ -89,6 +89,14 @@
         "ARTIFACT_STAGING"
       ],
       "activation": "trigger"
+    },
+    {
+      "name": "scientific-discriminator-controller",
+      "path": "skills/scientific-discriminator-controller/README.md",
+      "load_on": [
+        "SCIENTIFIC_DISCRIMINATOR_CONTROLLER"
+      ],
+      "activation": "trigger"
     }
   ]
 }
