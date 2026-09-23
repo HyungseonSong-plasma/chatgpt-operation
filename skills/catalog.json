@@ -4,61 +4,90 @@
     {
       "name": "session-bootstrap",
       "path": "skills/session-bootstrap/README.md",
-      "load_on": ["INIT"],
+      "load_on": [
+        "INIT"
+      ],
       "activation": "init"
     },
     {
       "name": "state-refresh",
       "path": "skills/state-refresh/README.md",
-      "load_on": ["INIT", "SCHEDULED_CONTROLLER"],
+      "load_on": [
+        "INIT",
+        "SCHEDULED_CONTROLLER"
+      ],
       "activation": "init_or_trigger"
     },
     {
       "name": "repository-mutation",
       "path": "skills/repository-mutation/README.md",
-      "load_on": ["MUTATE"],
+      "load_on": [
+        "MUTATE"
+      ],
       "activation": "trigger"
     },
     {
       "name": "governed-work",
       "path": "skills/governed-work/README.md",
-      "load_on": ["GOVERNED_WORK"],
+      "load_on": [
+        "GOVERNED_WORK"
+      ],
       "activation": "trigger"
     },
     {
       "name": "controller-throughput",
       "path": "skills/controller-throughput/README.md",
-      "load_on": ["SCHEDULED_CONTROLLER"],
+      "load_on": [
+        "SCHEDULED_CONTROLLER"
+      ],
       "activation": "trigger"
     },
     {
       "name": "controller-lifecycle",
       "path": "skills/controller-lifecycle/README.md",
-      "load_on": ["SCHEDULED_CONTROLLER"],
+      "load_on": [
+        "SCHEDULED_CONTROLLER"
+      ],
       "activation": "trigger"
     },
     {
       "name": "github-actions-execution",
       "path": "skills/github-actions-execution/README.md",
-      "load_on": ["GITHUB_ACTIONS_EXECUTION"],
+      "load_on": [
+        "GITHUB_ACTIONS_EXECUTION"
+      ],
       "activation": "trigger"
     },
     {
       "name": "github-actions-observation",
       "path": "skills/github-actions-observation/README.md",
-      "load_on": ["GITHUB_ACTIONS_OBSERVATION"],
+      "load_on": [
+        "GITHUB_ACTIONS_OBSERVATION"
+      ],
       "activation": "trigger"
     },
     {
       "name": "characterized-ownership-migration",
       "path": "skills/characterized-ownership-migration/README.md",
-      "load_on": ["CHARACTERIZED_OWNERSHIP_MIGRATION"],
+      "load_on": [
+        "CHARACTERIZED_OWNERSHIP_MIGRATION"
+      ],
       "activation": "trigger"
     },
     {
       "name": "governed-matrix",
       "path": "skills/governed-matrix/README.md",
-      "load_on": ["GOVERNED_MATRIX"],
+      "load_on": [
+        "GOVERNED_MATRIX"
+      ],
+      "activation": "trigger"
+    },
+    {
+      "name": "artifact-staging",
+      "path": "skills/artifact-staging/README.md",
+      "load_on": [
+        "ARTIFACT_STAGING"
+      ],
       "activation": "trigger"
     }
   ]
