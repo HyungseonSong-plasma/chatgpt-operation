@@ -14,10 +14,13 @@ consumer binding
 -> Paul OS identity
 -> Paul essential rules
 -> required init skills
+-> central skill catalog metadata
 -> consumer repository identity
 -> durable current work state
 -> current decision-critical evidence
 -> first real gate
+-> immediate-obligation trigger resolution
+-> triggered skill contracts for that obligation
 -> concise initialization report
 ```
 
@@ -80,13 +83,26 @@ Require the OS registry to identify Paul as ACTIVE.
 
 If the expected version and central registry disagree, fail closed.
 
-### SB-03 — Load only required init skills
+### SB-03 — Load only required init skills and index the skill catalog
 
 Load the skill contracts explicitly required by the consumer for initialization.
 
-Do not load every central skill merely because it exists.
+At the same exact central revision, read the lightweight machine-readable trigger
+index:
 
-A missing required init skill blocks completed initialization. A mode/action skill that is not currently triggered remains dormant.
+```text
+skills/catalog.json
+```
+
+Indexing the catalog is not the same as loading every skill contract. It loads
+only names, paths, and trigger metadata so later skill activation does not
+depend on chat memory or manual discovery.
+
+Do not preload every central skill merely because it exists.
+
+A missing required init skill or unreadable/malformed central catalog blocks
+completed initialization. A mode/action skill that is not currently triggered
+remains dormant.
 
 ### SB-04 — Restore consumer authority
 
@@ -131,6 +147,35 @@ The consumer may extend this vocabulary.
 
 Do not silently convert uncertainty into a decision.
 
+### SB-06A — Resolve immediate-obligation skill triggers
+
+After current state and the first real gate are known, determine which generic
+central trigger(s), if any, apply to the immediate obligation. Consumer-local
+routing remains authoritative for domain meaning; central trigger names select
+portable mechanics only.
+
+Resolve the trigger(s) against `skills/catalog.json` from the same exact
+central revision. Load only the matching skill contract(s) before producing the
+init report.
+
+Examples:
+
+```text
+current obligation = launch or repair a GitHub Actions execution route
+trigger            = GITHUB_ACTIONS_EXECUTION
+load               = skills/github-actions-execution/README.md
+
+current obligation = correlate an already-launched Actions run
+trigger            = GITHUB_ACTIONS_OBSERVATION
+load               = skills/github-actions-observation/README.md
+```
+
+This activation is still read-only. Loading a mutation-capable skill does not
+grant mutation authority and does not execute the operation.
+
+If an explicitly required trigger cannot be resolved in the exact catalog,
+fail closed for the affected action instead of guessing a skill path.
+
 ### SB-07 — Report and stop read-only
 
 A successful init report should include at least:
@@ -140,6 +185,9 @@ OS = Paul
 exact central revision
 essential rules loaded
 init skills loaded
+central skill catalog indexed
+trigger(s) resolved for the immediate obligation
+triggered skill contracts loaded
 consumer repository/ref
 current work item/state when applicable
 first real gate
@@ -161,16 +209,19 @@ session-bootstrap
   -> consumer-local routing/semantic interpretation
 ```
 
-Later actions may load:
+The init cycle may also trigger-load the exact skill needed for the immediate
+next obligation after current state is known:
 
 ```text
-repository-mutation
-governed-work
-controller-throughput
-controller-lifecycle
+GITHUB_ACTIONS_EXECUTION   -> github-actions-execution
+GITHUB_ACTIONS_OBSERVATION -> github-actions-observation
+MUTATE                     -> repository-mutation
+GOVERNED_WORK              -> governed-work
+SCHEDULED_CONTROLLER       -> state-refresh + controller-throughput + controller-lifecycle
 ```
 
-only when their trigger applies.
+Other cataloged skills remain dormant until their trigger applies. Trigger-load
+during init means "ready to use after init", not "execute during init".
 
 ## Safety invariants
 
