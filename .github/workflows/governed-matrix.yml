@@ -82,6 +82,9 @@ jobs:
           fetch-depth: 1
 
       - name: Run governed prepare
+        env:
+          CHATGPT_OPERATION_ROOT: ${{ github.workspace }}/operation
+          CHATGPT_OPERATION_SHA: ${{ inputs.operation_sha }}
         shell: bash
         run: |
           set -euo pipefail

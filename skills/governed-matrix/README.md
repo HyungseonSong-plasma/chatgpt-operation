@@ -114,3 +114,19 @@ jobs:
 - Every case writes deterministic evidence and its upload step uses `always()`.
 - Aggregate runs after case completion even when a case fails, provided prepare succeeded.
 - Scientific interpretation remains consumer-owned.
+
+
+## External build-artifact staging
+
+When prepare/build produces a runtime-critical file outside the consumer workspace, trigger `ARTIFACT_STAGING` and use the central `artifact-staging` skill before bundle creation.
+
+The caller must establish the exact source path from current build/runtime evidence. Guessed paths, globbed copy commands, recursive discovery, and basename-only selection are not accepted staging contracts.
+
+For nested Docker/runtime preparation, the reusable workflow exposes the exact operation checkout to the prepare process through:
+
+```text
+CHATGPT_OPERATION_ROOT
+CHATGPT_OPERATION_SHA
+```
+
+Consumers may mount that exact checkout read-only into the nested runtime and invoke `chatgpt_operation.artifact_staging`. The staged repository-relative destination is then safe to declare in `bundle_paths`.
