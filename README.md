@@ -46,9 +46,11 @@ exact consumer binding
   -> verify Paul
   -> load Paul essential rules
   -> load required init skills
+  -> index central skills/catalog.json trigger metadata
   -> restore consumer-local authority and current state
-  -> identify first real gate
-  -> report and stop read-only
+  -> identify first real gate and immediate obligation
+  -> trigger-load only the matching skill contract(s)
+  -> report ready-to-use skill context and stop read-only
 ```
 
 Consumer repositories supply only their local authority entry points, state/evidence locators, and required skill triggers.
