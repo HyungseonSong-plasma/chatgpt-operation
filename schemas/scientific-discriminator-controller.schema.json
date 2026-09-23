@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scientific discriminator controller plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "cycle_id",
+    "baseline_sha",
+    "baseline_evidence",
+    "objective",
+    "frozen_invariants",
+    "hypotheses",
+    "experiments"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "cycle_id": {"type": "string", "minLength": 1},
+    "baseline_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "baseline_evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture_invariant", "metric", "target", "success_condition"],
+      "properties": {
+        "architecture_invariant": {"type": "string", "minLength": 1},
+        "metric": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "success_condition": {"type": "string", "minLength": 1}
+      }
+    },
+    "frozen_invariants": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "shared_inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "evidence", "access"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string", "minLength": 1},
+          "access": {"const": "read_only"}
+        }
+      }
+    },
+    "hypotheses": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "mechanism", "falsifier", "prior_evidence"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "statement": {"type": "string", "minLength": 1},
+          "mechanism": {"type": "string", "minLength": 1},
+          "falsifier": {"type": "string", "minLength": 1},
+          "prior_evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "experiments": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "hypothesis_id", "lane_id", "base_sha", "branch", "workspace",
+          "artifact_namespace", "mutation_scope", "discriminating_observables", "controls"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "hypothesis_id": {"type": "string", "minLength": 1},
+          "lane_id": {"type": "string", "minLength": 1},
+          "base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "branch": {"type": "string", "minLength": 1},
+          "workspace": {"type": "string", "minLength": 1},
+          "artifact_namespace": {"type": "string", "minLength": 1},
+          "shared_input_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "mutation_scope": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "discriminating_observables": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "controls": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "change"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "change": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
