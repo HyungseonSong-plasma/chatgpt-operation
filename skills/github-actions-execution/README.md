@@ -2,7 +2,7 @@
 
 **Status:** portable skill contract  
 **OS generation:** Paul  
-**Activation:** trigger-loaded only; normal Paul initialization does not load this skill.
+**Activation:** trigger-loaded only; it is not preloaded, but `session-bootstrap` may load it during initialization when the immediate obligation resolves `GITHUB_ACTIONS_EXECUTION`.
 
 ## Purpose
 
