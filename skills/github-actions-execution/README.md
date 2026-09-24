@@ -68,6 +68,24 @@ Current working directory alone is not evidence that direct-script imports will 
 
 For newly generated direct Python control scripts, perform this check before expensive P0/P1/P2/build/simulation execution.
 
+### Reused-generation dependency closure
+
+When a consumer declares that a capability, operator, harness, or experiment implementation is reused from an earlier generation or exact head, do not treat the named top-level script as the complete dependency.
+
+Before launch, resolve and verify the reused capability's dependency closure at the new exact consumer head, including as applicable:
+
+- imported helper/control modules;
+- C/C++ headers and source files that register application objects referenced by generated inputs;
+- application registration/build inputs required for those objects to exist at runtime;
+- templates, data files, manifests, and generated-input dependencies;
+- output/discovery helpers consumed by later prepare, case, or aggregate stages.
+
+Prefer an explicit reuse manifest or machine-checkable dependency list when the reused capability spans more than one file. A claim such as "reuse Gen N operator" is incomplete until its required dependency set is present and build/input validation proves the reused capability is available.
+
+If the new generation intentionally starts from a later baseline that removed the reused capability, restore the complete frozen dependency set from the declared source exact head before scientific execution. Do not reconstruct or silently modify the scientific implementation while repairing dependency closure.
+
+A missing member of this closure is an `INFRASTRUCTURE_HARNESS_FAILURE`, not scientific evidence.
+
 ### Failure semantics
 
 A missing repository package/import, missing harness dependency, executable/path mismatch, or generated-output discovery mismatch that occurs before scientific execution is:
