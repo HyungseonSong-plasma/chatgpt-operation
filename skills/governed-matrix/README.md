@@ -102,7 +102,7 @@ jobs:
 
 ## Python entrypoint preflight
 
-When a prepare, case, or aggregate command launches a repository Python file directly (for example `python3 path/to/control.py`), trigger `PYTHON_ENTRYPOINT` and apply the `python-entrypoint-preflight` skill before execution. Repository-local imports must have an explicit import contract; current working directory is not sufficient evidence.
+When a prepare, case, or aggregate command launches a consumer command, apply the execution/harness preflight in `github-actions-execution` before launch. In particular, repository-local Python imports must have an explicit import contract; current working directory is not sufficient evidence.
 
 A repository-local `ModuleNotFoundError` in prepare is a harness/infrastructure failure. It does not classify the scientific case. Repair the entrypoint/launcher, preserve scientific inputs, and relaunch at a new exact consumer head.
 
