@@ -97,6 +97,14 @@
         "SCIENTIFIC_DISCRIMINATOR_CONTROLLER"
       ],
       "activation": "trigger"
+    },
+    {
+      "name": "python-entrypoint-preflight",
+      "path": "skills/python-entrypoint-preflight/README.md",
+      "load_on": [
+        "PYTHON_ENTRYPOINT"
+      ],
+      "activation": "trigger"
     }
   ]
 }
