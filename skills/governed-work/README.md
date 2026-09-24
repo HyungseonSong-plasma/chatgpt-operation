@@ -59,3 +59,22 @@ scientific_result = UNRESOLVED
 The repair obligation is limited to the owning harness/manifest ordering. It MUST NOT change scientific equations, tolerances, convergence criteria, timestep hierarchy, controls, or acceptance thresholds to obtain a green run.
 
 This check occurs before expensive runtime execution whenever the dependency is statically knowable.
+
+
+### Non-mutating capability probe invariant
+
+A capability-probe/inspection stage that consumes an already qualified producer artifact MUST be observational by default.
+
+```text
+producer/build -> qualified artifact -> read-only capability probe
+```
+
+The probe MUST NOT implicitly rerun the producer/build, regenerate its workspace, delete producer outputs, or mutate producer-owned cache/output directories merely to inspect the artifact. In particular:
+
+```text
+probe != rebuild
+probe != regenerate
+probe != cleanup producer workspace
+```
+
+If a probe needs a different artifact state, that state requires an explicit producer stage and dependency edge. A probe-side rebuild or cleanup failure is `INFRASTRUCTURE_HARNESS_FAILURE`; the scientific result remains `UNRESOLVED`. Repair the harness ownership/ordering only.
