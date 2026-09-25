@@ -1,5 +1,7 @@
 from chatgpt_operation.controller.research import (
     AnalysisResult,
+    DecisionRisk,
+    EscalationPolicy,
     HypothesisResult,
     ResearchStage,
     ResearchState,
