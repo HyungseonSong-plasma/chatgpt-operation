@@ -80,6 +80,39 @@ class HypothesisResult:
 
 
 @dataclass(frozen=True)
+class DecisionRisk:
+    impact: float
+    uncertainty: float
+    irreversibility: float
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "DecisionRisk":
+        values = {}
+        for name in ("impact", "uncertainty", "irreversibility"):
+            value = float(raw.get(name, -1))
+            if not 0.0 <= value <= 1.0:
+                raise ResearchStateError(f"{name} must be in [0, 1]")
+            values[name] = value
+        return cls(**values)
+
+    @property
+    def score(self) -> float:
+        return self.impact * self.uncertainty * self.irreversibility
+
+
+@dataclass(frozen=True)
+class EscalationPolicy:
+    threshold: float = 0.5
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.threshold <= 1.0:
+            raise ResearchStateError("escalation threshold must be in [0, 1]")
+
+    def requires_escalation(self, risk: DecisionRisk) -> bool:
+        return risk.score >= self.threshold
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     hypothesis_status: str
     confidence: float
