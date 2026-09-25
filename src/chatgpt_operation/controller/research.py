@@ -181,8 +181,11 @@ class ResearchState:
         )
 
 
-def next_stage_from_analysis(result: AnalysisResult) -> ResearchStage:
+def next_stage_from_analysis(result: AnalysisResult, escalation_policy: EscalationPolicy | None = None) -> ResearchStage:
+    policy = escalation_policy or EscalationPolicy()
     if result.high_consequence_ambiguity:
+        return ResearchStage.ESCALATE
+    if result.decision_risk is not None and policy.requires_escalation(result.decision_risk):
         return ResearchStage.ESCALATE
     if result.knowledge_gap:
         return ResearchStage.ACQUIRE_KNOWLEDGE
