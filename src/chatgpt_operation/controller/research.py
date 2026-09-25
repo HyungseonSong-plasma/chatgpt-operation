@@ -119,6 +119,7 @@ class AnalysisResult:
     knowledge_gap: bool = False
     additional_experiment_needed: bool = False
     high_consequence_ambiguity: bool = False
+    decision_risk: DecisionRisk | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "AnalysisResult":
@@ -134,6 +135,7 @@ class AnalysisResult:
             knowledge_gap=bool(raw.get("knowledge_gap", False)),
             additional_experiment_needed=bool(raw.get("additional_experiment_needed", False)),
             high_consequence_ambiguity=bool(raw.get("high_consequence_ambiguity", False)),
+            decision_risk=(DecisionRisk.from_dict(raw["decision_risk"]) if raw.get("decision_risk") is not None else None),
         )
 
 
