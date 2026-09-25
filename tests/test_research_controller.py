@@ -76,3 +76,39 @@ def test_analysis_routes_high_consequence_ambiguity_to_escalation():
         "high_consequence_ambiguity": True,
     })
     assert next_stage_from_analysis(result) is ResearchStage.ESCALATE
+
+
+def test_decision_risk_score_and_policy():
+    risk = DecisionRisk.from_dict({
+        "impact": 0.9,
+        "uncertainty": 0.8,
+        "irreversibility": 0.9,
+    })
+    assert risk.score == 0.648
+    assert EscalationPolicy(threshold=0.5).requires_escalation(risk)
+
+
+def test_analysis_routes_code_defined_risk_to_escalation():
+    result = AnalysisResult.from_dict({
+        "hypothesis_status": "supported",
+        "confidence": 0.8,
+        "decision_risk": {
+            "impact": 0.9,
+            "uncertainty": 0.8,
+            "irreversibility": 0.9,
+        },
+    })
+    assert next_stage_from_analysis(result) is ResearchStage.ESCALATE
+
+
+def test_low_decision_risk_does_not_override_normal_route():
+    result = AnalysisResult.from_dict({
+        "hypothesis_status": "supported",
+        "confidence": 0.8,
+        "decision_risk": {
+            "impact": 0.2,
+            "uncertainty": 0.2,
+            "irreversibility": 0.2,
+        },
+    })
+    assert next_stage_from_analysis(result) is ResearchStage.DECIDE
