@@ -104,10 +104,8 @@ def matrix_route_cmd(args: argparse.Namespace) -> int:
         return 2
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
-            handle.write("mode=" + str(result["mode"]) + "
-")
-            handle.write("case_count=" + str(result["case_count"]) + "
-")
+            handle.write("mode=" + str(result["mode"]) + "\\n")
+            handle.write("case_count=" + str(result["case_count"]) + "\\n")
     print("MATRIX_ROUTE=PASS")
     print(json.dumps(result, sort_keys=True))
     return 0
@@ -125,14 +123,10 @@ def matrix_plan_cmd(args: argparse.Namespace) -> int:
         return 2
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
-            handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "
-")
-            handle.write("max_parallel=" + str(result["max_parallel"]) + "
-")
-            handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "
-")
-            handle.write("has_aggregate=" + ("true" if result["has_aggregate"] else "false") + "
-")
+            handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "\\n")
+            handle.write("max_parallel=" + str(result["max_parallel"]) + "\\n")
+            handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "\\n")
+            handle.write("has_aggregate=" + ("true" if result["has_aggregate"] else "false") + "\\n")
     print("MATRIX_PLAN=PASS")
     print(json.dumps(result, sort_keys=True))
     return 0
