@@ -1,0 +1,77 @@
+name: Samuel Write Blocker Qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Create scientific checkpoint
+        run: |
+          python3 - <<'PY'
+          import json
+          checkpoint = {
+            "research_id": "issue-44-actions-write-blocker",
+            "hypothesis": "scientific evidence survives a final GitHub write blocker",
+            "experiment": "deny issue write permission only at finalization",
+            "test_result": "scientific discriminator passed before mutation",
+            "stage": "decide"
+          }
+          open("samuel-qualification-checkpoint.json","w").write(json.dumps(checkpoint,indent=2)+"\n")
+          PY
+
+      - name: Inject real final-write blocker
+        id: blocked_write
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Workflow permissions intentionally grant contents:read only; issues:write is absent.
+          # A real GitHub API mutation must therefore be rejected by GitHub.
+          code="$(curl -sS -o write-response.json -w '%{http_code}'             -X POST             -H "Accept: application/vnd.github+json"             -H "Authorization: Bearer $GH_TOKEN"             -H "X-GitHub-Api-Version: 2022-11-28"             "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/44/comments"             -d '{"body":"<!-- samuel-write-blocker-qualification --> should-not-be-created"}')"
+          echo "http_code=$code" >> "$GITHUB_OUTPUT"
+          test "$code" = "403"
+
+      - name: Verify blocked continuation and preserved checkpoint
+        env:
+          BLOCKED_OUTCOME: ${{ steps.blocked_write.outcome }}
+          HTTP_CODE: ${{ steps.blocked_write.outputs.http_code }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          checkpoint=json.load(open("samuel-qualification-checkpoint.json"))
+          assert checkpoint["hypothesis"]
+          assert checkpoint["experiment"]
+          assert checkpoint["test_result"]
+          assert checkpoint["stage"] == "decide"
+          assert os.environ["BLOCKED_OUTCOME"] == "success", "fault injector did not observe expected 403"
+          assert os.environ["HTTP_CODE"] == "403"
+          result={
+            "status":"BLOCKED",
+            "continuation":"RETRY",
+            "blocker":"github_write_permission",
+            "http_code":403,
+            "checkpoint":checkpoint,
+          }
+          open("samuel-qualification-result.json","w").write(json.dumps(result,indent=2,sort_keys=True)+"\n")
+          PY
+
+      - name: Upload durable recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-write-blocker-qualification-${{ github.run_id }}
+          path: |
+            samuel-qualification-checkpoint.json
+            samuel-qualification-result.json
+            write-response.json
+          if-no-files-found: error
+          retention-days: 30
