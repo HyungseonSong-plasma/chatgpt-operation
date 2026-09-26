@@ -134,11 +134,20 @@ def record_execution_result(
     encoded = result.to_dict()
     previous = state.execution_results.get(result.action_id)
     if previous is not None:
-        if previous != encoded:
-            raise ResearchStateError(
-                f"conflicting execution result for action {result.action_id}"
-            )
-        return False
+        if previous == encoded:
+            return False
+        previous_result = ExecutionResult.from_dict(previous)
+        if previous_result.status is ExecutionStatus.FAILED and previous_result.retryable:
+            attempts = list(previous.get("details", {}).get("attempt_history", []))
+            attempts.append(previous)
+            encoded["details"] = dict(encoded["details"])
+            encoded["details"]["attempt_history"] = attempts
+            state.execution_results[result.action_id] = encoded
+            state.revision += 1
+            return True
+        raise ResearchStateError(
+            f"conflicting execution result for action {result.action_id}"
+        )
 
     state.execution_results[result.action_id] = encoded
     state.revision += 1
