@@ -37,17 +37,22 @@ jobs:
           failure=item.get("failure") or {}
           details=failure.get("details") or {}
           provider=str(details.get("provider","")).strip()
-          providers=[]
-          for capability in ("GITHUB_PR_WRITE","GITHUB_ISSUE_WRITE","GITHUB_WORKFLOW_DISPATCH"):
-              try:
-                  providers.extend(p.name for p in resolve_providers(capability))
-              except Exception:
-                  pass
+          action=str((item.get("source_plan") or {}).get("payload",{}).get("action",""))
+          capability={
+              "merge_pr":"GITHUB_PR_WRITE",
+              "comment_issue":"GITHUB_ISSUE_WRITE",
+              "close_issue":"GITHUB_ISSUE_WRITE",
+              "dispatch_workflow":"GITHUB_WORKFLOW_DISPATCH",
+          }.get(action)
+          if capability is None:
+              raise SystemExit("SAMUEL_EVIDENCE=HARD_STOP unknown source action capability")
+          providers=[p.name for p in resolve_providers(capability)]
           evidence={
               "provider":provider,
               "error_type":str(details.get("error_type","")).strip(),
               "provider_status":str(details.get("provider_status","")).strip(),
               "available_providers":sorted(set(providers)),
+              "required_capability":capability,
               "evidence_source":"repository-capability-registry",
               "evidence_request_fingerprint":(item.get("evidence_request") or {}).get("fingerprint"),
           }
