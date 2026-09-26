@@ -21,7 +21,7 @@ class LifecycleFaultInjectionTests(unittest.TestCase):
 
         outcome = scenario.finalize(blocked_writer)
 
-        self.assertEqual(outcome.kind, ContinuationKind.BLOCKED)
+        self.assertEqual(outcome.kind, ContinuationKind.RETRY)
         self.assertEqual(scenario.state.stage, ResearchStage.DECIDE)
         self.assertEqual(
             scenario.evidence.hypothesis,
@@ -46,7 +46,7 @@ class LifecycleFaultInjectionTests(unittest.TestCase):
             raise OSError("simulated connector write blocker")
 
         first = scenario.finalize(blocked_writer)
-        self.assertEqual(first.kind, ContinuationKind.BLOCKED)
+        self.assertEqual(first.kind, ContinuationKind.RETRY)
 
         writes = []
         second = scenario.resume_finalization(writes.append)
