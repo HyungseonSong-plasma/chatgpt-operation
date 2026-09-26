@@ -51,6 +51,9 @@ CONTRACT_BINDINGS = {
     "github-native-dispatch": ContractBinding(
         "github-native-dispatch", "chatgpt_operation.github.native_orchestration:dispatch_native_plan"
     ),
+    "execution-authority": ContractBinding(
+        "execution-authority", "chatgpt_operation.controller.authority:classify_execution_authority"
+    ),
 }
 
 
