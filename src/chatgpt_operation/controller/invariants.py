@@ -85,11 +85,11 @@ def require_single_continuation(
 def continuation_from_execution(result: ExecutionResult) -> Continuation:
     """Translate executor feedback into an explicit liveness outcome."""
     if result.status in {ExecutionStatus.PASS, ExecutionStatus.NOOP}:
-        return Continuation(ContinuationKind.NEXT_ACTION, result.observation)
+        return Continuation(ContinuationKind.NEXT_ACTION, result.observation, result)
     if result.status is ExecutionStatus.FAILED and result.retryable:
-        return Continuation(ContinuationKind.RETRY, result.observation)
+        return Continuation(ContinuationKind.RETRY, result.observation, result)
     if result.status is ExecutionStatus.REJECTED:
-        return Continuation(ContinuationKind.BLOCKED, result.observation)
+        return Continuation(ContinuationKind.BLOCKED, result.observation, result)
     if result.status is ExecutionStatus.FAILED:
         return Continuation(ContinuationKind.BLOCKED, result.observation)
     raise ControllerInvariantError(f"unsupported execution status: {result.status}")
