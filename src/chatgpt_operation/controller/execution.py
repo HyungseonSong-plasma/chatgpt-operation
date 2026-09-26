@@ -228,3 +228,73 @@ def require_action_recoverable(state: ResearchState, action_id: str) -> None:
         raise ResearchStateError(
             f"action {action_id} is suspended pending diagnostic recovery"
         )
+
+
+def diagnostic_next_action(state: ResearchState, action_id: str) -> dict[str, Any]:
+    """Return the only permitted next recovery action for a suspended execution."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ResearchStateError("no open diagnostic recovery for action")
+    if not recovery.get("root_cause"):
+        return {
+            "kind": "investigate_root_cause",
+            "action_id": action_id,
+            "failure": recovery["failure"],
+            "fingerprint": recovery["fingerprint"],
+        }
+    if not recovery.get("corrective_action"):
+        return {
+            "kind": "apply_corrective_action",
+            "action_id": action_id,
+            "root_cause": recovery["root_cause"],
+        }
+    if not recovery.get("resolution_evidence"):
+        return {
+            "kind": "verify_resolution",
+            "action_id": action_id,
+            "root_cause": recovery["root_cause"],
+            "corrective_action": recovery["corrective_action"],
+        }
+    raise ResearchStateError("open diagnostic recovery has inconsistent completed fields")
+
+
+def record_diagnostic_root_cause(
+    state: ResearchState, action_id: str, root_cause: str
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ResearchStateError("no open diagnostic recovery for action")
+    if not isinstance(root_cause, str) or not root_cause.strip():
+        raise ResearchStateError("root cause evidence is required")
+    recovery["root_cause"] = root_cause.strip()
+    state.revision += 1
+
+
+def record_diagnostic_corrective_action(
+    state: ResearchState, action_id: str, corrective_action: str
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open" or not recovery.get("root_cause"):
+        raise ResearchStateError("root cause must be established before corrective action")
+    if not isinstance(corrective_action, str) or not corrective_action.strip():
+        raise ResearchStateError("corrective action evidence is required")
+    recovery["corrective_action"] = corrective_action.strip()
+    state.revision += 1
+
+
+def record_diagnostic_resolution(
+    state: ResearchState, action_id: str, resolution_evidence: str
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if (
+        recovery is None
+        or recovery.get("status") != "open"
+        or not recovery.get("root_cause")
+        or not recovery.get("corrective_action")
+    ):
+        raise ResearchStateError("corrective action must precede resolution verification")
+    if not isinstance(resolution_evidence, str) or not resolution_evidence.strip():
+        raise ResearchStateError("resolution evidence is required")
+    recovery["resolution_evidence"] = resolution_evidence.strip()
+    recovery["status"] = "resolved"
+    state.revision += 1
