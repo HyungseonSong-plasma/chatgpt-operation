@@ -20,6 +20,43 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Load durable controller state and select work
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-issue-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.bootstrap import load_pending, select_controller_work
+          from chatgpt_operation.controller.durable_state import load_state_comment
+
+          comments=json.load(open("samuel-issue-comments.json"))
+          state=load_state_comment(comments)
+          pending=load_pending("automation/samuel/bootstrap.json")
+          selected=select_controller_work(
+              pending,
+              diagnostic_recoveries={} if state is None else state.diagnostic_recoveries,
+          )
+          if selected is None:
+              payload={"kind":"idle"}
+          elif selected[0] == "diagnostic":
+              payload={"kind":"diagnostic", **selected[1]}
+          else:
+              work=selected[1]
+              payload={
+                  "kind":"pending",
+                  "work_id":work.work_id,
+                  "workflow":work.workflow,
+                  "ref":work.ref,
+              }
+          open("samuel-selected-work.json","w").write(
+              json.dumps(payload,sort_keys=True,separators=(",",":"))
+          )
+          print("SAMUEL_SELECTED_WORK="+payload["kind"])
+          PY
+
       - name: Wake pending Samuel work
         env:
           PYTHONPATH: src
