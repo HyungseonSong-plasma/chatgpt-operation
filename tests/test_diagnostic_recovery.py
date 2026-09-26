@@ -1,4 +1,6 @@
-from chatgpt_operation.controller.diagnostic import advance_diagnostic
+from chatgpt_operation.controller.action_plan import ExecutorKind
+from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus
+from chatgpt_operation.controller.diagnostic import advance_diagnostic, resolve_from_execution_receipt
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 
 
@@ -67,3 +69,48 @@ def test_resolution_requires_independent_verified_evidence():
     result = advance_diagnostic(s, ACTION)
     assert result.advanced
     assert s.diagnostic_recoveries[ACTION]["status"] == "resolved"
+
+
+def test_verified_pass_receipt_resolves_diagnostic():
+    s = state({"provider": "connector", "error_type": "RuntimeError"})
+    assert advance_diagnostic(s, ACTION).advanced
+    s.diagnostic_recoveries[ACTION]["corrective_action"] = "execute repository-native corrective plan"
+    result = ExecutionResult(
+        research_id=s.research_id,
+        action_id="corrective-action",
+        executor=ExecutorKind.GITHUB_NATIVE,
+        status=ExecutionStatus.PASS,
+        observation="GitHub mutation verified by postcondition readback",
+        details={"after": {"merged": True}},
+    )
+    resolved = resolve_from_execution_receipt(s, ACTION, corrective_result=result)
+    assert resolved.advanced
+    assert s.diagnostic_recoveries[ACTION]["status"] == "resolved"
+
+
+def test_failed_or_unverified_corrective_result_cannot_resolve():
+    s = state({"provider": "connector", "error_type": "RuntimeError"})
+    assert advance_diagnostic(s, ACTION).advanced
+    s.diagnostic_recoveries[ACTION]["corrective_action"] = "execute repository-native corrective plan"
+    failed = ExecutionResult(
+        research_id=s.research_id,
+        action_id="corrective-action",
+        executor=ExecutorKind.GITHUB_NATIVE,
+        status=ExecutionStatus.FAILED,
+        observation="postcondition failed",
+        retryable=True,
+        details={},
+    )
+    assert not resolve_from_execution_receipt(s, ACTION, corrective_result=failed).advanced
+    assert s.diagnostic_recoveries[ACTION]["status"] == "open"
+
+    fake_pass = ExecutionResult(
+        research_id=s.research_id,
+        action_id="corrective-action",
+        executor=ExecutorKind.GITHUB_NATIVE,
+        status=ExecutionStatus.PASS,
+        observation="claimed pass",
+        details={},
+    )
+    assert not resolve_from_execution_receipt(s, ACTION, corrective_result=fake_pass).advanced
+    assert s.diagnostic_recoveries[ACTION]["status"] == "open"
