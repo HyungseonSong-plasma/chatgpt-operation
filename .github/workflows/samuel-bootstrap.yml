@@ -133,6 +133,50 @@ jobs:
           print("SAMUEL_SELECTED_WORK="+payload["kind"])
           PY
 
+      - name: Persist guarded Issue planning evidence
+        if: ${{ hashFiles('samuel-selected-work.json') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.decisions import DecisionRegistry
+          from chatgpt_operation.controller.issue_planning import plan_admitted_issue
+
+          selected=json.load(open("samuel-selected-work.json"))
+          if selected.get("kind") != "issue":
+              raise SystemExit(0)
+          registry=DecisionRegistry.load("automation/samuel/decisions.json")
+          result=plan_admitted_issue(selected,registry=registry)
+          payload={
+              "schema_version":1,
+              "work_id":result.work_id,
+              "outcome":result.outcome.value,
+              "reason":result.reason,
+              "action_plan":result.action_plan,
+              "reasoning_context":result.envelope.as_reasoning_context(),
+          }
+          open("samuel-issue-planning.json","w").write(
+              json.dumps(payload,sort_keys=True,separators=(",",":"))
+          )
+          print("SAMUEL_ISSUE_PLANNING="+result.outcome.value.upper()+" work_id="+result.work_id)
+          PY
+          if [ ! -f samuel-issue-planning.json ]; then exit 0; fi
+          marker='<!-- samuel-issue-planning -->'
+          body="$marker
+          ~~~json
+          $(cat samuel-issue-planning.json)
+          ~~~"
+          comments="$(gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100")"
+          comment_id="$(python3 -c 'import json,sys; m="<!-- samuel-issue-planning -->"; xs=json.load(sys.stdin); ids=[x["id"] for x in xs if m in x.get("body","")]; assert len(ids)<=1; print(ids[0] if ids else "")' <<<"$comments")"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+
       - name: Wake pending Samuel work
         env:
           PYTHONPATH: src
