@@ -207,6 +207,56 @@ jobs:
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
           fi
 
+      - name: Consume external reasoning submission
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > reasoning-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.decisions import DecisionRegistry
+          from chatgpt_operation.controller.durable_state import load_state_comment, prepare_state_write
+          from chatgpt_operation.controller.issue_ingestion import (
+              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger,
+          )
+          from chatgpt_operation.controller.reasoning_consumption import consume_reasoning_submission
+
+          comments=json.load(open("reasoning-comments.json"))
+          admission=[c for c in comments if ADMISSION_MARKER in str(c.get("body",""))]
+          if len(admission)!=1:
+              raise SystemExit(0)
+          work=decode_admission_ledger(str(admission[0]["body"]))
+          waiting=sorted(k for k,v in work.items() if v.get("status")=="reasoning_required")
+          if not waiting:
+              raise SystemExit(0)
+          if len(waiting)>1:
+              raise SystemExit("SAMUEL_REASONING=HARD_STOP multiple reasoning-required work items")
+          state=load_state_comment(comments)
+          if state is None:
+              raise SystemExit("SAMUEL_REASONING=HARD_STOP durable controller state missing")
+          registry=DecisionRegistry.load("automation/samuel/decisions.json")
+          result=consume_reasoning_submission(
+              comments,work,waiting[0],registry=registry,state=state
+          )
+          print("SAMUEL_REASONING="+result.outcome.upper()+" work_id="+waiting[0])
+          if result.outcome=="reasoning_required":
+              raise SystemExit(0)
+          open("samuel-admission-body.txt","w").write(encode_admission_ledger(result.work))
+          open("samuel-admission-comment-id.txt","w").write(str(admission[0]["id"]))
+          if result.action_id is not None:
+              write=prepare_state_write(comments,result.state)
+              open("samuel-controller-state-body.txt","w").write(write["body"])
+              open("samuel-controller-state-comment-id.txt","w").write(str(write["comment_id"]))
+          PY
+          if [ -f samuel-admission-body.txt ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$(cat samuel-admission-comment-id.txt)" -f body="$(cat samuel-admission-body.txt)" >/dev/null
+          fi
+          if [ -f samuel-controller-state-body.txt ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$(cat samuel-controller-state-comment-id.txt)" -f body="$(cat samuel-controller-state-body.txt)" >/dev/null
+          fi
+
       - name: Wake pending Samuel work
         env:
           PYTHONPATH: src
