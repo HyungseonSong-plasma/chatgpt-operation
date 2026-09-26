@@ -145,3 +145,44 @@ def apply_action_completion(current: ResearchState, result) -> ResearchState:
     if proposed.revision != before + 1:
         raise DurableStateError("action completion must advance exactly one revision")
     return proposed
+
+
+def apply_action_failure(current: ResearchState, result) -> ResearchState:
+    """Record typed failure; repeated identical retryable failure opens diagnosis."""
+    from chatgpt_operation.controller.execution import (
+        ExecutionStatus, open_diagnostic_recovery, record_execution_result,
+    )
+    from chatgpt_operation.controller.diagnostic import (
+        attach_source_plan, mark_action_suspended,
+    )
+    from chatgpt_operation.controller.action_plan import ActionPlan
+    import copy, json, hashlib
+    if result.status is not ExecutionStatus.FAILED:
+        raise DurableStateError("failure governance requires FAILED execution evidence")
+    item = current.action_queue.get(result.action_id)
+    if item is None or item.get("status") != "pending":
+        raise DurableStateError("failed action is not pending in durable queue")
+    proposed = copy.deepcopy(current)
+    previous = proposed.execution_results.get(result.action_id)
+    record_execution_result(proposed, result)
+    semantic = {
+        "executor": result.executor.value,
+        "observation": result.observation,
+        "provider": result.details.get("provider"),
+        "error_type": result.details.get("error_type"),
+        "provider_status": result.details.get("provider_status"),
+    }
+    fingerprint = hashlib.sha256(json.dumps(
+        semantic, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+    repeated = False
+    if previous is not None:
+        prior = previous.get("details", {}).get("failure_fingerprint")
+        repeated = prior == fingerprint
+    proposed.execution_results[result.action_id]["details"]["failure_fingerprint"] = fingerprint
+    if repeated and result.retryable:
+        open_diagnostic_recovery(proposed, result, fingerprint=(fingerprint,))
+        plan = ActionPlan.from_dict(proposed.action_queue[result.action_id]["plan"])
+        attach_source_plan(proposed, result.action_id, plan)
+        mark_action_suspended(proposed, result.action_id)
+    return proposed
