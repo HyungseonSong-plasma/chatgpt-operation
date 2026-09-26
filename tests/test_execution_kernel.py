@@ -1,7 +1,8 @@
 import unittest
 
 from chatgpt_operation.controller.action_plan import ActionPlan
-from chatgpt_operation.controller.execution import ExecutionStatus
+from chatgpt_operation.controller.research import ResearchState, ResearchStage, ResearchStateError
+from chatgpt_operation.controller.execution import ExecutionStatus, open_diagnostic_recovery
 from chatgpt_operation.github.execution_kernel import (
     ExecutionKernel,
     ExecutionKernelError,
@@ -44,7 +45,7 @@ class ExecutionKernelTests(unittest.TestCase):
             read_state=lambda action, target: next(states),
             mutate=lambda action, target: mutations.append((action, target)) or {"merged": True},
         )
-        receipt = ExecutionKernel([provider]).execute(merge_plan())
+        receipt = ExecutionKernel([provider], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
         self.assertEqual(receipt.result.status, ExecutionStatus.PASS)
         self.assertTrue(receipt.attempted)
         self.assertTrue(receipt.complete)
@@ -55,7 +56,7 @@ class ExecutionKernelTests(unittest.TestCase):
             ExecutionKernelError,
             "no registered execution provider for GITHUB_PR_MERGE",
         ):
-            ExecutionKernel([]).execute(merge_plan())
+            ExecutionKernel([], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
 
     def test_stale_precondition_never_mutates(self):
         provider = ExecutionProvider(
@@ -69,7 +70,7 @@ class ExecutionKernelTests(unittest.TestCase):
             },
             mutate=lambda action, target: self.fail("must not mutate stale state"),
         )
-        receipt = ExecutionKernel([provider]).execute(merge_plan())
+        receipt = ExecutionKernel([provider], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
         self.assertEqual(receipt.result.status, ExecutionStatus.REJECTED)
         self.assertFalse(receipt.attempted)
         self.assertFalse(receipt.complete)
@@ -81,7 +82,7 @@ class ExecutionKernelTests(unittest.TestCase):
             read_state=lambda action, target: {"merged": True},
             mutate=lambda action, target: self.fail("must not mutate completed state"),
         )
-        receipt = ExecutionKernel([provider]).execute(merge_plan())
+        receipt = ExecutionKernel([provider], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
         self.assertEqual(receipt.result.status, ExecutionStatus.NOOP)
         self.assertFalse(receipt.attempted)
         self.assertTrue(receipt.complete)
@@ -109,7 +110,7 @@ class ExecutionKernelTests(unittest.TestCase):
             read_state=lambda action, target: next(states),
             mutate=lambda action, target: {"merged": True},
         )
-        receipt = ExecutionKernel([primary, fallback]).execute(merge_plan())
+        receipt = ExecutionKernel([primary, fallback], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
         self.assertEqual(receipt.provider, "github-rest")
         self.assertTrue(receipt.complete)
         self.assertEqual(len(receipt.provider_failures), 1)
@@ -133,9 +134,37 @@ class ExecutionKernelTests(unittest.TestCase):
             ExecutionKernelError,
             "all registered providers failed for GITHUB_PR_MERGE",
         ) as caught:
-            ExecutionKernel([failed("connector"), failed("rest")]).execute(merge_plan())
+            ExecutionKernel([failed("connector"), failed("rest")], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
         self.assertIn("connector:RuntimeError", str(caught.exception))
         self.assertIn("rest:RuntimeError", str(caught.exception))
+
+
+    def test_open_diagnostic_recovery_blocks_kernel_before_provider_read(self):
+        state = ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)
+        plan = merge_plan()
+        failed = __import__("chatgpt_operation.controller.execution", fromlist=["ExecutionResult"]).ExecutionResult.from_dict({
+            "schema_version": 1,
+            "research_id": "samuel-55",
+            "action_id": plan.idempotency_key,
+            "executor": "github_native",
+            "status": "failed",
+            "observation": "same provider failure",
+            "retryable": True,
+            "details": {"provider": "github-connector", "error_type": "RuntimeError"},
+        })
+        open_diagnostic_recovery(
+            state,
+            failed,
+            fingerprint=(plan.idempotency_key, "failed", "github-connector", "RuntimeError", ""),
+        )
+        provider = ExecutionProvider(
+            name="github-connector",
+            capabilities=frozenset({GitHubCapability.MERGE_PR}),
+            read_state=lambda action, target: self.fail("provider must not be touched during open diagnosis"),
+            mutate=lambda action, target: self.fail("provider must not be touched during open diagnosis"),
+        )
+        with self.assertRaisesRegex(ResearchStateError, "suspended pending diagnostic recovery"):
+            ExecutionKernel([provider], state=state).execute(plan)
 
 if __name__ == "__main__":
     unittest.main()

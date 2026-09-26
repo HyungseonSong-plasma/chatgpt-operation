@@ -6,7 +6,8 @@ from enum import Enum
 from typing import Any, Callable
 
 from chatgpt_operation.controller.action_plan import ActionPlan
-from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus
+from chatgpt_operation.controller.research import ResearchState
+from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus, require_action_recoverable
 from chatgpt_operation.github.native_executor import (
     NativeGitHubAction,
     execute_native_github,
@@ -66,10 +67,16 @@ class ExecutionReceipt:
 class ExecutionKernel:
     """The sole authority for provider selection and mutation execution."""
 
-    def __init__(self, providers: list[ExecutionProvider]):
+    def __init__(self, providers: list[ExecutionProvider], *, state: ResearchState):
         self._providers = tuple(providers)
+        self._state = state
 
     def execute(self, plan: ActionPlan) -> ExecutionReceipt:
+        if plan.research_id != self._state.research_id:
+            raise ExecutionKernelError(
+                f"plan belongs to {plan.research_id}, not {self._state.research_id}"
+            )
+        require_action_recoverable(self._state, plan.idempotency_key)
         raw_action = plan.payload.get("action")
         try:
             action = NativeGitHubAction(raw_action)
