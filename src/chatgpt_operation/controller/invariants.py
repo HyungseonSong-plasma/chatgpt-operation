@@ -16,6 +16,7 @@ class ControllerInvariantError(ValueError):
 class ContinuationKind(str, Enum):
     NEXT_ACTION = "next_action"
     RETRY = "retry"
+    DIAGNOSE = "diagnose"
     SCHEDULED_WAKEUP = "scheduled_wakeup"
     HUMAN_DECISION_REQUIRED = "human_decision_required"
     BLOCKED = "blocked"
@@ -105,3 +106,59 @@ def continuation_from_execution(result: ExecutionResult) -> Continuation:
     if result.status is ExecutionStatus.FAILED:
         return Continuation(ContinuationKind.BLOCKED, result.observation, result)
     raise ControllerInvariantError(f"unsupported execution status: {result.status}")
+
+
+def execution_failure_fingerprint(result: ExecutionResult) -> tuple[str, ...]:
+    """Stable loop identity derived only from typed executor evidence."""
+    details = result.details
+    return (
+        result.action_id,
+        result.status.value,
+        str(details.get("provider", "")),
+        str(details.get("error_type", "")),
+        str(details.get("provider_status", "")),
+    )
+
+
+def break_retry_loop(
+    continuation: Continuation,
+    *,
+    history: Iterable[ExecutionResult],
+    repeat_limit: int = 3,
+) -> Continuation:
+    """Route repeated executor failures into diagnosis instead of infinite retry."""
+    if repeat_limit < 2:
+        raise ControllerInvariantError("repeat_limit must be at least 2")
+    if continuation.kind is not ContinuationKind.RETRY:
+        return continuation
+    evidence = continuation.execution_evidence
+    if evidence is None:
+        raise ControllerInvariantError("retry loop detection requires typed execution evidence")
+    fingerprint = execution_failure_fingerprint(evidence)
+    repeats = sum(
+        1 for item in history
+        if execution_failure_fingerprint(item) == fingerprint
+    )
+    # history represents prior attempts; the current evidence is the next occurrence.
+    if repeats + 1 < repeat_limit:
+        return continuation
+    return Continuation(
+        ContinuationKind.DIAGNOSE,
+        "repeated execution failure requires root-cause analysis before retry",
+        evidence,
+    )
+
+
+def governed_continuation_from_execution(
+    result: ExecutionResult,
+    *,
+    history: Iterable[ExecutionResult] = (),
+    repeat_limit: int = 3,
+) -> Continuation:
+    """Authoritative execution-to-continuation path with mandatory loop detection."""
+    continuation = continuation_from_execution(result)
+    return break_retry_loop(
+        continuation,
+        history=history,
+        repeat_limit=repeat_limit,
+    )
