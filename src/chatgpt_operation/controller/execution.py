@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from .action_plan import ExecutorKind
-from .research import ResearchState, ResearchStateError
+from .research import ResearchStage, ResearchState, ResearchStateError
 
 
 ACTION_ID = re.compile(r"^[0-9a-f]{64}$")
