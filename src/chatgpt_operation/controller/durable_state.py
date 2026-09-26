@@ -102,3 +102,32 @@ def prepare_state_write(
         "body": encode_state(proposed),
         "expected_previous_revision": None if current is None else current.revision,
     }
+
+
+def apply_diagnostic_patch(
+    current: ResearchState,
+    artifact: dict[str, Any],
+) -> ResearchState:
+    """Apply one diagnostic artifact to the authoritative state without whole-state replacement."""
+    action_id = artifact.get("action_id")
+    if not isinstance(action_id, str) or action_id not in current.diagnostic_recoveries:
+        raise DurableStateError("diagnostic patch action is not present in current state")
+    if artifact.get("revision_delta") != 1 or artifact.get("advanced") is not True:
+        raise DurableStateError("diagnostic patch must represent exactly one advanced revision")
+    patched = artifact.get("recovery")
+    if not isinstance(patched, dict):
+        raise DurableStateError("diagnostic patch recovery payload missing")
+    before = current.diagnostic_recoveries[action_id]
+    if before.get("status") != "open":
+        raise DurableStateError("diagnostic patch target is not open")
+    proposed = ResearchState(
+        research_id=current.research_id,
+        objective=current.objective,
+        stage=current.stage,
+        completed_operation_ids=list(current.completed_operation_ids),
+        execution_results=dict(current.execution_results),
+        diagnostic_recoveries=dict(current.diagnostic_recoveries),
+        revision=current.revision + 1,
+    )
+    proposed.diagnostic_recoveries[action_id] = dict(patched)
+    return proposed
