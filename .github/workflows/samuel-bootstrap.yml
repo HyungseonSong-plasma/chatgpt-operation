@@ -146,6 +146,48 @@ jobs:
               print("SAMUEL_BOOTSTRAP=PASS "+work.work_id)
           PY
 
+      - name: Persist durable action completion
+        if: ${{ hashFiles('samuel-action-run-id.txt') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(cat samuel-action-run-id.txt)"
+          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+          artifact_id="$(python3 -c 'import json,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"].startswith("samuel-execution-result-") and not x.get("expired")]; assert len(xs)==1; print(xs[0]["id"])' <<<"$artifact_json")"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o action-result.zip
+          rm -rf action-result && mkdir action-result
+          unzip -q action-result.zip -d action-result
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > current-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.execution import ExecutionResult
+          from chatgpt_operation.controller.durable_state import (
+              apply_action_completion, load_state_comment, prepare_state_write,
+          )
+          comments=json.load(open("current-comments.json"))
+          current=load_state_comment(comments)
+          if current is None:
+              raise SystemExit("SAMUEL_ACTION=HARD_STOP durable state disappeared")
+          raw=json.load(open("action-result/samuel-execution-result.json"))
+          result=ExecutionResult.from_dict(raw)
+          proposed=apply_action_completion(current,result)
+          write=prepare_state_write(comments,proposed)
+          open("samuel-controller-state-body.txt","w").write(write["body"])
+          open("samuel-controller-state-comment-id.txt","w").write(
+              "" if write["comment_id"] is None else str(write["comment_id"])
+          )
+          print("SAMUEL_ACTION=COMPLETE action_id="+result.action_id)
+          PY
+          body="$(cat samuel-controller-state-body.txt)"
+          comment_id="$(cat samuel-controller-state-comment-id.txt)"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+
       - name: Persist diagnostic recovery state
         if: ${{ hashFiles('samuel-diagnostic-run-id.txt') != '' }}
         env:
