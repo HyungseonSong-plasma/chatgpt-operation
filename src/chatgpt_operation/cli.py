@@ -24,8 +24,7 @@ from chatgpt_operation.work.scaffold import create_manifest
 
 def persist(path: str | None, result: dict) -> None:
     if path:
-        Path(path).write_text(json.dumps(result,indent=2,sort_keys=True)+"
-",encoding="utf-8")
+        Path(path).write_text(json.dumps(result,indent=2,sort_keys=True)+"\\n",encoding="utf-8")
 
 def mutate(args: argparse.Namespace) -> int:
     token=os.environ.get(args.token_env)
