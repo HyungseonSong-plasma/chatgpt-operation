@@ -1,7 +1,7 @@
 import pathlib
 import tempfile
 import unittest
-from chatgpt_operation.controller.bootstrap import load_pending, BootstrapError
+from chatgpt_operation.controller.bootstrap import load_pending, resolve_bootstrap_provider, BootstrapError
 
 
 class SamuelBootstrapTests(unittest.TestCase):
@@ -23,7 +23,18 @@ class SamuelBootstrapTests(unittest.TestCase):
         self.assertIn("dispatch_and_wait", text)
         self.assertNotIn("plan_json", text)
 
-    def test_duplicate_work_ids_fail_closed(self):
+
+    def test_pending_work_resolves_repository_provider_from_registry(self):
+        work=load_pending("automation/samuel/bootstrap.json")[0]
+        provider=resolve_bootstrap_provider(work)
+        self.assertEqual(provider.name, "repository-actions")
+        self.assertEqual(provider.contract, "github-native-dispatch")
+
+    def test_bootstrap_workflow_cannot_bypass_registry_resolution(self):
+        text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
+        self.assertIn("resolve_bootstrap_provider(work)", text)
+        self.assertIn("SAMUEL_BOOTSTRAP_PROVIDER=", text)
+\n    def test_duplicate_work_ids_fail_closed(self):
         with tempfile.NamedTemporaryFile("w+", suffix=".json") as f:
             f.write('{"schema_version":1,"work":[{"work_id":"x","kind":"workflow","workflow":"a"},{"work_id":"x","kind":"workflow","workflow":"b"}]}')
             f.flush()
