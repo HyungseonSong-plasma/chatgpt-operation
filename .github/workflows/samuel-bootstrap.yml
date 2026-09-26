@@ -20,6 +20,43 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Load durable controller state and select work
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-issue-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.bootstrap import load_pending, select_controller_work
+          from chatgpt_operation.controller.durable_state import load_state_comment
+
+          comments=json.load(open("samuel-issue-comments.json"))
+          state=load_state_comment(comments)
+          pending=load_pending("automation/samuel/bootstrap.json")
+          selected=select_controller_work(
+              pending,
+              diagnostic_recoveries={} if state is None else state.diagnostic_recoveries,
+          )
+          if selected is None:
+              payload={"kind":"idle"}
+          elif selected[0] == "diagnostic":
+              payload={"kind":"diagnostic", **selected[1]}
+          else:
+              work=selected[1]
+              payload={
+                  "kind":"pending",
+                  "work_id":work.work_id,
+                  "workflow":work.workflow,
+                  "ref":work.ref,
+              }
+          open("samuel-selected-work.json","w").write(
+              json.dumps(payload,sort_keys=True,separators=(",",":"))
+          )
+          print("SAMUEL_SELECTED_WORK="+payload["kind"])
+          PY
+
       - name: Wake pending Samuel work
         env:
           PYTHONPATH: src
@@ -33,7 +70,27 @@ jobs:
           repo=os.environ["GITHUB_REPOSITORY"]
           sha=os.environ["GITHUB_SHA"]
           transport=GitHubActionsTransport(repo, os.environ["GITHUB_TOKEN"])
+          selected=__import__("json").load(open("samuel-selected-work.json"))
+          if selected.get("kind") == "diagnostic":
+              outcome=dispatch_and_wait(
+                  transport,
+                  workflow="samuel-diagnostic-recovery.yml",
+                  ref="main",
+                  inputs={"recovery_json": __import__("json").dumps(selected,sort_keys=True,separators=(",",":"))},
+                  correlation_id="diagnostic:"+selected["action_id"],
+                  correlation_input=None,
+                  expected_head_sha=sha,
+                  timeout_seconds=600,
+                  poll_interval_seconds=5,
+              )
+              observation=outcome["observation"]
+              if observation.get("status") != "MATCHED_TERMINAL" or observation.get("conclusion") != "success":
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP diagnostic dispatch "+str(observation))
+              print("SAMUEL_BOOTSTRAP=DIAGNOSTIC_DISPATCHED action_id="+selected["action_id"])
+              raise SystemExit(0)
           pending=load_pending("automation/samuel/bootstrap.json")
+          selected_id=selected.get("work_id") if selected.get("kind") == "pending" else None
+          pending=[work for work in pending if work.work_id == selected_id]
           if not pending:
               print("SAMUEL_BOOTSTRAP=IDLE")
           for work in pending:
