@@ -1,7 +1,7 @@
 """Adversarial regressions for Samuel controller governance and liveness."""
 import unittest
 
-from chatgpt_operation.controller.execution import ExecutionResult
+from chatgpt_operation.controller.execution import ExecutionResult, require_action_recoverable, resolve_diagnostic_recovery
 from chatgpt_operation.controller.invariants import (
     Continuation,
     ContinuationKind,
@@ -10,10 +10,11 @@ from chatgpt_operation.controller.invariants import (
     continuation_from_execution,
     break_retry_loop,
     governed_continuation_from_execution,
+    govern_execution_failure,
     require_single_continuation,
     require_skill_governance,
 )
-from chatgpt_operation.controller.research import ResearchStage, ResearchState
+from chatgpt_operation.controller.research import ResearchStage, ResearchState, ResearchStateError
 
 
 def execution(**overrides):
@@ -118,3 +119,25 @@ def test_attack_10_governed_path_cannot_skip_loop_detection():
         repeat_limit=3,
     )
     assert outcome.kind is ContinuationKind.DIAGNOSE
+
+
+def test_attack_11_diagnosis_suspends_same_action_until_resolved():
+    state = ResearchState("attack-suite", "break controller", stage=ResearchStage.EXECUTE)
+    failed = execution()
+    outcome = govern_execution_failure(
+        state,
+        failed,
+        history=(failed, failed),
+        repeat_limit=3,
+    )
+    assert outcome.kind is ContinuationKind.DIAGNOSE
+    with unittest.TestCase().assertRaisesRegex(ResearchStateError, "suspended"):
+        require_action_recoverable(state, failed.action_id)
+    resolve_diagnostic_recovery(
+        state,
+        failed.action_id,
+        root_cause="provider credential scope was stale",
+        corrective_action="refresh provider authority evidence",
+        resolution_evidence="fresh provider probe passed",
+    )
+    require_action_recoverable(state, failed.action_id)
