@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "capabilities": {
+    "GITHUB_PR_MERGE": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        },
+        {
+          "name": "repository-native",
+          "kind": "workflow",
+          "priority": 20,
+          "workflow": ".github/workflows/samuel-controller.yml",
+          "executor_workflow": ".github/workflows/samuel-native-github.yml",
+          "contract": "github-native-dispatch",
+          "required_permissions": {
+            "actions": "write",
+            "pull-requests": "write"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_WORKFLOW_DISPATCH": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        },
+        {
+          "name": "repository-actions",
+          "kind": "skill",
+          "priority": 20,
+          "contract": "github-native-dispatch"
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    }
+  }
+}
