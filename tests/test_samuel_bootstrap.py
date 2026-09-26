@@ -34,7 +34,8 @@ class SamuelBootstrapTests(unittest.TestCase):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
         self.assertIn("resolve_bootstrap_provider(work)", text)
         self.assertIn("SAMUEL_BOOTSTRAP_PROVIDER=", text)
-\n    def test_duplicate_work_ids_fail_closed(self):
+
+    def test_duplicate_work_ids_fail_closed(self):
         with tempfile.NamedTemporaryFile("w+", suffix=".json") as f:
             f.write('{"schema_version":1,"work":[{"work_id":"x","kind":"workflow","workflow":"a"},{"work_id":"x","kind":"workflow","workflow":"b"}]}')
             f.flush()
