@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any
 
 from .action_plan import ActionPlan
@@ -154,3 +156,39 @@ def corrective_plan_from_recovery(
     if plan.idempotency_key != action_id:
         raise ValueError("persisted source ActionPlan identity changed")
     return plan
+
+
+@dataclass(frozen=True)
+class RecoveryAuthorization:
+    action_id: str
+    source_plan_id: str
+    corrective_action: str
+    token: str
+
+
+def recovery_authorization(state: ResearchState, action_id: str) -> RecoveryAuthorization:
+    """Issue a deterministic authorization bound to one open corrective recovery."""
+    plan = corrective_plan_from_recovery(state, action_id)
+    recovery = state.diagnostic_recoveries[action_id]
+    corrective = str(recovery["corrective_action"])
+    semantic = {
+        "research_id": state.research_id,
+        "action_id": action_id,
+        "source_plan_id": plan.idempotency_key,
+        "corrective_action": corrective,
+        "status": recovery["status"],
+    }
+    token = hashlib.sha256(json.dumps(
+        semantic, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+    return RecoveryAuthorization(action_id, plan.idempotency_key, corrective, token)
+
+
+def validate_recovery_authorization(
+    state: ResearchState,
+    plan: ActionPlan,
+    authorization: RecoveryAuthorization,
+) -> None:
+    expected = recovery_authorization(state, plan.idempotency_key)
+    if authorization != expected:
+        raise ValueError("recovery authorization does not match current diagnostic state")
