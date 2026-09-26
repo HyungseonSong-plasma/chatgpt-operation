@@ -1,5 +1,5 @@
 """Adversarial regressions for Samuel controller governance and liveness."""
-import pytest
+import unittest
 
 from chatgpt_operation.controller.execution import ExecutionResult
 from chatgpt_operation.controller.invariants import (
@@ -30,7 +30,7 @@ def execution(**overrides):
 
 
 def test_attack_1_material_action_cannot_bypass_required_skill():
-    with pytest.raises(ControllerInvariantError, match="bypassed"):
+    with unittest.TestCase().assertRaisesRegex(ControllerInvariantError, "bypassed"):
         require_skill_governance(
             required_contracts=("decision-guard", "github-native-dispatch"),
             evidence=(),
@@ -44,7 +44,7 @@ def test_attack_2_loaded_only_skill_evidence_cannot_fake_governance():
         contract_executed=False,
         contract_passed=False,
     )
-    with pytest.raises(ControllerInvariantError, match="did not pass"):
+    with unittest.TestCase().assertRaisesRegex(ControllerInvariantError, "did not pass"):
         require_skill_governance(
             required_contracts=("github-native-dispatch",),
             evidence=(forged,),
@@ -53,13 +53,13 @@ def test_attack_2_loaded_only_skill_evidence_cannot_fake_governance():
 
 def test_attack_3_nonterminal_controller_cannot_silently_stop():
     state = ResearchState("attack-suite", "break controller", stage=ResearchStage.EXECUTE)
-    with pytest.raises(ControllerInvariantError, match="exactly one continuation"):
+    with unittest.TestCase().assertRaisesRegex(ControllerInvariantError, "exactly one continuation"):
         require_single_continuation(state, ())
 
 
 def test_attack_4_controller_cannot_emit_conflicting_next_and_retry_paths():
     state = ResearchState("attack-suite", "break controller", stage=ResearchStage.EXECUTE)
-    with pytest.raises(ControllerInvariantError, match="exactly one continuation"):
+    with unittest.TestCase().assertRaisesRegex(ControllerInvariantError, "exactly one continuation"):
         require_single_continuation(
             state,
             (
@@ -85,7 +85,7 @@ def test_nonretryable_failure_is_explicitly_blocked():
 
 def test_complete_state_rejects_followup_work():
     state = ResearchState("attack-suite", "done", stage=ResearchStage.COMPLETE)
-    with pytest.raises(ControllerInvariantError):
+    with unittest.TestCase().assertRaises(ControllerInvariantError):
         require_single_continuation(
             state,
             (Continuation(ContinuationKind.NEXT_ACTION, "should not run"),),
