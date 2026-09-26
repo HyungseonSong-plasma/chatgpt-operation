@@ -97,3 +97,23 @@ def test_action_id_contract_is_enforced():
         pass
     else:
         raise AssertionError("invalid action identity must fail closed")
+
+
+def test_retryable_failure_can_be_replaced_by_success_with_attempt_history():
+    state = ResearchState("r-41", "automate research")
+    failed = result(
+        status="failed",
+        observation="transient runner error",
+        retryable=True,
+    )
+    assert record_execution_result(state, failed)
+    passed = result(
+        status="pass",
+        observation="retry verified postcondition",
+        retryable=False,
+    )
+    assert record_execution_result(state, passed)
+    stored = state.execution_results[ACTION_ID]
+    assert stored["status"] == "pass"
+    assert stored["details"]["attempt_history"][0]["status"] == "failed"
+    assert stored["details"]["attempt_history"][0]["retryable"] is True
