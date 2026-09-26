@@ -36,7 +36,7 @@ jobs:
           from chatgpt_operation.controller.diagnostic import (
               advance_diagnostic, corrective_plan_from_recovery,
               recovery_authorization, recovery_authorization_to_dict,
-              resolve_from_execution_receipt,
+              resolve_from_execution_receipt, record_diagnostic_wait,
           )
           from chatgpt_operation.github.actions_runtime import GitHubActionsTransport, execution_result_artifact_metadata
           from chatgpt_operation.controller.execution import ExecutionResult
@@ -88,6 +88,14 @@ jobs:
                   state, action_id, corrective_result=corrective_result
               )
               result=resolution
+          if not result.advanced:
+              status=record_diagnostic_wait(
+                  state, action_id, phase=result.phase, evidence=result.evidence
+              )
+              result=type(result)(
+                  result.action_id, result.phase, True,
+                  result.evidence+"; recovery_status="+status,
+              )
           output={
               "action_id":result.action_id, "phase":result.phase,
               "advanced":result.advanced, "evidence":result.evidence,

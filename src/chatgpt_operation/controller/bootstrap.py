@@ -95,6 +95,13 @@ def select_controller_work(
     if open_ids:
         action_id = open_ids[0]
         return ("diagnostic", {"action_id": action_id, "recovery": recoveries[action_id]})
+    evidence_ids = sorted(
+        action_id for action_id, recovery in recoveries.items()
+        if recovery.get("status") == "needs_evidence"
+    )
+    if evidence_ids:
+        action_id = evidence_ids[0]
+        return ("evidence", {"action_id": action_id, "recovery": recoveries[action_id]})
     actions = action_queue or {}
     pending_actions = sorted(
         action_id for action_id, item in actions.items()

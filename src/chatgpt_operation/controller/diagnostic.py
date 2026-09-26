@@ -272,3 +272,60 @@ def complete_queued_action(state: ResearchState, action_id: str, result) -> None
     item["status"] = "complete"
     item["completion_result"] = result.to_dict()
     state.revision += 1
+
+
+def record_diagnostic_wait(
+    state: ResearchState,
+    action_id: str,
+    *,
+    phase: str,
+    evidence: str,
+    max_identical_waits: int = 2,
+) -> str:
+    """Persist repeated WAIT evidence and break identical diagnostic loops."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    semantic = {"phase": phase, "evidence": evidence}
+    fingerprint = hashlib.sha256(json.dumps(
+        semantic, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+    wait = recovery.get("wait") or {}
+    attempts = int(wait.get("attempts", 0)) + 1 if wait.get("fingerprint") == fingerprint else 1
+    recovery["wait"] = {
+        "fingerprint": fingerprint,
+        "phase": phase,
+        "evidence": evidence,
+        "attempts": attempts,
+    }
+    if attempts >= max_identical_waits:
+        recovery["status"] = "needs_evidence"
+        recovery["evidence_request"] = {
+            "phase": phase,
+            "reason": evidence,
+            "fingerprint": fingerprint,
+        }
+    state.revision += 1
+    return recovery["status"]
+
+
+def record_acquired_diagnostic_evidence(
+    state: ResearchState,
+    action_id: str,
+    evidence: dict[str, Any],
+) -> None:
+    """Reopen a diagnostic only when new typed evidence is durably supplied."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "needs_evidence":
+        raise ValueError("diagnostic is not waiting for evidence acquisition")
+    if not isinstance(evidence, dict) or not evidence:
+        raise ValueError("typed diagnostic evidence is required")
+    recovery["acquired_evidence"] = dict(evidence)
+    failure = recovery.get("failure") or {}
+    details = dict(failure.get("details") or {})
+    details.update(evidence)
+    failure["details"] = details
+    recovery["failure"] = failure
+    recovery["status"] = "open"
+    recovery.pop("evidence_request", None)
+    state.revision += 1
