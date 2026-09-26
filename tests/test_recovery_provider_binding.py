@@ -1,4 +1,4 @@
-import pytest
+import unittest
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.diagnostic import recovery_authorization
 from chatgpt_operation.controller.research import ResearchState
@@ -27,5 +27,9 @@ def test_kernel_rejects_provider_not_bound_by_recovery_authorization():
       "decision_risk":None}}})
     auth=recovery_authorization(s,p.idempotency_key)
     kernel=ExecutionKernel([native_runtime_provider("native-provider",T())],state=s)
-    with pytest.raises(ExecutionKernelError,match="authorized corrective provider"):
+    try:
         kernel.execute(p,recovery_authorization=auth)
+    except ExecutionKernelError as exc:
+        assert "authorized corrective provider" in str(exc)
+    else:
+        raise AssertionError("mismatched corrective provider must fail closed")
