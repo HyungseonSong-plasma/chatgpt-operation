@@ -13,10 +13,11 @@ from chatgpt_operation.github.actions_observation import evaluate as evaluate_ac
 from chatgpt_operation.github.actions_execution import ActionsExecutionError, evaluate as evaluate_actions_execution, self_test as actions_execution_self_test
 from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
 from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
-from chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github
+from chatgpt_operation.github.native_executor import NativeGitHubError
 from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_runtime_provider
 from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
 from chatgpt_operation.controller.durable_state import decode_state
+from chatgpt_operation.controller.research import ResearchState
 from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 from chatgpt_operation.github.native_orchestration import NativeOrchestrationError, dispatch_native_plan
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
@@ -209,17 +210,18 @@ def github_native_execute(args: argparse.Namespace) -> int:
             state = decode_state(Path(args.recovery_state).read_text(encoding="utf-8"))
             auth_raw = json.loads(Path(args.recovery_authorization).read_text(encoding="utf-8"))
             auth = recovery_authorization_from_dict(auth_raw)
-            receipt = ExecutionKernel(
-                [native_runtime_provider("repository-native", transport)],
-                state=state,
-            ).execute(plan, recovery_authorization=auth)
-            result = receipt.result
         else:
-            result = execute_native_github(
-                plan,
-                read_state=transport.read_state,
-                mutate=transport.mutate,
+            state = ResearchState(
+                research_id=plan.research_id,
+                objective="native execution",
+                stage=plan.stage,
             )
+            auth = None
+        receipt = ExecutionKernel(
+            [native_runtime_provider("repository-native", transport)],
+            state=state,
+        ).execute(plan, recovery_authorization=auth)
+        result = receipt.result
     except (OSError, json.JSONDecodeError, ActionPlanError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
         print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
         return 2
