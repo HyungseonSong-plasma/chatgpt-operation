@@ -176,4 +176,5 @@ def transition_from_execution(
     return state.apply_once(
         f"execution:{result.action_id}:{target.value}",
         target,
+        execution_evidence=True,
     )
