@@ -46,3 +46,28 @@ load accepted decisions
 ```
 
 Accepted architecture and implementation status are separate state. A missing implementation must be treated as an implementation gap, not rediscovered as a new architecture decision. An incompatible proposal must use an explicit versioned revision transaction; otherwise fail closed.
+
+## Native GitHub execution boundary
+
+Repository-governing GitHub mutations use `chatgpt_operation.github.native_executor`.
+
+The v0 action vocabulary is closed-world:
+
+- `MERGE_PR`
+- `COMMENT_ISSUE`
+- `CLOSE_ISSUE`
+- `DISPATCH_WORKFLOW`
+
+Execution order is code-owned:
+
+```
+read current state
+-> return NOOP if desired postcondition already holds
+-> validate exact preconditions / reject stale state
+-> mutate through injected native runtime port
+-> read back state
+-> verify desired postcondition
+-> return typed ExecutionResult
+```
+
+The LLM/connector is not the execution authority. A GitHub-native service or workflow supplies the read/mutate ports.
