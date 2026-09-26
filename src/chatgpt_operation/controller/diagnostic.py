@@ -213,3 +213,62 @@ def recovery_authorization_to_dict(auth: RecoveryAuthorization) -> dict[str, str
         "corrective_action": auth.corrective_action,
         "token": auth.token,
     }
+
+
+def enqueue_suspended_action(state: ResearchState, plan: ActionPlan) -> None:
+    """Persist ownership of an action before it can enter diagnostic suspension."""
+    if plan.research_id != state.research_id:
+        raise ValueError("queued plan belongs to a different research state")
+    state.action_queue[plan.idempotency_key] = {
+        "status": "pending",
+        "plan": {
+            "schema_version": 1,
+            "research_id": plan.research_id,
+            "stage": plan.stage.value,
+            "executor": plan.executor.value,
+            "payload": dict(plan.payload),
+            "expected_observation": plan.expected_observation,
+            "decision_risk": None if plan.decision_risk is None else {
+                "impact": plan.decision_risk.impact,
+                "uncertainty": plan.decision_risk.uncertainty,
+                "irreversibility": plan.decision_risk.irreversibility,
+            },
+        },
+    }
+    state.revision += 1
+
+
+def mark_action_suspended(state: ResearchState, action_id: str) -> None:
+    item = state.action_queue.get(action_id)
+    if item is None:
+        raise ValueError("diagnostic action is not owned by durable queue")
+    item["status"] = "suspended"
+    state.revision += 1
+
+
+def resume_resolved_action(state: ResearchState, action_id: str) -> ActionPlan:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    item = state.action_queue.get(action_id)
+    if recovery is None or recovery.get("status") != "resolved":
+        raise ValueError("diagnostic recovery is not resolved")
+    if item is None or item.get("status") != "suspended":
+        raise ValueError("resolved action is not suspended in durable queue")
+    plan = ActionPlan.from_dict(item["plan"])
+    if plan.idempotency_key != action_id:
+        raise ValueError("queued action identity changed")
+    item["status"] = "pending"
+    state.revision += 1
+    return plan
+
+
+def complete_queued_action(state: ResearchState, action_id: str, result) -> None:
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != "pending":
+        raise ValueError("action is not pending")
+    if result.action_id != action_id or result.research_id != state.research_id:
+        raise ValueError("execution result does not match queued action")
+    if result.status not in {ExecutionStatus.PASS, ExecutionStatus.NOOP}:
+        raise ValueError("queued action requires PASS/NOOP completion evidence")
+    item["status"] = "complete"
+    item["completion_result"] = result.to_dict()
+    state.revision += 1
