@@ -27,9 +27,9 @@ class SkillContractTests(unittest.TestCase):
     def test_invocation_emits_execution_evidence(self):
         result, evidence = invoke_contract("implementation-state")
         self.assertEqual(result.capabilities, {})
-        self.assertTrue(evidence["contract_loaded"])
-        self.assertTrue(evidence["contract_executed"])
-        self.assertTrue(evidence["contract_passed"])
+        self.assertTrue(evidence.contract_loaded)
+        self.assertTrue(evidence.contract_executed)
+        self.assertTrue(evidence.contract_passed)
 
 
 if __name__ == "__main__":
