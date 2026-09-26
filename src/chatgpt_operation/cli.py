@@ -11,7 +11,7 @@ from chatgpt_operation.controller.state_refresh import StateRefreshError, evalua
 from chatgpt_operation.controller.scientific_discriminator import ScientificDiscriminatorError, load_plan as load_discriminator_plan, summary as summarize_discriminator_plan
 from chatgpt_operation.github.actions_observation import evaluate as evaluate_actions_observation
 from chatgpt_operation.github.actions_execution import ActionsExecutionError, evaluate as evaluate_actions_execution, self_test as actions_execution_self_test
-from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
+from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch\nfrom chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError\nfrom chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github\nfrom chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
@@ -478,7 +478,7 @@ def main(argv=None) -> int:
     p=parser(); args=p.parse_args(argv)
     if args.group=="repository" and not args.repository:
         p.error("--repository or GITHUB_REPOSITORY is required")
-    if args.group=="github" and args.command=="dispatch-actions" and not args.repository:
+    if args.group=="github" and args.command in {"dispatch-actions","execute-native"} and not args.repository:
         p.error("--repository or GITHUB_REPOSITORY is required")
     return args.func(args)
 
