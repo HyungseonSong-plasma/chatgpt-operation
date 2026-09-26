@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chatgpt_operation.skills.contracts import SkillContractError, invoke_contract, validate_catalog
+from chatgpt_operation.skills.contracts import (\n    SkillContractError,\n    invoke_contract,\n    resolve_capability,\n    validate_catalog,\n)
 
 
 class SkillContractTests(unittest.TestCase):
