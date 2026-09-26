@@ -8,6 +8,7 @@ from chatgpt_operation.controller.invariants import (
     ControllerInvariantError,
     SkillEvidence,
     continuation_from_execution,
+    break_retry_loop,
     require_single_continuation,
     require_skill_governance,
 )
@@ -90,3 +91,19 @@ def test_complete_state_rejects_followup_work():
             state,
             (Continuation(ContinuationKind.NEXT_ACTION, "should not run"),),
         )
+
+
+def test_attack_8_repeated_retry_is_forced_into_diagnosis():
+    failed = execution()
+    retry = continuation_from_execution(failed)
+    outcome = break_retry_loop(retry, history=(failed, failed), repeat_limit=3)
+    assert outcome.kind is ContinuationKind.DIAGNOSE
+    assert outcome.execution_evidence is failed
+
+
+def test_attack_9_distinct_failure_does_not_false_trigger_loop_breaker():
+    failed = execution()
+    other = execution(action_id="f" * 64, observation="different failure")
+    retry = continuation_from_execution(failed)
+    outcome = break_retry_loop(retry, history=(other, other), repeat_limit=3)
+    assert outcome.kind is ContinuationKind.RETRY
