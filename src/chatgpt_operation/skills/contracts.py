@@ -35,6 +35,42 @@ class ContractBinding:
         return resolved
 
 
+CAPABILITY_BINDINGS = {
+    "GITHUB_WORKFLOW_DISPATCH": "github-native-dispatch",
+}
+
+
+@dataclass(frozen=True)
+class CapabilityResolution:
+    capability: str
+    provider: str
+    contract: str | None = None
+
+
+def resolve_capability(
+    capability: str, *, native_available: bool = False
+) -> CapabilityResolution:
+    """Resolve an OS capability without treating connector absence as a blocker.
+
+    Native tool availability is an optimization. Repository-owned Skill
+    contracts are the durable fallback and remain available across cold starts.
+    """
+    if native_available:
+        return CapabilityResolution(capability=capability, provider="native")
+    contract = CAPABILITY_BINDINGS.get(capability)
+    if contract is None:
+        raise SkillContractError(f"unbound capability: {capability}")
+    binding = CONTRACT_BINDINGS.get(contract)
+    if binding is None:
+        raise SkillContractError(
+            f"capability {capability} references unbound contract: {contract}"
+        )
+    binding.resolve()
+    return CapabilityResolution(
+        capability=capability, provider="skill", contract=contract
+    )
+
+
 CONTRACT_BINDINGS = {
     "decision-registry": ContractBinding(
         "decision-registry", "chatgpt_operation.controller.decisions:DecisionRegistry"
