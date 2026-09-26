@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   actions: write
+  issues: write
 
 concurrency:
   group: samuel-bootstrap
@@ -50,5 +51,60 @@ jobs:
               observation=outcome["observation"]
               if observation.get("status") != "MATCHED_TERMINAL" or observation.get("conclusion") != "success":
                   raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP "+str(observation))
+              run_ids=observation.get("matched_run_ids") or ([observation.get("workflow_run_id")] if observation.get("workflow_run_id") else [])
+              if len(run_ids) != 1:
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP ambiguous qualification run "+str(run_ids))
+              open("samuel-qualified-run-id.txt","w").write(str(run_ids[0])+"\\n")
               print("SAMUEL_BOOTSTRAP=PASS "+work.work_id)
           PY
+
+      - name: Verify qualification artifact and persist durable ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(cat samuel-qualified-run-id.txt)"
+          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+          artifact_id="$(python3 -c 'import json,sys; x=json.load(sys.stdin)["artifacts"]; assert len(x)==1; print(x[0]["id"])' <<<"$artifact_json")"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o qualification.zip
+          rm -rf qualification-evidence && mkdir qualification-evidence
+          unzip -q qualification.zip -d qualification-evidence
+          python3 - <<'PY'
+          import json, os
+          result=json.load(open("qualification-evidence/samuel-qualification-result.json"))
+          checkpoint=result.get("checkpoint") or {}
+          assert result.get("status") == "BLOCKED"
+          assert result.get("continuation") == "RETRY"
+          assert result.get("blocker") == "github_write_permission"
+          assert result.get("http_code") == 403
+          assert checkpoint.get("hypothesis")
+          assert checkpoint.get("experiment")
+          assert checkpoint.get("test_result")
+          assert checkpoint.get("stage") == "decide"
+          ledger={
+            "schema_version":1,
+            "work_id":"issue-44-write-blocker-qualification",
+            "qualification_run_id":int(open("samuel-qualified-run-id.txt").read()),
+            "status":"BLOCKED",
+            "continuation":"RETRY",
+            "blocker":"github_write_permission",
+            "http_code":403,
+            "checkpoint":checkpoint,
+            "bootstrap_run_id":int(os.environ["GITHUB_RUN_ID"]),
+            "bootstrap_head_sha":os.environ["GITHUB_SHA"],
+          }
+          open("samuel-bootstrap-ledger.json","w").write(json.dumps(ledger,sort_keys=True,separators=(",",":")))
+          PY
+          marker='<!-- samuel-bootstrap-ledger -->'
+          body="$marker
+          \`\`\`json
+          $(cat samuel-bootstrap-ledger.json)
+          \`\`\`"
+          comments="$(gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100")"
+          comment_id="$(python3 -c 'import json,sys; m="<!-- samuel-bootstrap-ledger -->"; xs=json.load(sys.stdin); ids=[x["id"] for x in xs if m in x.get("body","")]; assert len(ids)<=1; print(ids[0] if ids else "")' <<<"$comments")"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi

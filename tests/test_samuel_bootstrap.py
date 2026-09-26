@@ -14,6 +14,12 @@ class SamuelBootstrapTests(unittest.TestCase):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
         self.assertIn("schedule:", text)
         self.assertIn("actions: write", text)
+        self.assertIn("issues: write", text)
+        self.assertIn("samuel-bootstrap-ledger", text)
+        self.assertIn("samuel-qualification-result.json", text)
+        self.assertIn('result.get("http_code") == 403', text)
+        self.assertIn('result.get("status") == "BLOCKED"', text)
+        self.assertIn('result.get("continuation") == "RETRY"', text)
         self.assertIn("dispatch_and_wait", text)
         self.assertNotIn("plan_json", text)
 
