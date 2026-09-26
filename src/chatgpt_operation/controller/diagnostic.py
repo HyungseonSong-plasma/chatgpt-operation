@@ -48,18 +48,28 @@ def advance_diagnostic(state: ResearchState, action_id: str) -> DiagnosticAdvanc
 
     if phase == "apply_corrective_action":
         provider = str(details.get("provider", "")).strip()
+        available = details.get("available_providers")
         failures = details.get("provider_failures")
-        if isinstance(failures, list) and failures:
-            alternatives = [
+        failed = {provider} if provider else set()
+        if isinstance(failures, list):
+            failed.update(
                 str(item.get("provider", "")).strip()
                 for item in failures
-                if isinstance(item, dict) and str(item.get("provider", "")).strip() != provider
-            ]
-            if alternatives:
-                evidence = "retry through alternative provider=" + alternatives[0]
+                if isinstance(item, dict) and str(item.get("provider", "")).strip()
+            )
+        if isinstance(available, list):
+            eligible = sorted({
+                str(name).strip() for name in available
+                if isinstance(name, str) and name.strip() and name.strip() not in failed
+            })
+            if eligible:
+                evidence = "retry through eligible provider=" + eligible[0]
                 record_diagnostic_corrective_action(state, action_id, evidence)
                 return DiagnosticAdvance(action_id, phase, True, evidence)
-        return DiagnosticAdvance(action_id, phase, False, "no typed corrective action available")
+        return DiagnosticAdvance(
+            action_id, phase, False,
+            "no eligible provider proven by capability evidence",
+        )
 
     if phase == "verify_resolution":
         verification = details.get("resolution_verification")
