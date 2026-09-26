@@ -148,16 +148,26 @@ class ResearchState:
     execution_results: dict[str, dict[str, Any]] = field(default_factory=dict)
     revision: int = 0
 
-    def transition(self, target: ResearchStage) -> None:
+    def transition(self, target: ResearchStage, *, execution_evidence: bool = False) -> None:
         if target not in ALLOWED_TRANSITIONS[self.stage]:
             raise ResearchStateError(f"transition {self.stage.value} -> {target.value} is not allowed")
+        if target is ResearchStage.COMPLETE and not execution_evidence:
+            raise ResearchStateError(
+                "COMPLETE is evidence-gated; use transition_from_execution"
+            )
         self.stage = target
         self.revision += 1
 
-    def apply_once(self, operation_id: str, target: ResearchStage) -> bool:
+    def apply_once(
+        self,
+        operation_id: str,
+        target: ResearchStage,
+        *,
+        execution_evidence: bool = False,
+    ) -> bool:
         if operation_id in self.completed_operation_ids:
             return False
-        self.transition(target)
+        self.transition(target, execution_evidence=execution_evidence)
         self.completed_operation_ids.append(operation_id)
         return True
 
