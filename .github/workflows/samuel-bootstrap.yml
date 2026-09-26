@@ -70,7 +70,14 @@ jobs:
           repo=os.environ["GITHUB_REPOSITORY"]
           sha=os.environ["GITHUB_SHA"]
           transport=GitHubActionsTransport(repo, os.environ["GITHUB_TOKEN"])
+          selected=__import__("json").load(open("samuel-selected-work.json"))
+          if selected.get("kind") == "diagnostic":
+              raise SystemExit(
+                  "SAMUEL_BOOTSTRAP=DIAGNOSTIC_REQUIRED action_id="+selected["action_id"]
+              )
           pending=load_pending("automation/samuel/bootstrap.json")
+          selected_id=selected.get("work_id") if selected.get("kind") == "pending" else None
+          pending=[work for work in pending if work.work_id == selected_id]
           if not pending:
               print("SAMUEL_BOOTSTRAP=IDLE")
           for work in pending:
