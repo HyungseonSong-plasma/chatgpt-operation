@@ -3,7 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chatgpt_operation.skills.contracts import SkillContractError, invoke_contract, validate_catalog
+from chatgpt_operation.skills.contracts import (
+    SkillContractError,
+    invoke_contract,
+    resolve_capability,
+    validate_catalog,
+)
 
 
 class SkillContractTests(unittest.TestCase):
@@ -30,6 +35,24 @@ class SkillContractTests(unittest.TestCase):
         self.assertTrue(evidence.contract_loaded)
         self.assertTrue(evidence.contract_executed)
         self.assertTrue(evidence.contract_passed)
+
+    def test_missing_native_dispatch_resolves_to_skill_not_blocked(self):
+        resolution = resolve_capability(
+            "GITHUB_WORKFLOW_DISPATCH", native_available=False
+        )
+        self.assertEqual(resolution.provider, "skill")
+        self.assertEqual(resolution.contract, "github-native-dispatch")
+
+    def test_native_dispatch_can_be_used_when_available(self):
+        resolution = resolve_capability(
+            "GITHUB_WORKFLOW_DISPATCH", native_available=True
+        )
+        self.assertEqual(resolution.provider, "native")
+        self.assertIsNone(resolution.contract)
+
+    def test_truly_unbound_capability_fails_closed(self):
+        with self.assertRaises(SkillContractError):
+            resolve_capability("UNBOUND_CAPABILITY", native_available=False)
 
 
 if __name__ == "__main__":

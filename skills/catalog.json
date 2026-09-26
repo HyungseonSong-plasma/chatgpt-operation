@@ -111,6 +111,9 @@
         "reasoning-envelope",
         "decision-guard",
         "github-native-dispatch"
+      ],
+      "capabilities": [
+        "GITHUB_WORKFLOW_DISPATCH"
       ]
     }
   ]
