@@ -67,3 +67,40 @@ def test_pending_work_runs_when_no_open_diagnosis():
         diagnostic_recoveries={"a" * 64: {"status": "resolved"}},
     )
     assert selected == ("pending", pending[0])
+
+
+def test_admitted_issue_preempts_legacy_pending_work():
+    pending = load_pending("automation/samuel/bootstrap.json")
+    admitted = {
+        "issue:44": {
+            "work_id": "issue:44",
+            "issue_number": 44,
+            "title": "Samuel OS",
+            "body": "work",
+            "html_url": "https://github.com/o/r/issues/44",
+            "status": "admitted",
+        }
+    }
+    selected = select_controller_work(pending, admitted_work=admitted)
+    assert selected[0] == "issue"
+    assert selected[1]["work_id"] == "issue:44"
+
+
+def test_durable_action_preempts_admitted_issue():
+    admitted = {"issue:44": {"work_id": "issue:44", "status": "admitted"}}
+    action_id = "a" * 64
+    selected = select_controller_work(
+        [],
+        action_queue={action_id: {"status": "pending", "plan": {"typed": True}}},
+        admitted_work=admitted,
+    )
+    assert selected[0] == "action"
+    assert selected[1]["action_id"] == action_id
+
+
+def test_admitted_issue_identity_mismatch_fails_closed():
+    with unittest.TestCase().assertRaises(BootstrapError):
+        select_controller_work(
+            [],
+            admitted_work={"issue:44": {"work_id": "issue:45", "status": "admitted"}},
+        )
