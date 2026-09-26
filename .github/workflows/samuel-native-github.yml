@@ -1,0 +1,68 @@
+name: Samuel Native GitHub Executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan_json:
+        description: Typed Samuel ActionPlan JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: samuel-native-github-executor
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact controller source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -c http.extraheader="AUTHORIZATION: basic $auth" fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Materialize typed plan
+        env:
+          PLAN_JSON: ${{ inputs.plan_json }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          raw=json.loads(os.environ["PLAN_JSON"])
+          pathlib.Path("samuel-action-plan.json").write_text(
+              json.dumps(raw,indent=2,sort_keys=True)+"\n",encoding="utf-8"
+          )
+          PY
+
+      - name: Execute bounded GitHub mutation
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m chatgpt_operation.cli github execute-native \
+            --input samuel-action-plan.json \
+            --result samuel-execution-result.json
+
+      - name: Publish result to job summary
+        if: always()
+        run: |
+          if test -f samuel-execution-result.json; then
+            echo '## Samuel ExecutionResult' >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+            cat samuel-execution-result.json >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          fi
