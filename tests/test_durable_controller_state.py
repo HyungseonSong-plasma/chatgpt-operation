@@ -3,6 +3,8 @@ from chatgpt_operation.controller.durable_state import (
     decode_state,
     encode_state,
     require_fresh_write,
+    load_state_comment,
+    prepare_state_write,
 )
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 
@@ -56,3 +58,28 @@ def test_cross_research_overwrite_fails_closed():
         assert "different research state" in str(exc)
     else:
         raise AssertionError("cross-research overwrite must fail closed")
+
+
+def test_comment_loader_and_writer_use_single_authoritative_marker():
+    current = state(4)
+    comments = [{"id": 99, "body": encode_state(current)}]
+    loaded = load_state_comment(comments)
+    assert loaded is not None and loaded.revision == 4
+    proposed = state(5)
+    write = prepare_state_write(comments, proposed)
+    assert write["comment_id"] == 99
+    assert write["expected_previous_revision"] == 4
+    assert decode_state(write["body"]).revision == 5
+
+
+def test_duplicate_state_comments_fail_closed():
+    comments = [
+        {"id": 1, "body": encode_state(state(4))},
+        {"id": 2, "body": encode_state(state(5))},
+    ]
+    try:
+        load_state_comment(comments)
+    except DurableStateError as exc:
+        assert "multiple authoritative" in str(exc)
+    else:
+        raise AssertionError("duplicate authoritative state must fail closed")
