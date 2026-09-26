@@ -63,6 +63,7 @@ def advance_diagnostic(state: ResearchState, action_id: str) -> DiagnosticAdvanc
                 if isinstance(name, str) and name.strip() and name.strip() not in failed
             })
             if eligible:
+                recovery["corrective_provider"] = eligible[0]
                 evidence = "retry through eligible provider=" + eligible[0]
                 record_diagnostic_corrective_action(state, action_id, evidence)
                 return DiagnosticAdvance(action_id, phase, True, evidence)
@@ -173,6 +174,7 @@ class RecoveryAuthorization:
     action_id: str
     source_plan_id: str
     corrective_action: str
+    corrective_provider: str
     token: str
 
 
@@ -186,12 +188,16 @@ def recovery_authorization(state: ResearchState, action_id: str) -> RecoveryAuth
         "action_id": action_id,
         "source_plan_id": plan.idempotency_key,
         "corrective_action": corrective,
+        "corrective_provider": str(recovery.get("corrective_provider", "")),
         "status": recovery["status"],
     }
     token = hashlib.sha256(json.dumps(
         semantic, sort_keys=True, separators=(",", ":")
     ).encode()).hexdigest()
-    return RecoveryAuthorization(action_id, plan.idempotency_key, corrective, token)
+    provider=str(recovery.get("corrective_provider", "")).strip()
+    if not provider:
+        raise ValueError("diagnostic recovery has no selected corrective provider")
+    return RecoveryAuthorization(action_id, plan.idempotency_key, corrective, provider, token)
 
 
 def validate_recovery_authorization(
@@ -205,13 +211,14 @@ def validate_recovery_authorization(
 
 
 def recovery_authorization_from_dict(raw: dict[str, Any]) -> RecoveryAuthorization:
-    required = {"action_id", "source_plan_id", "corrective_action", "token"}
+    required = {"action_id", "source_plan_id", "corrective_action", "corrective_provider", "token"}
     if not isinstance(raw, dict) or set(raw) != required:
         raise ValueError("invalid recovery authorization schema")
     return RecoveryAuthorization(
         action_id=str(raw["action_id"]),
         source_plan_id=str(raw["source_plan_id"]),
         corrective_action=str(raw["corrective_action"]),
+        corrective_provider=str(raw["corrective_provider"]),
         token=str(raw["token"]),
     )
 
@@ -221,6 +228,7 @@ def recovery_authorization_to_dict(auth: RecoveryAuthorization) -> dict[str, str
         "action_id": auth.action_id,
         "source_plan_id": auth.source_plan_id,
         "corrective_action": auth.corrective_action,
+        "corrective_provider": auth.corrective_provider,
         "token": auth.token,
     }
 
