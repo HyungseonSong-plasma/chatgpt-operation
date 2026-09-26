@@ -54,6 +54,35 @@ jobs:
           else
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
           fi
+      - name: Admit explicitly labeled issue work
+        if: ${{ github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'samuel') }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_JSON: ${{ toJSON(github.event.issue) }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > admission-comments.json
+          python3 - <<'PY'
+          import json, os
+          from chatgpt_operation.controller.issue_ingestion import admit_issue
+          comments=json.load(open("admission-comments.json"))
+          issue=json.loads(os.environ["ISSUE_JSON"])
+          write=admit_issue(comments,issue)
+          open("samuel-admission-body.txt","w").write(write["body"])
+          open("samuel-admission-comment-id.txt","w").write(
+              "" if write["comment_id"] is None else str(write["comment_id"])
+          )
+          print("SAMUEL_ADMISSION="+("NEW" if write["changed"] else "NOOP")+" work_id="+write["work_id"])
+          PY
+          body="$(cat samuel-admission-body.txt)"
+          comment_id="$(cat samuel-admission-comment-id.txt)"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+
       - name: Load durable controller state and select work
         env:
           PYTHONPATH: src
