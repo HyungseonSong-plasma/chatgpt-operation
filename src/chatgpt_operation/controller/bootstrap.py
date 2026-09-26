@@ -84,6 +84,7 @@ def select_controller_work(
     *,
     diagnostic_recoveries: dict[str, dict[str, Any]] | None = None,
     action_queue: dict[str, dict[str, Any]] | None = None,
+    admitted_work: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, Any] | None:
     """Prioritize unresolved recovery work over ordinary pending work."""
     recoveries = diagnostic_recoveries or {}
@@ -113,6 +114,17 @@ def select_controller_work(
         if not isinstance(item.get("plan"), dict):
             raise BootstrapError("pending durable action has no typed plan")
         return ("action", {"action_id": action_id, "plan": item["plan"]})
+    admitted = admitted_work or {}
+    admitted_ids = sorted(
+        work_id for work_id, item in admitted.items()
+        if item.get("status") == "admitted"
+    )
+    if admitted_ids:
+        work_id = admitted_ids[0]
+        item = admitted[work_id]
+        if item.get("work_id") != work_id:
+            raise BootstrapError("admitted work identity mismatch")
+        return ("issue", dict(item))
     if pending:
         return ("pending", pending[0])
     return None
