@@ -68,7 +68,10 @@ def evaluate(snapshot: dict[str, Any]) -> dict[str, Any]:
         return {"status": "AMBIGUOUS_MATCH", "matched_run_ids": ids}
     if len(eligible) == 1:
         status = "MATCHED_TERMINAL" if eligible[0]["status"] in TERMINAL_STATUSES else "MATCHED_ACTIVE"
-        return {"status": status, "matched_run_ids": ids}
+        result = {"status": status, "matched_run_ids": ids}
+        if status == "MATCHED_TERMINAL":
+            result["conclusion"] = eligible[0].get("conclusion")
+        return result
     if stale:
         return {"status": "STALE_ONLY", "matched_run_ids": [run["run_id"] for run in stale]}
     if (observed_at - requested_at).total_seconds() <= grace:
