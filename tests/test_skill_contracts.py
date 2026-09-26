@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chatgpt_operation.skills.contracts import SkillContractError, validate_catalog
+from chatgpt_operation.skills.contracts import SkillContractError, invoke_contract, validate_catalog
 
 
 class SkillContractTests(unittest.TestCase):
@@ -23,6 +23,13 @@ class SkillContractTests(unittest.TestCase):
             path.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaises(SkillContractError):
                 validate_catalog(path)
+
+    def test_invocation_emits_execution_evidence(self):
+        result, evidence = invoke_contract("implementation-state")
+        self.assertEqual(result.capabilities, {})
+        self.assertTrue(evidence["contract_loaded"])
+        self.assertTrue(evidence["contract_executed"])
+        self.assertTrue(evidence["contract_passed"])
 
 
 if __name__ == "__main__":
