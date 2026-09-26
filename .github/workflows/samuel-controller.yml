@@ -1,0 +1,68 @@
+name: Samuel Controller
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan_json:
+        description: Typed Samuel github_native ActionPlan JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: samuel-controller
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact controller source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -c http.extraheader="AUTHORIZATION: basic $auth" fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Materialize typed ActionPlan
+        env:
+          PLAN_JSON: ${{ inputs.plan_json }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          raw=json.loads(os.environ["PLAN_JSON"])
+          pathlib.Path("samuel-action-plan.json").write_text(
+              json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Dispatch and verify native executor
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m chatgpt_operation.cli github dispatch-native \
+            --input samuel-action-plan.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            --expected-head-sha "$GITHUB_SHA" \
+            --result samuel-dispatch-result.json
+
+      - name: Upload controller observation
+        if: always() && hashFiles('samuel-dispatch-result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-controller-result-${{ github.run_id }}
+          path: samuel-dispatch-result.json
+          if-no-files-found: error
+          retention-days: 30
