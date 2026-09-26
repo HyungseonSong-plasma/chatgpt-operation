@@ -7,6 +7,14 @@ on:
         description: Typed Samuel ActionPlan JSON
         required: true
         type: string
+      recovery_state:
+        description: Optional encoded durable controller state
+        required: false
+        type: string
+      recovery_authorization:
+        description: Optional typed recovery authorization JSON
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -48,14 +56,29 @@ jobs:
           )
           PY
 
+      - name: Materialize recovery authorization
+        if: ${{ inputs.recovery_state != '' || inputs.recovery_authorization != '' }}
+        env:
+          RECOVERY_STATE: ${{ inputs.recovery_state }}
+          RECOVERY_AUTHORIZATION: ${{ inputs.recovery_authorization }}
+        run: |
+          test -n "$RECOVERY_STATE" && test -n "$RECOVERY_AUTHORIZATION"
+          printf '%s' "$RECOVERY_STATE" > samuel-recovery-state.txt
+          printf '%s' "$RECOVERY_AUTHORIZATION" > samuel-recovery-authorization.json
+
       - name: Execute bounded GitHub mutation
         env:
           PYTHONPATH: src
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          args=()
+          if test -f samuel-recovery-state.txt; then
+            args+=(--recovery-state samuel-recovery-state.txt --recovery-authorization samuel-recovery-authorization.json)
+          fi
           python3 -m chatgpt_operation.cli github execute-native \
             --input samuel-action-plan.json \
-            --result samuel-execution-result.json
+            --result samuel-execution-result.json \
+            "${args[@]}"
 
       - name: Upload typed execution result
         if: always() && hashFiles('samuel-execution-result.json') != ''
