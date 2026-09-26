@@ -16,7 +16,8 @@ class ActionPlanError(ValueError):
 
 class ExecutorKind(str, Enum):
     REPOSITORY_MUTATION = "repository_mutation"
-    GITHUB_ACTIONS = "github_actions"\n    GITHUB_NATIVE = "github_native"
+    GITHUB_ACTIONS = "github_actions"
+    GITHUB_NATIVE = "github_native"
 
 
 def _require_nonempty_string(value: Any, field: str) -> str:
