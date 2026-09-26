@@ -71,12 +71,13 @@ jobs:
           sha=os.environ["GITHUB_SHA"]
           transport=GitHubActionsTransport(repo, os.environ["GITHUB_TOKEN"])
           selected=__import__("json").load(open("samuel-selected-work.json"))
+          comments=__import__("json").load(open("samuel-issue-comments.json"))
           if selected.get("kind") == "diagnostic":
               outcome=dispatch_and_wait(
                   transport,
                   workflow="samuel-diagnostic-recovery.yml",
                   ref="main",
-                  inputs={"recovery_json": __import__("json").dumps(selected,sort_keys=True,separators=(",",":"))},
+                  inputs={"recovery_json": __import__("json").dumps(selected,sort_keys=True,separators=(",",":")), "controller_state": next((str(c.get("body","")) for c in comments if "<!-- samuel-controller-state -->" in str(c.get("body",""))), "")},
                   correlation_id="diagnostic:"+selected["action_id"],
                   correlation_input=None,
                   expected_head_sha=sha,
