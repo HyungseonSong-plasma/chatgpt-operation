@@ -411,3 +411,23 @@ def dispatch_and_wait(
         poll_interval_seconds=poll_interval_seconds,
     )
     return {"dispatch": receipt, "observation": observation}
+
+
+def execution_result_artifact_metadata(
+    transport: ActionsTransport,
+    run_id: int,
+) -> dict[str, Any]:
+    """Resolve exactly one typed native execution-result artifact for a verified run."""
+    payload = transport.get(f"/actions/runs/{int(run_id)}/artifacts")
+    artifacts = payload.get("artifacts") if isinstance(payload, dict) else None
+    if not isinstance(artifacts, list):
+        raise ActionsRuntimeError("artifact enumeration returned invalid evidence")
+    matches = [
+        item for item in artifacts
+        if isinstance(item, dict)
+        and str(item.get("name", "")).startswith("samuel-execution-result-")
+        and item.get("expired") is not True
+    ]
+    if len(matches) != 1 or not isinstance(matches[0].get("id"), int):
+        raise ActionsRuntimeError("expected exactly one live typed execution-result artifact")
+    return matches[0]
