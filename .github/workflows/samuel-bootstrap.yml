@@ -45,6 +45,8 @@ jobs:
               payload={"kind":"diagnostic", **selected[1]}
           elif selected[0] == "action":
               payload={"kind":"action", **selected[1]}
+          elif selected[0] == "evidence":
+              payload={"kind":"evidence", **selected[1]}
           else:
               work=selected[1]
               payload={
@@ -74,6 +76,29 @@ jobs:
           transport=GitHubActionsTransport(repo, os.environ["GITHUB_TOKEN"])
           selected=__import__("json").load(open("samuel-selected-work.json"))
           comments=__import__("json").load(open("samuel-issue-comments.json"))
+          if selected.get("kind") == "evidence":
+              outcome=dispatch_and_wait(
+                  transport, workflow="samuel-evidence-acquisition.yml", ref="main",
+                  inputs={
+                      "recovery_json":json.dumps(selected,sort_keys=True,separators=(",",":")),
+                      "controller_state":next(
+                          (str(c.get("body","")) for c in comments
+                           if "<!-- samuel-controller-state -->" in str(c.get("body",""))),
+                          "",
+                      ),
+                  },
+                  correlation_id="evidence-"+selected["action_id"],
+                  correlation_input=None,
+                  expected_head_sha=sha,
+                  timeout_seconds=600,poll_interval_seconds=5,
+              )
+              obs=outcome["observation"]
+              ids=obs.get("matched_run_ids") or ([obs.get("workflow_run_id")] if obs.get("workflow_run_id") else [])
+              if obs.get("status")!="MATCHED_TERMINAL" or obs.get("conclusion")!="success" or len(ids)!=1:
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP evidence acquisition "+str(obs))
+              open("samuel-evidence-run-id.txt","w").write(str(ids[0])+"\n")
+              print("SAMUEL_BOOTSTRAP=EVIDENCE_DISPATCHED action_id="+selected["action_id"])
+              raise SystemExit(0)
           if selected.get("kind") == "action":
               import json
               from chatgpt_operation.controller.action_plan import ActionPlan
