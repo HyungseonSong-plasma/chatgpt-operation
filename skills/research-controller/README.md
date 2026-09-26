@@ -71,3 +71,24 @@ read current state
 ```
 
 The LLM/connector is not the execution authority. A GitHub-native service or workflow supplies the read/mutate ports.
+
+## Execution Kernel invariant
+
+Every external GitHub mutation MUST pass through `chatgpt_operation.github.execution_kernel.ExecutionKernel`.
+The controller may produce an `ActionPlan`, but it MUST NOT infer execution authority,
+invent a capability blocker, or declare completion from free-form reasoning.
+
+The kernel is the sole authority for mapping semantic actions to registered providers:
+
+- `MERGE_PR` -> `GITHUB_PR_MERGE`
+- `COMMENT_ISSUE` -> `GITHUB_ISSUE_COMMENT`
+- `CLOSE_ISSUE` -> `GITHUB_ISSUE_CLOSE`
+- `DISPATCH_WORKFLOW` -> `GITHUB_WORKFLOW_DISPATCH`
+
+A capability-related blocker is valid only when the kernel has no registered provider,
+or when a selected provider returns concrete execution failure evidence. Absence of a
+particular connector action is not itself a blocker if another registered provider exists.
+
+Completion is code-owned: only a verified `ExecutionReceipt` whose typed result is
+`PASS` or an idempotent `NOOP` may satisfy an action. Mutation success requires
+authoritative postcondition readback; controller prose cannot promote state to COMPLETE.
