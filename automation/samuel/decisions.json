@@ -1,0 +1,15 @@
+{
+  "github_execution_authority": [
+    {
+      "accepted_at": "2026-09-26T00:00:00Z",
+      "decision_id": "github_execution_authority",
+      "evidence": ["issue-44", "pr-83"],
+      "invariants": ["repository_native_execution", "host_bootstrap_only", "typed_execution_evidence"],
+      "revision_policy": "explicit_revision",
+      "statement": "Repository-native Samuel execution owns repository mutation; external hosts only wake the bootstrap boundary.",
+      "status": "accepted",
+      "supersedes": null,
+      "version": 1
+    }
+  ]
+}
