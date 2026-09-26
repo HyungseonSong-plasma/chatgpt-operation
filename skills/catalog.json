@@ -109,7 +109,8 @@
         "decision-registry",
         "implementation-state",
         "reasoning-envelope",
-        "decision-guard"
+        "decision-guard",
+        "github-native-dispatch"
       ]
     }
   ]
