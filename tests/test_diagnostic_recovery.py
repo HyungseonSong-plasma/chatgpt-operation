@@ -1,6 +1,6 @@
-from chatgpt_operation.controller.action_plan import ExecutorKind
+from chatgpt_operation.controller.action_plan import ActionPlan, ExecutorKind
 from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus
-from chatgpt_operation.controller.diagnostic import advance_diagnostic, resolve_from_execution_receipt
+from chatgpt_operation.controller.diagnostic import advance_diagnostic, resolve_from_execution_receipt, attach_source_plan, corrective_plan_from_recovery
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 
 
@@ -114,3 +114,45 @@ def test_failed_or_unverified_corrective_result_cannot_resolve():
     )
     assert not resolve_from_execution_receipt(s, ACTION, corrective_result=fake_pass).advanced
     assert s.diagnostic_recoveries[ACTION]["status"] == "open"
+
+
+def native_plan():
+    return ActionPlan.from_dict({
+        "schema_version": 1,
+        "research_id": "issue-44-controller",
+        "stage": "execute",
+        "executor": "github_native",
+        "payload": {
+            "action": "comment_issue",
+            "repository": "owner/repo",
+            "target": {"issue_number": 44},
+            "preconditions": {"state": "open"},
+            "desired_postcondition": {"comment_present": True},
+        },
+        "expected_observation": "comment verified by readback",
+    })
+
+
+def test_corrective_replay_requires_exact_persisted_source_plan():
+    plan = native_plan()
+    s = state({"provider": "connector", "error_type": "RuntimeError"})
+    s.research_id = plan.research_id
+    s.diagnostic_recoveries[plan.idempotency_key] = s.diagnostic_recoveries.pop(ACTION)
+    attach_source_plan(s, plan.idempotency_key, plan)
+    s.diagnostic_recoveries[plan.idempotency_key]["root_cause"] = "provider failure"
+    s.diagnostic_recoveries[plan.idempotency_key]["corrective_action"] = "retry registered fallback"
+    replay = corrective_plan_from_recovery(s, plan.idempotency_key)
+    assert replay.idempotency_key == plan.idempotency_key
+    assert replay.payload == plan.payload
+
+
+def test_corrective_plan_cannot_be_invented_without_source_plan():
+    s = state({"provider": "connector", "error_type": "RuntimeError"})
+    s.diagnostic_recoveries[ACTION]["root_cause"] = "provider failure"
+    s.diagnostic_recoveries[ACTION]["corrective_action"] = "retry fallback"
+    try:
+        corrective_plan_from_recovery(s, ACTION)
+    except ValueError as exc:
+        assert "no typed source ActionPlan" in str(exc)
+    else:
+        raise AssertionError("missing source plan must fail closed")
