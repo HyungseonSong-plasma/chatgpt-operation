@@ -34,6 +34,7 @@ class SkillEvidence:
 class Continuation:
     kind: ContinuationKind
     reason: str
+    execution_evidence: ExecutionResult | None = None
 
 
 def require_skill_governance(
@@ -79,6 +80,17 @@ def require_single_continuation(
         )
     if not values[0].reason.strip():
         raise ControllerInvariantError("continuation requires a non-empty reason")
+    if values[0].kind in {ContinuationKind.RETRY, ContinuationKind.BLOCKED}:
+        evidence = values[0].execution_evidence
+        if evidence is None:
+            raise ControllerInvariantError(
+                f"{values[0].kind.value} requires typed execution evidence"
+            )
+        expected = continuation_from_execution(evidence).kind
+        if expected is not values[0].kind:
+            raise ControllerInvariantError(
+                f"{values[0].kind.value} conflicts with execution evidence"
+            )
     return values[0]
 
 
@@ -91,5 +103,5 @@ def continuation_from_execution(result: ExecutionResult) -> Continuation:
     if result.status is ExecutionStatus.REJECTED:
         return Continuation(ContinuationKind.BLOCKED, result.observation, result)
     if result.status is ExecutionStatus.FAILED:
-        return Continuation(ContinuationKind.BLOCKED, result.observation)
+        return Continuation(ContinuationKind.BLOCKED, result.observation, result)
     raise ControllerInvariantError(f"unsupported execution status: {result.status}")
