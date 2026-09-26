@@ -1,6 +1,10 @@
 name: Samuel Bootstrap
 
 on:
+  issues:
+    types: [opened, reopened, labeled]
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
   schedule:
     - cron: '55 * * * *'
   workflow_dispatch:
