@@ -80,3 +80,26 @@ def validate_catalog(path: str | Path) -> dict[str, Any]:
         "resolved_contracts": sorted(set(resolved)),
         "resolved_count": len(set(resolved)),
     }
+
+
+def invoke_contract(name: str, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
+    """Invoke one bound contract and return auditable execution evidence."""
+    binding = CONTRACT_BINDINGS.get(name)
+    if binding is None:
+        raise SkillContractError(f"unbound contract: {name}")
+    target = binding.resolve()
+    evidence = {
+        "contract": name,
+        "target": binding.target,
+        "contract_loaded": True,
+        "contract_executed": False,
+        "contract_passed": False,
+    }
+    try:
+        result = target(*args, **kwargs)
+    except Exception:
+        evidence["contract_executed"] = True
+        raise
+    evidence["contract_executed"] = True
+    evidence["contract_passed"] = True
+    return result, evidence
