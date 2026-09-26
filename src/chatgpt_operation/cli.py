@@ -14,6 +14,9 @@ from chatgpt_operation.github.actions_execution import ActionsExecutionError, ev
 from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
 from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
 from chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github
+from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_runtime_provider
+from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
+from chatgpt_operation.controller.durable_state import decode_state
 from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 from chatgpt_operation.github.native_orchestration import NativeOrchestrationError, dispatch_native_plan
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
@@ -202,13 +205,26 @@ def github_native_execute(args: argparse.Namespace) -> int:
             api_url=args.api_url,
             api_version=args.api_version,
         )
-        result = execute_native_github(
-            plan,
-            read_state=transport.read_state,
-            mutate=transport.mutate,
-        )
+        if getattr(args, "recovery_state", None):
+            state = decode_state(Path(args.recovery_state).read_text(encoding="utf-8"))
+            auth_raw = json.loads(Path(args.recovery_authorization).read_text(encoding="utf-8"))
+            auth = recovery_authorization_from_dict(auth_raw)
+            receipt = ExecutionKernel(
+                [native_runtime_provider("repository-native", transport)],
+                state=state,
+            ).execute(plan, recovery_authorization=auth)
+            result = receipt.result
+        else:
+            result = execute_native_github(
+                plan,
+                read_state=transport.read_state,
+                mutate=transport.mutate,
+            )
     except (OSError, json.JSONDecodeError, ActionPlanError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
         print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
+        return 2
+    if bool(getattr(args, "recovery_state", None)) != bool(getattr(args, "recovery_authorization", None)):
+        print("GITHUB_NATIVE_EXECUTION_ERROR: recovery state and authorization must be supplied together", file=sys.stderr)
         return 2
     encoded = result.to_dict()
     persist(args.result, encoded)
