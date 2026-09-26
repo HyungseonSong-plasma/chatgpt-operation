@@ -31,3 +31,26 @@ class NativeOrchestrationTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+
+def test_recovery_context_is_dispatched_with_native_plan():
+    plan = make_plan()
+    transport = FakeTransport()
+    dispatch_native_plan(
+        plan,
+        transport=transport,
+        ref="main",
+        recovery_state="<!-- samuel-controller-state -->\n{}",
+        recovery_authorization={
+            "action_id": plan.idempotency_key,
+            "source_plan_id": plan.idempotency_key,
+            "corrective_action": "retry exact source plan",
+            "token": "a" * 64,
+        },
+        timeout_seconds=1,
+        poll_interval_seconds=0,
+    )
+    inputs = transport.dispatched_inputs
+    assert inputs["recovery_state"].startswith("<!-- samuel-controller-state -->")
+    auth = json.loads(inputs["recovery_authorization"])
+    assert auth["action_id"] == plan.idempotency_key
