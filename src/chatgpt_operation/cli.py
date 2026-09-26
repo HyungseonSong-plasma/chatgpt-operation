@@ -15,6 +15,7 @@ from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, Action
 from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
 from chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github
 from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
+from chatgpt_operation.github.native_orchestration import NativeOrchestrationError, dispatch_native_plan
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
@@ -212,6 +213,39 @@ def github_native_execute(args: argparse.Namespace) -> int:
     print("GITHUB_NATIVE_EXECUTION=" + result.status.value.upper())
     print(json.dumps(encoded, sort_keys=True))
     return 0 if result.status.value in {"pass", "noop"} else 2
+
+def github_native_dispatch(args: argparse.Namespace) -> int:
+    token = os.environ.get(args.token_env)
+    if not token:
+        print(f"{args.token_env} is required", file=sys.stderr)
+        return 2
+    try:
+        raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
+        plan = ActionPlan.from_dict(raw)
+        transport = GitHubActionsTransport(
+            args.repository, token, api_url=args.api_url, api_version=args.api_version
+        )
+        result = dispatch_native_plan(
+            plan,
+            transport=transport,
+            workflow=args.workflow,
+            ref=args.ref,
+            expected_head_sha=args.expected_head_sha,
+            timeout_seconds=args.timeout,
+            poll_interval_seconds=args.poll_interval,
+        )
+    except (OSError, json.JSONDecodeError, ActionPlanError, ActionsRuntimeError, NativeOrchestrationError) as exc:
+        print(f"GITHUB_NATIVE_DISPATCH=HARD_STOP {exc}", file=sys.stderr)
+        return 2
+    print("GITHUB_NATIVE_DISPATCH=PASS")
+    print(json.dumps(result, sort_keys=True))
+    try:
+        persist(args.result, result)
+    except OSError as exc:
+        print(f"GITHUB_NATIVE_DISPATCH=HARD_STOP result persistence: {exc}", file=sys.stderr)
+        return 3
+    return 0
+
 
 def actions_observe(args: argparse.Namespace) -> int:
     try:
@@ -490,6 +524,16 @@ def parser() -> argparse.ArgumentParser:
     gd.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
     gd.add_argument("--api-version",default=DEFAULT_API_VERSION); gd.add_argument("--result")
     gd.set_defaults(func=actions_dispatch)
+    gnd=ghs.add_parser("dispatch-native")
+    gnd.add_argument("--input",required=True); gnd.add_argument("--result")
+    gnd.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
+    gnd.add_argument("--workflow",default="samuel-native-github.yml")
+    gnd.add_argument("--ref",default="main"); gnd.add_argument("--expected-head-sha")
+    gnd.add_argument("--timeout",type=float,default=600); gnd.add_argument("--poll-interval",type=float,default=5)
+    gnd.add_argument("--token-env",default="GITHUB_TOKEN")
+    gnd.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
+    gnd.add_argument("--api-version",default=DEFAULT_API_VERSION)
+    gnd.set_defaults(func=github_native_dispatch)
     gn=ghs.add_parser("execute-native")
     gn.add_argument("--input",required=True); gn.add_argument("--result")
     gn.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
@@ -516,7 +560,7 @@ def main(argv=None) -> int:
     p=parser(); args=p.parse_args(argv)
     if args.group=="repository" and not args.repository:
         p.error("--repository or GITHUB_REPOSITORY is required")
-    if args.group=="github" and args.command in {"dispatch-actions","execute-native"} and not args.repository:
+    if args.group=="github" and args.command in {"dispatch-actions","dispatch-native","execute-native"} and not args.repository:
         p.error("--repository or GITHUB_REPOSITORY is required")
     return args.func(args)
 
