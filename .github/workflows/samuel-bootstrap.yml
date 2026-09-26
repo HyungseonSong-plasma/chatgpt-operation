@@ -27,7 +27,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
-          from chatgpt_operation.controller.bootstrap import load_pending
+          from chatgpt_operation.controller.bootstrap import load_pending, resolve_bootstrap_provider
           from chatgpt_operation.github.actions_runtime import GitHubActionsTransport, dispatch_and_wait
 
           repo=os.environ["GITHUB_REPOSITORY"]
