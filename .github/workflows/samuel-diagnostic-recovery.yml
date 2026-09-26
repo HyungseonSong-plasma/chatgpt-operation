@@ -7,6 +7,10 @@ on:
         description: Typed diagnostic recovery selection
         required: true
         type: string
+      controller_state:
+        description: Authoritative encoded Samuel controller state
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,35 +27,53 @@ jobs:
         env:
           PYTHONPATH: src
           RECOVERY_JSON: ${{ inputs.recovery_json }}
+          CONTROLLER_STATE: ${{ inputs.controller_state }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import json, os
+          from chatgpt_operation.controller.durable_state import decode_state, encode_state
+          from chatgpt_operation.controller.diagnostic import (
+              advance_diagnostic, corrective_plan_from_recovery,
+              recovery_authorization, recovery_authorization_to_dict,
+          )
+          from chatgpt_operation.github.actions_runtime import GitHubActionsTransport
+          from chatgpt_operation.github.native_orchestration import dispatch_native_plan
           recovery=json.loads(os.environ["RECOVERY_JSON"])
           if recovery.get("kind") != "diagnostic" or not recovery.get("action_id"):
               raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP invalid recovery selection")
-          data=recovery.get("recovery") or {}
-          if data.get("status") != "open":
-              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP recovery is not open")
-          from chatgpt_operation.controller.research import ResearchStage, ResearchState
-          from chatgpt_operation.controller.diagnostic import advance_diagnostic
-          state=ResearchState(
-              "issue-44-controller",
-              "autonomously finish governed work",
-              stage=ResearchStage.EXECUTE,
-              diagnostic_recoveries={recovery["action_id"]: data},
-          )
-          result=advance_diagnostic(state, recovery["action_id"])
+          state=decode_state(os.environ["CONTROLLER_STATE"])
+          action_id=recovery["action_id"]
+          if action_id not in state.diagnostic_recoveries or state.diagnostic_recoveries[action_id].get("status") != "open":
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP recovery is not open in authoritative state")
+          result=advance_diagnostic(state, action_id)
+          execution_run_id=None
+          if result.phase == "apply_corrective_action" and result.advanced:
+              plan=corrective_plan_from_recovery(state, action_id)
+              auth=recovery_authorization(state, action_id)
+              transport=GitHubActionsTransport(os.environ["GITHUB_REPOSITORY"],os.environ["GITHUB_TOKEN"])
+              outcome=dispatch_native_plan(
+                  plan, transport=transport, ref="main",
+                  expected_head_sha=os.environ["GITHUB_SHA"],
+                  recovery_state=encode_state(state),
+                  recovery_authorization=recovery_authorization_to_dict(auth),
+                  timeout_seconds=600, poll_interval_seconds=5,
+              )
+              obs=outcome["observation"]
+              ids=obs.get("matched_run_ids") or ([obs.get("workflow_run_id")] if obs.get("workflow_run_id") else [])
+              if len(ids)!=1:
+                  raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP ambiguous corrective run")
+              execution_run_id=ids[0]
           output={
-              "action_id":result.action_id,
-              "phase":result.phase,
-              "advanced":result.advanced,
-              "evidence":result.evidence,
-              "recovery":state.diagnostic_recoveries[recovery["action_id"]],
-              "revision_delta":state.revision,
+              "action_id":result.action_id, "phase":result.phase,
+              "advanced":result.advanced, "evidence":result.evidence,
+              "recovery":state.diagnostic_recoveries[action_id],
+              "revision_delta":state.revision-int(json.loads(os.environ["RECOVERY_JSON"]).get("recovery",{}).get("_revision",0)),
+              "execution_run_id":execution_run_id,
           }
-          open("samuel-diagnostic-result.json","w").write(
-              json.dumps(output,sort_keys=True,separators=(",",":"))
-          )
+          # One diagnostic phase is one durable revision; bootstrap validates this.
+          output["revision_delta"]=1 if result.advanced else 0
+          open("samuel-diagnostic-result.json","w").write(json.dumps(output,sort_keys=True,separators=(",",":")))
           print("SAMUEL_DIAGNOSTIC="+("ADVANCED" if result.advanced else "WAIT"))
           PY
 
