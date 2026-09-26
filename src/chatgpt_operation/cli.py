@@ -11,7 +11,10 @@ from chatgpt_operation.controller.state_refresh import StateRefreshError, evalua
 from chatgpt_operation.controller.scientific_discriminator import ScientificDiscriminatorError, load_plan as load_discriminator_plan, summary as summarize_discriminator_plan
 from chatgpt_operation.github.actions_observation import evaluate as evaluate_actions_observation
 from chatgpt_operation.github.actions_execution import ActionsExecutionError, evaluate as evaluate_actions_execution, self_test as actions_execution_self_test
-from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch\nfrom chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError\nfrom chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github\nfrom chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
+from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
+from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
+from chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github
+from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
@@ -21,7 +24,8 @@ from chatgpt_operation.work.scaffold import create_manifest
 
 def persist(path: str | None, result: dict) -> None:
     if path:
-        Path(path).write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        Path(path).write_text(json.dumps(result,indent=2,sort_keys=True)+"
+",encoding="utf-8")
 
 def mutate(args: argparse.Namespace) -> int:
     token=os.environ.get(args.token_env)
@@ -101,8 +105,10 @@ def matrix_route_cmd(args: argparse.Namespace) -> int:
         return 2
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
-            handle.write("mode=" + str(result["mode"]) + "\n")
-            handle.write("case_count=" + str(result["case_count"]) + "\n")
+            handle.write("mode=" + str(result["mode"]) + "
+")
+            handle.write("case_count=" + str(result["case_count"]) + "
+")
     print("MATRIX_ROUTE=PASS")
     print(json.dumps(result, sort_keys=True))
     return 0
@@ -120,10 +126,14 @@ def matrix_plan_cmd(args: argparse.Namespace) -> int:
         return 2
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
-            handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "\n")
-            handle.write("max_parallel=" + str(result["max_parallel"]) + "\n")
-            handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "\n")
-            handle.write("has_aggregate=" + ("true" if result["has_aggregate"] else "false") + "\n")
+            handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "
+")
+            handle.write("max_parallel=" + str(result["max_parallel"]) + "
+")
+            handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "
+")
+            handle.write("has_aggregate=" + ("true" if result["has_aggregate"] else "false") + "
+")
     print("MATRIX_PLAN=PASS")
     print(json.dumps(result, sort_keys=True))
     return 0
