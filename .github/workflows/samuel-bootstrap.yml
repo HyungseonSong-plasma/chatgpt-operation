@@ -172,13 +172,19 @@ jobs:
               raise SystemExit("SAMUEL_ACTION=HARD_STOP durable state disappeared")
           raw=json.load(open("action-result/samuel-execution-result.json"))
           result=ExecutionResult.from_dict(raw)
-          proposed=apply_action_completion(current,result)
+          if result.status.value in {"PASS","NOOP"}:
+              proposed=apply_action_completion(current,result)
+          elif result.status.value == "FAILED":
+              from chatgpt_operation.controller.durable_state import apply_action_failure
+              proposed=apply_action_failure(current,result)
+          else:
+              raise SystemExit("SAMUEL_ACTION=HARD_STOP unsupported terminal result "+result.status.value)
           write=prepare_state_write(comments,proposed)
           open("samuel-controller-state-body.txt","w").write(write["body"])
           open("samuel-controller-state-comment-id.txt","w").write(
               "" if write["comment_id"] is None else str(write["comment_id"])
           )
-          print("SAMUEL_ACTION=COMPLETE action_id="+result.action_id)
+          print("SAMUEL_ACTION="+("COMPLETE" if result.status.value in {"PASS","NOOP"} else "FAILED_RECORDED")+" action_id="+result.action_id)
           PY
           body="$(cat samuel-controller-state-body.txt)"
           comment_id="$(cat samuel-controller-state-comment-id.txt)"
