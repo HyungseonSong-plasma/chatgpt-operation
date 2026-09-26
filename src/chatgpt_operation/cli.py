@@ -18,6 +18,7 @@ from chatgpt_operation.github.native_runtime import GitHubNativeTransport, Nativ
 from chatgpt_operation.github.native_orchestration import NativeOrchestrationError, dispatch_native_plan
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
+from chatgpt_operation.skills.contracts import SkillContractError, validate_catalog
 from chatgpt_operation.work.manifest import ManifestError
 from chatgpt_operation.work.matrix import MatrixError, create_bundle, detect_execution_mode, extract_bundle, plan as matrix_plan, run_aggregate as execute_matrix_aggregate, run_case as execute_matrix_case, self_test as matrix_self_test
 from chatgpt_operation.work.runner import execute as execute_work, self_test as work_self_test
@@ -349,6 +350,17 @@ def actions_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 
+def skills_validate(args: argparse.Namespace) -> int:
+    try:
+        result = validate_catalog(args.catalog)
+    except (OSError, json.JSONDecodeError, SkillContractError, ImportError) as exc:
+        print(f"SKILL_CONTRACTS=HARD_STOP {exc}", file=sys.stderr)
+        return 2
+    print("SKILL_CONTRACTS=PASS")
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
 def controller_evaluate(args: argparse.Namespace) -> int:
     try:
         snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -541,6 +553,11 @@ def parser() -> argparse.ArgumentParser:
     gn.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
     gn.add_argument("--api-version",default=DEFAULT_API_VERSION)
     gn.set_defaults(func=github_native_execute)
+
+    sk=sub.add_parser("skills"); sks=sk.add_subparsers(dest="command",required=True)
+    sv=sks.add_parser("validate-contracts")
+    sv.add_argument("--catalog",default="skills/catalog.json")
+    sv.set_defaults(func=skills_validate)
 
     ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
