@@ -2,7 +2,7 @@ name: Samuel Bootstrap
 
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '55 * * * *'
   workflow_dispatch:
 
 permissions:
