@@ -145,6 +145,7 @@ class ResearchState:
     objective: str
     stage: ResearchStage = ResearchStage.DEFINE_PROBLEM
     completed_operation_ids: list[str] = field(default_factory=list)
+    execution_results: dict[str, dict[str, Any]] = field(default_factory=dict)
     revision: int = 0
 
     def transition(self, target: ResearchStage) -> None:
@@ -177,6 +178,7 @@ class ResearchState:
             objective=raw["objective"],
             stage=ResearchStage(raw["stage"]),
             completed_operation_ids=list(raw.get("completed_operation_ids", [])),
+            execution_results=dict(raw.get("execution_results", {})),
             revision=int(raw.get("revision", 0)),
         )
 
