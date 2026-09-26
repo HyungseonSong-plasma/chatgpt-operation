@@ -185,6 +185,34 @@ def matrix_test_cmd(args: argparse.Namespace) -> int:
         return 2
 
 
+def github_native_execute(args: argparse.Namespace) -> int:
+    token = os.environ.get(args.token_env)
+    if not token:
+        print(f"{args.token_env} is required", file=sys.stderr)
+        return 2
+    try:
+        raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
+        plan = ActionPlan.from_dict(raw)
+        transport = GitHubNativeTransport(
+            repository=args.repository,
+            token=token,
+            api_url=args.api_url,
+            api_version=args.api_version,
+        )
+        result = execute_native_github(
+            plan,
+            read_state=transport.read_state,
+            mutate=transport.mutate,
+        )
+    except (OSError, json.JSONDecodeError, ActionPlanError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
+        print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
+        return 2
+    encoded = result.to_dict()
+    persist(args.result, encoded)
+    print("GITHUB_NATIVE_EXECUTION=" + result.status.value.upper())
+    print(json.dumps(encoded, sort_keys=True))
+    return 0 if result.status.value in {"pass", "noop"} else 2
+
 def actions_observe(args: argparse.Namespace) -> int:
     try:
         snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -462,6 +490,13 @@ def parser() -> argparse.ArgumentParser:
     gd.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
     gd.add_argument("--api-version",default=DEFAULT_API_VERSION); gd.add_argument("--result")
     gd.set_defaults(func=actions_dispatch)
+    gn=ghs.add_parser("execute-native")
+    gn.add_argument("--input",required=True); gn.add_argument("--result")
+    gn.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
+    gn.add_argument("--token-env",default="GITHUB_TOKEN")
+    gn.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
+    gn.add_argument("--api-version",default=DEFAULT_API_VERSION)
+    gn.set_defaults(func=github_native_execute)
 
     ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
