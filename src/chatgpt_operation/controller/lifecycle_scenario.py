@@ -59,9 +59,27 @@ class LifecycleScenario:
             writer(self.evidence.test_result)
         except (OSError, LifecycleWriteError) as exc:
             self.evidence.events.append("final_write_blocked")
+            import hashlib
+            action_id = hashlib.sha256(
+                f"{self.state.research_id}:final_write".encode("utf-8")
+            ).hexdigest()
+            execution = ExecutionResult(
+                research_id=self.state.research_id,
+                action_id=action_id,
+                executor=ExecutorKind.REPOSITORY_MUTATION,
+                status=ExecutionStatus.FAILED,
+                observation=f"final write blocked: {type(exc).__name__}: {exc}",
+                retryable=True,
+                details={
+                    "attempted": True,
+                    "error_type": type(exc).__name__,
+                    "provider": "repository_mutation",
+                },
+            )
             continuation = Continuation(
-                ContinuationKind.BLOCKED,
-                f"final write blocked: {type(exc).__name__}: {exc}",
+                ContinuationKind.RETRY,
+                execution.observation,
+                execution,
             )
             return require_single_continuation(self.state, (continuation,))
         self.evidence.final_write = self.evidence.test_result
