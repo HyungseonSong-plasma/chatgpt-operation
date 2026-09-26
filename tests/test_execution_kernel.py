@@ -1,3 +1,4 @@
+from chatgpt_operation.controller.diagnostic import attach_source_plan, recovery_authorization
 import unittest
 
 from chatgpt_operation.controller.action_plan import ActionPlan
@@ -168,3 +169,30 @@ class ExecutionKernelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_open_diagnostic_allows_only_matching_recovery_authorization():
+    plan = make_plan()
+    state = make_state()
+    state.diagnostic_recoveries[plan.idempotency_key] = {
+        "status": "open",
+        "fingerprint": [],
+        "failure": {"status": "failed"},
+        "root_cause": "provider failure",
+        "corrective_action": "retry exact source plan through registered fallback",
+        "resolution_evidence": None,
+    }
+    attach_source_plan(state, plan.idempotency_key, plan)
+    auth = recovery_authorization(state, plan.idempotency_key)
+    calls = []
+    provider = ExecutionProvider(
+        "fallback",
+        frozenset({GitHubCapability.COMMENT_ISSUE}),
+        lambda action, payload: {"state": "open", "comment_present": False} if not calls else {"state": "open", "comment_present": True},
+        lambda action, payload: calls.append(payload) or {"ok": True},
+    )
+    receipt = ExecutionKernel([provider], state=state).execute(
+        plan, recovery_authorization=auth
+    )
+    assert receipt.complete
+    assert calls
