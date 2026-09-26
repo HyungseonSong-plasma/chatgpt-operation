@@ -110,7 +110,8 @@
         "implementation-state",
         "reasoning-envelope",
         "decision-guard",
-        "github-native-dispatch"
+        "github-native-dispatch",
+        "execution-authority"
       ]
     }
   ]
