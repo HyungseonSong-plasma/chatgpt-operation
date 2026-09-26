@@ -32,5 +32,31 @@ jobs:
           data=recovery.get("recovery") or {}
           if data.get("status") != "open":
               raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP recovery is not open")
-          print("SAMUEL_DIAGNOSTIC=READY action_id="+recovery["action_id"])
+          from chatgpt_operation.controller.research import ResearchStage, ResearchState
+          from chatgpt_operation.controller.diagnostic import advance_diagnostic
+          state=ResearchState(
+              "issue-44-controller",
+              "autonomously finish governed work",
+              stage=ResearchStage.EXECUTE,
+              diagnostic_recoveries={recovery["action_id"]: data},
+          )
+          result=advance_diagnostic(state, recovery["action_id"])
+          output={
+              "action_id":result.action_id,
+              "phase":result.phase,
+              "advanced":result.advanced,
+              "evidence":result.evidence,
+              "recovery":state.diagnostic_recoveries[recovery["action_id"]],
+              "revision_delta":state.revision,
+          }
+          open("samuel-diagnostic-result.json","w").write(
+              json.dumps(output,sort_keys=True,separators=(",",":"))
+          )
+          print("SAMUEL_DIAGNOSTIC="+("ADVANCED" if result.advanced else "WAIT"))
           PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: samuel-diagnostic-result
+          path: samuel-diagnostic-result.json
+          if-no-files-found: error
