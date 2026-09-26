@@ -104,7 +104,13 @@
       "load_on": [
         "RESEARCH_CONTROLLER"
       ],
-      "activation": "trigger"
+      "activation": "trigger",
+      "contracts": [
+        "decision-registry",
+        "implementation-state",
+        "reasoning-envelope",
+        "decision-guard"
+      ]
     }
   ]
 }

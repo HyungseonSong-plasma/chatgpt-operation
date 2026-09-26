@@ -12,6 +12,9 @@ from chatgpt_operation.controller.scientific_discriminator import ScientificDisc
 from chatgpt_operation.github.actions_observation import evaluate as evaluate_actions_observation
 from chatgpt_operation.github.actions_execution import ActionsExecutionError, evaluate as evaluate_actions_execution, self_test as actions_execution_self_test
 from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
+from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
+from chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github
+from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.work.manifest import ManifestError
@@ -21,7 +24,7 @@ from chatgpt_operation.work.scaffold import create_manifest
 
 def persist(path: str | None, result: dict) -> None:
     if path:
-        Path(path).write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        Path(path).write_text(json.dumps(result,indent=2,sort_keys=True)+"\\n",encoding="utf-8")
 
 def mutate(args: argparse.Namespace) -> int:
     token=os.environ.get(args.token_env)
@@ -101,8 +104,8 @@ def matrix_route_cmd(args: argparse.Namespace) -> int:
         return 2
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
-            handle.write("mode=" + str(result["mode"]) + "\n")
-            handle.write("case_count=" + str(result["case_count"]) + "\n")
+            handle.write("mode=" + str(result["mode"]) + "\\n")
+            handle.write("case_count=" + str(result["case_count"]) + "\\n")
     print("MATRIX_ROUTE=PASS")
     print(json.dumps(result, sort_keys=True))
     return 0
@@ -120,10 +123,10 @@ def matrix_plan_cmd(args: argparse.Namespace) -> int:
         return 2
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
-            handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "\n")
-            handle.write("max_parallel=" + str(result["max_parallel"]) + "\n")
-            handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "\n")
-            handle.write("has_aggregate=" + ("true" if result["has_aggregate"] else "false") + "\n")
+            handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "\\n")
+            handle.write("max_parallel=" + str(result["max_parallel"]) + "\\n")
+            handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "\\n")
+            handle.write("has_aggregate=" + ("true" if result["has_aggregate"] else "false") + "\\n")
     print("MATRIX_PLAN=PASS")
     print(json.dumps(result, sort_keys=True))
     return 0
@@ -181,6 +184,34 @@ def matrix_test_cmd(args: argparse.Namespace) -> int:
         print(f"GOVERNED_MATRIX=HARD_STOP {exc}", file=sys.stderr)
         return 2
 
+
+def github_native_execute(args: argparse.Namespace) -> int:
+    token = os.environ.get(args.token_env)
+    if not token:
+        print(f"{args.token_env} is required", file=sys.stderr)
+        return 2
+    try:
+        raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
+        plan = ActionPlan.from_dict(raw)
+        transport = GitHubNativeTransport(
+            repository=args.repository,
+            token=token,
+            api_url=args.api_url,
+            api_version=args.api_version,
+        )
+        result = execute_native_github(
+            plan,
+            read_state=transport.read_state,
+            mutate=transport.mutate,
+        )
+    except (OSError, json.JSONDecodeError, ActionPlanError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
+        print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
+        return 2
+    encoded = result.to_dict()
+    persist(args.result, encoded)
+    print("GITHUB_NATIVE_EXECUTION=" + result.status.value.upper())
+    print(json.dumps(encoded, sort_keys=True))
+    return 0 if result.status.value in {"pass", "noop"} else 2
 
 def actions_observe(args: argparse.Namespace) -> int:
     try:
@@ -459,6 +490,13 @@ def parser() -> argparse.ArgumentParser:
     gd.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
     gd.add_argument("--api-version",default=DEFAULT_API_VERSION); gd.add_argument("--result")
     gd.set_defaults(func=actions_dispatch)
+    gn=ghs.add_parser("execute-native")
+    gn.add_argument("--input",required=True); gn.add_argument("--result")
+    gn.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
+    gn.add_argument("--token-env",default="GITHUB_TOKEN")
+    gn.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
+    gn.add_argument("--api-version",default=DEFAULT_API_VERSION)
+    gn.set_defaults(func=github_native_execute)
 
     ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
@@ -478,7 +516,7 @@ def main(argv=None) -> int:
     p=parser(); args=p.parse_args(argv)
     if args.group=="repository" and not args.repository:
         p.error("--repository or GITHUB_REPOSITORY is required")
-    if args.group=="github" and args.command=="dispatch-actions" and not args.repository:
+    if args.group=="github" and args.command in {"dispatch-actions","execute-native"} and not args.repository:
         p.error("--repository or GITHUB_REPOSITORY is required")
     return args.func(args)
 

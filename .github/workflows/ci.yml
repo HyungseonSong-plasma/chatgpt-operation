@@ -45,6 +45,7 @@ jobs:
           python3 -m chatgpt_operation.cli github dispatch-actions --help
           python3 -m chatgpt_operation.cli github plan-actions-execution --help
           python3 -m chatgpt_operation.cli github actions-execution-self-test
+          python3 -m chatgpt_operation.cli github execute-native --help
           python3 -m chatgpt_operation.cli controller evaluate --help
           python3 -m chatgpt_operation.cli controller self-test
           python3 -m chatgpt_operation.cli controller throughput --help
