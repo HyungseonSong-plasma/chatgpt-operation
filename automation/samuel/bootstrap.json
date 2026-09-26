@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "work": [
+    {
+      "work_id": "issue-44-write-blocker-qualification",
+      "kind": "workflow",
+      "workflow": "samuel-write-blocker-qualification.yml",
+      "ref": "main",
+      "status": "pending"
+    }
+  ]
+}
