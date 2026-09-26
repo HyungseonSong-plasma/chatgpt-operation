@@ -88,6 +88,16 @@ class ExecutionKernel:
             raise ExecutionKernelError(f"unsupported action: {raw_action}") from exc
         capability = ACTION_CAPABILITIES[action]
         providers = tuple(p for p in self._providers if capability in p.capabilities)
+        if recovery_authorization is not None:
+            providers = tuple(
+                p for p in providers
+                if p.name == recovery_authorization.corrective_provider
+            )
+            if not providers:
+                raise ExecutionKernelError(
+                    "authorized corrective provider is not registered for "
+                    + capability.value
+                )
         if not providers:
             raise ExecutionKernelError(
                 f"no registered execution provider for {capability.value}"
