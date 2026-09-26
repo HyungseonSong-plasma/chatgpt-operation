@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
 
-from .execution import ExecutionResult, ExecutionStatus
+from .execution import ExecutionResult, ExecutionStatus, open_diagnostic_recovery
 from .research import ResearchStage, ResearchState
 
 
@@ -162,3 +162,25 @@ def governed_continuation_from_execution(
         history=history,
         repeat_limit=repeat_limit,
     )
+
+
+def govern_execution_failure(
+    state: ResearchState,
+    result: ExecutionResult,
+    *,
+    history: Iterable[ExecutionResult] = (),
+    repeat_limit: int = 3,
+) -> Continuation:
+    """Persist loop-break state whenever governed execution enters diagnosis."""
+    continuation = governed_continuation_from_execution(
+        result,
+        history=history,
+        repeat_limit=repeat_limit,
+    )
+    if continuation.kind is ContinuationKind.DIAGNOSE:
+        open_diagnostic_recovery(
+            state,
+            result,
+            fingerprint=execution_failure_fingerprint(result),
+        )
+    return continuation

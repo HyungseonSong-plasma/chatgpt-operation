@@ -146,6 +146,7 @@ class ResearchState:
     stage: ResearchStage = ResearchStage.DEFINE_PROBLEM
     completed_operation_ids: list[str] = field(default_factory=list)
     execution_results: dict[str, dict[str, Any]] = field(default_factory=dict)
+    diagnostic_recoveries: dict[str, dict[str, Any]] = field(default_factory=dict)
     revision: int = 0
 
     def transition(self, target: ResearchStage, *, execution_evidence: bool = False) -> None:
@@ -189,6 +190,7 @@ class ResearchState:
             stage=ResearchStage(raw["stage"]),
             completed_operation_ids=list(raw.get("completed_operation_ids", [])),
             execution_results=dict(raw.get("execution_results", {})),
+            diagnostic_recoveries=dict(raw.get("diagnostic_recoveries", {})),
             revision=int(raw.get("revision", 0)),
         )
 
