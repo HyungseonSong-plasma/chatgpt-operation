@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
+
+from .action_plan import ActionPlan
 
 from .execution import (
     ExecutionStatus,
@@ -105,3 +108,49 @@ def resolve_from_execution_receipt(
         evidence = "verified desired state already held: " + corrective_result.observation
     record_diagnostic_resolution(state, action_id, evidence)
     return DiagnosticAdvance(action_id, "verify_resolution", True, evidence)
+
+
+def attach_source_plan(
+    state: ResearchState,
+    action_id: str,
+    plan: ActionPlan,
+) -> None:
+    """Bind the exact failed ActionPlan to recovery so correction cannot be invented later."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    if plan.research_id != state.research_id or plan.idempotency_key != action_id:
+        raise ValueError("source plan does not match suspended action")
+    recovery["source_plan"] = {
+        "schema_version": 1,
+        "research_id": plan.research_id,
+        "stage": plan.stage.value,
+        "executor": plan.executor.value,
+        "payload": dict(plan.payload),
+        "expected_observation": plan.expected_observation,
+        "decision_risk": None if plan.decision_risk is None else {
+            "impact": plan.decision_risk.impact,
+            "uncertainty": plan.decision_risk.uncertainty,
+            "irreversibility": plan.decision_risk.irreversibility,
+        },
+    }
+    state.revision += 1
+
+
+def corrective_plan_from_recovery(
+    state: ResearchState,
+    action_id: str,
+) -> ActionPlan:
+    """Return an executable corrective replay only from the exact persisted source plan."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    if not recovery.get("root_cause") or not recovery.get("corrective_action"):
+        raise ValueError("diagnostic correction is not ready")
+    raw = recovery.get("source_plan")
+    if not isinstance(raw, dict):
+        raise ValueError("diagnostic recovery has no typed source ActionPlan")
+    plan = ActionPlan.from_dict(raw)
+    if plan.idempotency_key != action_id:
+        raise ValueError("persisted source ActionPlan identity changed")
+    return plan
