@@ -1,7 +1,7 @@
 import pathlib
 import tempfile
 import unittest
-from chatgpt_operation.controller.bootstrap import load_pending, resolve_bootstrap_provider, BootstrapError
+from chatgpt_operation.controller.bootstrap import load_pending, resolve_bootstrap_provider, select_controller_work, BootstrapError
 
 
 class SamuelBootstrapTests(unittest.TestCase):
@@ -45,3 +45,25 @@ class SamuelBootstrapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_open_diagnostic_recovery_preempts_pending_work():
+    pending = load_pending("automation/samuel/bootstrap.json")
+    selected = select_controller_work(
+        pending,
+        diagnostic_recoveries={
+            "b" * 64: {"status": "resolved"},
+            "a" * 64: {"status": "open", "root_cause": None},
+        },
+    )
+    assert selected[0] == "diagnostic"
+    assert selected[1]["action_id"] == "a" * 64
+
+
+def test_pending_work_runs_when_no_open_diagnosis():
+    pending = load_pending("automation/samuel/bootstrap.json")
+    selected = select_controller_work(
+        pending,
+        diagnostic_recoveries={"a" * 64: {"status": "resolved"}},
+    )
+    assert selected == ("pending", pending[0])
