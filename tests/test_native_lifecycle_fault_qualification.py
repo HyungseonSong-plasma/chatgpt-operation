@@ -65,15 +65,12 @@ class NativeLifecycleFaultQualificationTests(unittest.TestCase):
 
         recovered = execute_native_github(plan(), read_state=read_state, mutate=recovered_mutate)
         self.assertEqual(recovered.status.value, "pass")
-        # Conflicting executor history must not overwrite the failed attempt.
-        with self.assertRaises(Exception):
-            record_execution_result(state, recovered)
-
-        # A fresh resumed state records the successful retry under the same scientific checkpoint.
-        resumed = ResearchState("native-fault-qualification", "qualify Samuel recovery")
-        resumed.stage = state.stage
-        resumed.revision = state.revision
-        self.assertTrue(record_execution_result(resumed, recovered))
+        # Successful retry replaces the current result while preserving immutable attempt history.
+        self.assertTrue(record_execution_result(state, recovered))
+        stored = state.execution_results[recovered.action_id]
+        self.assertEqual(stored["status"], "pass")
+        self.assertEqual(stored["details"]["attempt_history"][0]["status"], "failed")
+        self.assertTrue(stored["details"]["attempt_history"][0]["retryable"])
         self.assertEqual(continuation_from_execution(recovered).kind, ContinuationKind.NEXT_ACTION)
         self.assertEqual(calls, ["blocked", "recovered"])
 
