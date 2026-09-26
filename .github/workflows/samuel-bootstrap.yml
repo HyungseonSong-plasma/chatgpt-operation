@@ -27,7 +27,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
-          from chatgpt_operation.controller.bootstrap import load_pending
+          from chatgpt_operation.controller.bootstrap import load_pending, resolve_bootstrap_provider
           from chatgpt_operation.github.actions_runtime import GitHubActionsTransport, dispatch_and_wait
 
           repo=os.environ["GITHUB_REPOSITORY"]
@@ -37,6 +37,10 @@ jobs:
           if not pending:
               print("SAMUEL_BOOTSTRAP=IDLE")
           for work in pending:
+              provider=resolve_bootstrap_provider(work)
+              if provider.contract != "github-native-dispatch":
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP invalid provider contract")
+              print("SAMUEL_BOOTSTRAP_PROVIDER="+provider.name)
               outcome=dispatch_and_wait(
                   transport,
                   workflow=work.workflow,
