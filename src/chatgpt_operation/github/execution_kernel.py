@@ -130,3 +130,13 @@ class ExecutionKernel:
         raise ExecutionKernelError(
             f"all registered providers failed for {capability.value}: {summary}"
         )
+
+
+def native_runtime_provider(name: str, transport) -> ExecutionProvider:
+    """Adapt the repository native GitHub runtime into the sole execution kernel."""
+    return ExecutionProvider(
+        name=name,
+        capabilities=frozenset(GitHubCapability),
+        read_state=transport.read_state,
+        mutate=transport.mutate,
+    )
