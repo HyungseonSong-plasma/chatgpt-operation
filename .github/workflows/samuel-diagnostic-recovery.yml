@@ -1,0 +1,36 @@
+name: Samuel Diagnostic Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_json:
+        description: Typed diagnostic recovery selection
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate recovery phase
+        env:
+          PYTHONPATH: src
+          RECOVERY_JSON: ${{ inputs.recovery_json }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          recovery=json.loads(os.environ["RECOVERY_JSON"])
+          if recovery.get("kind") != "diagnostic" or not recovery.get("action_id"):
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP invalid recovery selection")
+          data=recovery.get("recovery") or {}
+          if data.get("status") != "open":
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP recovery is not open")
+          print("SAMUEL_DIAGNOSTIC=READY action_id="+recovery["action_id"])
+          PY
