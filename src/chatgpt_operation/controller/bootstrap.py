@@ -6,6 +6,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from chatgpt_operation.skills.capability_registry import (
+    RegisteredProvider,
+    resolve_providers,
+)
+
 
 class BootstrapError(ValueError):
     pass
@@ -50,3 +55,25 @@ def load_pending(path: str | Path) -> list[BootstrapWork]:
     if len(ids) != len(set(ids)):
         raise BootstrapError("duplicate bootstrap work_id")
     return [x for x in items if x.status == "pending"]
+
+
+def resolve_bootstrap_provider(
+    work: BootstrapWork,
+    *,
+    registry_path: str | Path = "skills/capability-registry.json",
+) -> RegisteredProvider:
+    """Resolve bootstrap dispatch from repository-owned capability truth."""
+    if work.kind is not BootstrapKind.WORKFLOW:
+        raise BootstrapError(f"unsupported bootstrap kind: {work.kind}")
+    providers = resolve_providers("GITHUB_WORKFLOW_DISPATCH", path=registry_path)
+    eligible = tuple(
+        provider
+        for provider in providers
+        if provider.kind in {"skill", "workflow"}
+        and provider.contract == "github-native-dispatch"
+    )
+    if not eligible:
+        raise BootstrapError(
+            "GITHUB_WORKFLOW_DISPATCH has no repository-executable provider"
+        )
+    return eligible[0]
