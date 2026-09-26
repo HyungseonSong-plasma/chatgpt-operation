@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
+from chatgpt_operation.controller.invariants import SkillEvidence
+
 
 class SkillContractError(ValueError):
     pass
@@ -82,24 +84,19 @@ def validate_catalog(path: str | Path) -> dict[str, Any]:
     }
 
 
-def invoke_contract(name: str, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
-    """Invoke one bound contract and return auditable execution evidence."""
+def invoke_contract(name: str, *args: Any, **kwargs: Any) -> tuple[Any, SkillEvidence]:
+    """Invoke one bound contract and return typed auditable execution evidence."""
     binding = CONTRACT_BINDINGS.get(name)
     if binding is None:
         raise SkillContractError(f"unbound contract: {name}")
     target = binding.resolve()
-    evidence = {
-        "contract": name,
-        "target": binding.target,
-        "contract_loaded": True,
-        "contract_executed": False,
-        "contract_passed": False,
-    }
     try:
         result = target(*args, **kwargs)
     except Exception:
-        evidence["contract_executed"] = True
         raise
-    evidence["contract_executed"] = True
-    evidence["contract_passed"] = True
-    return result, evidence
+    return result, SkillEvidence(
+        contract=name,
+        contract_loaded=True,
+        contract_executed=True,
+        contract_passed=True,
+    )
