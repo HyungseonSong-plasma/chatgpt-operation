@@ -72,3 +72,33 @@ def require_fresh_write(current: ResearchState | None, proposed: ResearchState) 
         raise DurableStateError(
             f"stale controller state revision {proposed.revision} <= {current.revision}"
         )
+
+
+def find_state_comment(comments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    matches = [
+        item for item in comments
+        if STATE_MARKER in str(item.get("body", ""))
+    ]
+    if len(matches) > 1:
+        raise DurableStateError("multiple authoritative controller state comments")
+    return matches[0] if matches else None
+
+
+def load_state_comment(comments: list[dict[str, Any]]) -> ResearchState | None:
+    comment = find_state_comment(comments)
+    return None if comment is None else decode_state(str(comment["body"]))
+
+
+def prepare_state_write(
+    comments: list[dict[str, Any]],
+    proposed: ResearchState,
+) -> dict[str, Any]:
+    """Prepare deterministic create/update data after optimistic revision check."""
+    comment = find_state_comment(comments)
+    current = None if comment is None else decode_state(str(comment["body"]))
+    require_fresh_write(current, proposed)
+    return {
+        "comment_id": None if comment is None else int(comment["id"]),
+        "body": encode_state(proposed),
+        "expected_previous_revision": None if current is None else current.revision,
+    }
