@@ -71,12 +71,16 @@ class ExecutionKernel:
         self._providers = tuple(providers)
         self._state = state
 
-    def execute(self, plan: ActionPlan) -> ExecutionReceipt:
+    def execute(self, plan: ActionPlan, *, recovery_authorization=None) -> ExecutionReceipt:
         if plan.research_id != self._state.research_id:
             raise ExecutionKernelError(
                 f"plan belongs to {plan.research_id}, not {self._state.research_id}"
             )
-        require_action_recoverable(self._state, plan.idempotency_key)
+        if recovery_authorization is None:
+            require_action_recoverable(self._state, plan.idempotency_key)
+        else:
+            from chatgpt_operation.controller.diagnostic import validate_recovery_authorization
+            validate_recovery_authorization(self._state, plan, recovery_authorization)
         raw_action = plan.payload.get("action")
         try:
             action = NativeGitHubAction(raw_action)
