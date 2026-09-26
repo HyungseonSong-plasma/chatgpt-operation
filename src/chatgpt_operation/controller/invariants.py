@@ -147,3 +147,18 @@ def break_retry_loop(
         "repeated execution failure requires root-cause analysis before retry",
         evidence,
     )
+
+
+def governed_continuation_from_execution(
+    result: ExecutionResult,
+    *,
+    history: Iterable[ExecutionResult] = (),
+    repeat_limit: int = 3,
+) -> Continuation:
+    """Authoritative execution-to-continuation path with mandatory loop detection."""
+    continuation = continuation_from_execution(result)
+    return break_retry_loop(
+        continuation,
+        history=history,
+        repeat_limit=repeat_limit,
+    )
