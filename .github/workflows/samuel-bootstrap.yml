@@ -94,13 +94,20 @@ jobs:
           import json
           from chatgpt_operation.controller.bootstrap import load_pending, select_controller_work
           from chatgpt_operation.controller.durable_state import load_state_comment
+          from chatgpt_operation.controller.issue_ingestion import ADMISSION_MARKER, decode_admission_ledger
 
           comments=json.load(open("samuel-issue-comments.json"))
           state=load_state_comment(comments)
           pending=load_pending("automation/samuel/bootstrap.json")
+          admission=[c for c in comments if ADMISSION_MARKER in str(c.get("body",""))]
+          if len(admission)>1:
+              raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP multiple admission ledgers")
+          admitted={} if not admission else decode_admission_ledger(str(admission[0]["body"]))
           selected=select_controller_work(
               pending,
               diagnostic_recoveries={} if state is None else state.diagnostic_recoveries,
+              action_queue={} if state is None else state.action_queue,
+              admitted_work=admitted,
           )
           if selected is None:
               payload={"kind":"idle"}
@@ -110,6 +117,8 @@ jobs:
               payload={"kind":"action", **selected[1]}
           elif selected[0] == "evidence":
               payload={"kind":"evidence", **selected[1]}
+          elif selected[0] == "issue":
+              payload={"kind":"issue", **selected[1]}
           else:
               work=selected[1]
               payload={
