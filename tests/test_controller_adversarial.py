@@ -9,6 +9,7 @@ from chatgpt_operation.controller.invariants import (
     SkillEvidence,
     continuation_from_execution,
     break_retry_loop,
+    governed_continuation_from_execution,
     require_single_continuation,
     require_skill_governance,
 )
@@ -107,3 +108,13 @@ def test_attack_9_distinct_failure_does_not_false_trigger_loop_breaker():
     retry = continuation_from_execution(failed)
     outcome = break_retry_loop(retry, history=(other, other), repeat_limit=3)
     assert outcome.kind is ContinuationKind.RETRY
+
+
+def test_attack_10_governed_path_cannot_skip_loop_detection():
+    failed = execution()
+    outcome = governed_continuation_from_execution(
+        failed,
+        history=(failed, failed),
+        repeat_limit=3,
+    )
+    assert outcome.kind is ContinuationKind.DIAGNOSE
