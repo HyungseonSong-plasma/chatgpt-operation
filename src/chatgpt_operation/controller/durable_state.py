@@ -133,3 +133,15 @@ def apply_diagnostic_patch(
     )
     proposed.diagnostic_recoveries[action_id] = dict(patched)
     return proposed
+
+
+def apply_action_completion(current: ResearchState, result) -> ResearchState:
+    """Apply one verified queued-action completion as a single durable revision."""
+    from chatgpt_operation.controller.diagnostic import complete_queued_action
+    import copy
+    proposed = copy.deepcopy(current)
+    before = proposed.revision
+    complete_queued_action(proposed, result.action_id, result)
+    if proposed.revision != before + 1:
+        raise DurableStateError("action completion must advance exactly one revision")
+    return proposed
