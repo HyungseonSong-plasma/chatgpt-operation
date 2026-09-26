@@ -5,6 +5,7 @@ from chatgpt_operation.controller.durable_state import (
     require_fresh_write,
     load_state_comment,
     prepare_state_write,
+    apply_diagnostic_patch,
 )
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 
@@ -83,3 +84,38 @@ def test_duplicate_state_comments_fail_closed():
         assert "multiple authoritative" in str(exc)
     else:
         raise AssertionError("duplicate authoritative state must fail closed")
+
+
+def test_diagnostic_artifact_patches_only_selected_recovery_and_increments_once():
+    current = state(7)
+    artifact = {
+        "action_id": "a" * 64,
+        "phase": "investigate_root_cause",
+        "advanced": True,
+        "evidence": "provider=connector;error_type=RuntimeError",
+        "revision_delta": 1,
+        "recovery": {
+            **current.diagnostic_recoveries["a" * 64],
+            "root_cause": "provider=connector;error_type=RuntimeError",
+        },
+    }
+    proposed = apply_diagnostic_patch(current, artifact)
+    assert proposed.revision == 8
+    assert current.revision == 7
+    assert proposed.diagnostic_recoveries["a" * 64]["root_cause"].startswith("provider=")
+
+
+def test_nonadvancing_diagnostic_artifact_cannot_mutate_ledger():
+    current = state(7)
+    artifact = {
+        "action_id": "a" * 64,
+        "advanced": False,
+        "revision_delta": 0,
+        "recovery": current.diagnostic_recoveries["a" * 64],
+    }
+    try:
+        apply_diagnostic_patch(current, artifact)
+    except DurableStateError as exc:
+        assert "exactly one advanced revision" in str(exc)
+    else:
+        raise AssertionError("WAIT artifact must not mutate durable state")

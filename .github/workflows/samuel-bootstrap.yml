@@ -86,6 +86,10 @@ jobs:
               observation=outcome["observation"]
               if observation.get("status") != "MATCHED_TERMINAL" or observation.get("conclusion") != "success":
                   raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP diagnostic dispatch "+str(observation))
+              run_ids=observation.get("matched_run_ids") or ([observation.get("workflow_run_id")] if observation.get("workflow_run_id") else [])
+              if len(run_ids) != 1:
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP ambiguous diagnostic run "+str(run_ids))
+              open("samuel-diagnostic-run-id.txt","w").write(str(run_ids[0])+"\\n")
               print("SAMUEL_BOOTSTRAP=DIAGNOSTIC_DISPATCHED action_id="+selected["action_id"])
               raise SystemExit(0)
           pending=load_pending("automation/samuel/bootstrap.json")
@@ -119,7 +123,55 @@ jobs:
               print("SAMUEL_BOOTSTRAP=PASS "+work.work_id)
           PY
 
+      - name: Persist diagnostic recovery state
+        if: ${{ hashFiles('samuel-diagnostic-run-id.txt') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(cat samuel-diagnostic-run-id.txt)"
+          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+          artifact_id="$(python3 -c 'import json,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"]=="samuel-diagnostic-result"]; assert len(xs)==1; print(xs[0]["id"])' <<<"$artifact_json")"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o diagnostic.zip
+          rm -rf diagnostic-result && mkdir diagnostic-result
+          unzip -q diagnostic.zip -d diagnostic-result
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > current-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import (
+              apply_diagnostic_patch,
+              load_state_comment,
+              prepare_state_write,
+          )
+          comments=json.load(open("current-comments.json"))
+          current=load_state_comment(comments)
+          if current is None:
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP durable state disappeared")
+          artifact=json.load(open("diagnostic-result/samuel-diagnostic-result.json"))
+          if artifact.get("advanced") is not True:
+              print("SAMUEL_DIAGNOSTIC=WAIT "+str(artifact.get("evidence","")))
+              raise SystemExit(0)
+          proposed=apply_diagnostic_patch(current,artifact)
+          write=prepare_state_write(comments,proposed)
+          open("samuel-controller-state-body.txt","w").write(write["body"])
+          open("samuel-controller-state-comment-id.txt","w").write(
+              "" if write["comment_id"] is None else str(write["comment_id"])
+          )
+          PY
+          if [ -f samuel-controller-state-body.txt ]; then
+            body="$(cat samuel-controller-state-body.txt)"
+            comment_id="$(cat samuel-controller-state-comment-id.txt)"
+            if [ -n "$comment_id" ]; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+            else
+              gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+            fi
+          fi
+
       - name: Verify qualification artifact and persist durable ledger
+        if: ${{ hashFiles('samuel-qualified-run-id.txt') != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
