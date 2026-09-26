@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .execution import (
+    ExecutionStatus,
     diagnostic_next_action,
     record_diagnostic_corrective_action,
     record_diagnostic_resolution,
@@ -65,3 +66,42 @@ def advance_diagnostic(state: ResearchState, action_id: str) -> DiagnosticAdvanc
         return DiagnosticAdvance(action_id, phase, False, "resolution not independently verified")
 
     raise AssertionError("unsupported diagnostic phase")
+
+
+def resolve_from_execution_receipt(
+    state: ResearchState,
+    action_id: str,
+    *,
+    corrective_result,
+) -> DiagnosticAdvance:
+    """Resolve only from an executor result whose postcondition was authoritatively verified."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    if not recovery.get("root_cause") or not recovery.get("corrective_action"):
+        raise ValueError("diagnostic correction has not been planned")
+    if corrective_result.research_id != state.research_id:
+        raise ValueError("corrective result belongs to a different research state")
+    if corrective_result.status not in {ExecutionStatus.PASS, ExecutionStatus.NOOP}:
+        return DiagnosticAdvance(
+            action_id, "verify_resolution", False,
+            "corrective execution did not produce PASS/NOOP",
+        )
+    if corrective_result.status is ExecutionStatus.PASS:
+        after = corrective_result.details.get("after")
+        if not isinstance(after, dict):
+            return DiagnosticAdvance(
+                action_id, "verify_resolution", False,
+                "PASS result lacks postcondition readback",
+            )
+        evidence = "verified corrective execution: " + corrective_result.observation
+    else:
+        before = corrective_result.details.get("before")
+        if not isinstance(before, dict):
+            return DiagnosticAdvance(
+                action_id, "verify_resolution", False,
+                "NOOP result lacks desired-state readback",
+            )
+        evidence = "verified desired state already held: " + corrective_result.observation
+    record_diagnostic_resolution(state, action_id, evidence)
+    return DiagnosticAdvance(action_id, "verify_resolution", True, evidence)
