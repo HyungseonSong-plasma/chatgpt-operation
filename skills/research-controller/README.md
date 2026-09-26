@@ -24,3 +24,25 @@ Executable behavior is authoritative in Python, not in this document:
 
 Do not encode research workflow rules here when they can be enforced in code.
 Do not let free-form LLM output directly mutate repositories or bypass escalation.
+
+## Mandatory executable consistency contracts
+
+Before architecture/workflow reasoning, the controller must execute these code-owned contracts:
+
+- `decision-registry` -> `chatgpt_operation.controller.decisions.DecisionRegistry`
+- `implementation-state` -> `chatgpt_operation.controller.implementation.ImplementationState`
+- `reasoning-envelope` -> `chatgpt_operation.controller.envelope.build_reasoning_envelope`
+- `decision-guard` -> `chatgpt_operation.controller.decisions.DecisionGuard`
+
+Required order:
+
+```
+load accepted decisions
+-> load implementation state
+-> build bounded ReasoningEnvelope
+-> run typed reasoning
+-> validate with DecisionGuard
+-> produce typed decision / ActionPlan
+```
+
+Accepted architecture and implementation status are separate state. A missing implementation must be treated as an implementation gap, not rediscovered as a new architecture decision. An incompatible proposal must use an explicit versioned revision transaction; otherwise fail closed.
