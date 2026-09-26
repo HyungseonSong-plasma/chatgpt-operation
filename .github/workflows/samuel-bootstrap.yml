@@ -156,9 +156,9 @@ jobs:
           payload={
               "schema_version":1,
               "work_id":result.work_id,
-              "outcome":"blocked" if not provider_status.available else result.outcome.value,
-              "reason":provider_status.reason if not provider_status.available else result.reason,
-              "blocker":None if provider_status.available else "semantic_provider_unavailable",
+              "outcome":"reasoning_required" if not provider_status.available else result.outcome.value,
+              "reason":"external semantic reasoning worker required" if not provider_status.available else result.reason,
+              "blocker":None,
               "semantic_provider":{
                   "available":provider_status.available,
                   "provider":provider_status.provider,
@@ -169,8 +169,30 @@ jobs:
           open("samuel-issue-planning.json","w").write(
               json.dumps(payload,sort_keys=True,separators=(",",":"))
           )
+          if payload["outcome"] == "reasoning_required":
+              open("samuel-reasoning-required-work-id.txt","w").write(result.work_id)
           print("SAMUEL_ISSUE_PLANNING="+payload["outcome"].upper()+" work_id="+result.work_id)
           PY
+          if [ -f samuel-reasoning-required-work-id.txt ]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > lifecycle-comments.json
+            python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.issue_ingestion import (
+              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger,
+              transition_issue_status,
+          )
+          comments=json.load(open("lifecycle-comments.json"))
+          matches=[c for c in comments if ADMISSION_MARKER in str(c.get("body",""))]
+          if len(matches)!=1:
+              raise SystemExit("SAMUEL_REASONING=HARD_STOP admission ledger missing or ambiguous")
+          work=decode_admission_ledger(str(matches[0]["body"]))
+          work_id=open("samuel-reasoning-required-work-id.txt").read().strip()
+          updated=transition_issue_status(work,work_id,"reasoning_required")
+          open("samuel-admission-body.txt","w").write(encode_admission_ledger(updated))
+          open("samuel-admission-comment-id.txt","w").write(str(matches[0]["id"]))
+          PY
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$(cat samuel-admission-comment-id.txt)" -f body="$(cat samuel-admission-body.txt)" >/dev/null
+          fi
           if [ ! -f samuel-issue-planning.json ]; then exit 0; fi
           marker='<!-- samuel-issue-planning -->'
           body="$marker
