@@ -37,6 +37,7 @@ jobs:
         run: |
           python3 -m chatgpt_operation.cli --help
           python3 -m chatgpt_operation.cli skills validate-contracts
+          python3 -m chatgpt_operation.cli skills validate-capabilities
           python3 -m chatgpt_operation.cli repository mutate --help
           python3 -m chatgpt_operation.cli source verify --help
           python3 -m chatgpt_operation.cli work new --help

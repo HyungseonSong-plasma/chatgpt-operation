@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from .action_plan import ExecutorKind
-from .research import ResearchState, ResearchStateError
+from .research import ResearchStage, ResearchState, ResearchStateError
 
 
 ACTION_ID = re.compile(r"^[0-9a-f]{64}$")
@@ -152,3 +152,29 @@ def record_execution_result(
     state.execution_results[result.action_id] = encoded
     state.revision += 1
     return True
+
+
+def transition_from_execution(
+    state: ResearchState,
+    result: ExecutionResult,
+    target: ResearchStage,
+) -> bool:
+    """Apply an execution-driven state transition with typed evidence.
+
+    COMPLETE is evidence-gated: only PASS/NOOP from a recorded executor result
+    can authorize it. FAILED/REJECTED evidence can be recorded but cannot be
+    promoted to COMPLETE.
+    """
+    record_execution_result(state, result)
+    if target is ResearchStage.COMPLETE and result.status not in {
+        ExecutionStatus.PASS,
+        ExecutionStatus.NOOP,
+    }:
+        raise ResearchStateError(
+            "COMPLETE requires PASS/NOOP execution evidence"
+        )
+    return state.apply_once(
+        f"execution:{result.action_id}:{target.value}",
+        target,
+        execution_evidence=True,
+    )

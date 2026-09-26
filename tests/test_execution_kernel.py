@@ -87,5 +87,55 @@ class ExecutionKernelTests(unittest.TestCase):
         self.assertTrue(receipt.complete)
 
 
+    def test_provider_failure_falls_back_and_preserves_evidence(self):
+        primary = ExecutionProvider(
+            name="github-connector",
+            capabilities=frozenset({GitHubCapability.MERGE_PR}),
+            read_state=lambda action, target: {
+                "merged": False, "head_sha": "2976871b",
+                "mergeable": True, "ci": "success",
+            },
+            mutate=lambda action, target: (_ for _ in ()).throw(
+                RuntimeError("blocked by provider safety check")
+            ),
+        )
+        states = iter([
+            {"merged": False, "head_sha": "2976871b", "mergeable": True, "ci": "success"},
+            {"merged": True, "head_sha": "2976871b"},
+        ])
+        fallback = ExecutionProvider(
+            name="github-rest",
+            capabilities=frozenset({GitHubCapability.MERGE_PR}),
+            read_state=lambda action, target: next(states),
+            mutate=lambda action, target: {"merged": True},
+        )
+        receipt = ExecutionKernel([primary, fallback]).execute(merge_plan())
+        self.assertEqual(receipt.provider, "github-rest")
+        self.assertTrue(receipt.complete)
+        self.assertEqual(len(receipt.provider_failures), 1)
+        self.assertEqual(receipt.provider_failures[0].provider, "github-connector")
+        self.assertTrue(receipt.provider_failures[0].attempted)
+
+    def test_all_provider_failures_are_required_before_kernel_blocker(self):
+        def failed(name):
+            return ExecutionProvider(
+                name=name,
+                capabilities=frozenset({GitHubCapability.MERGE_PR}),
+                read_state=lambda action, target: {
+                    "merged": False, "head_sha": "2976871b",
+                    "mergeable": True, "ci": "success",
+                },
+                mutate=lambda action, target: (_ for _ in ()).throw(
+                    RuntimeError(f"{name} rejected mutation")
+                ),
+            )
+        with self.assertRaisesRegex(
+            ExecutionKernelError,
+            "all registered providers failed for GITHUB_PR_MERGE",
+        ) as caught:
+            ExecutionKernel([failed("connector"), failed("rest")]).execute(merge_plan())
+        self.assertIn("connector:RuntimeError", str(caught.exception))
+        self.assertIn("rest:RuntimeError", str(caught.exception))
+
 if __name__ == "__main__":
     unittest.main()

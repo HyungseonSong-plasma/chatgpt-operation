@@ -57,17 +57,26 @@ def resolve_capability(
     """
     if native_available:
         return CapabilityResolution(capability=capability, provider="native")
-    contract = CAPABILITY_BINDINGS.get(capability)
-    if contract is None:
-        raise SkillContractError(f"unbound capability: {capability}")
-    binding = CONTRACT_BINDINGS.get(contract)
-    if binding is None:
-        raise SkillContractError(
-            f"capability {capability} references unbound contract: {contract}"
-        )
-    binding.resolve()
+    from chatgpt_operation.skills.capability_registry import (
+        CapabilityRegistryError,
+        resolve_providers,
+    )
+    try:
+        providers = resolve_providers(capability)
+    except CapabilityRegistryError as exc:
+        raise SkillContractError(str(exc)) from exc
+    provider = next((p for p in providers if p.kind in {"skill", "workflow"}), None)
+    if provider is None:
+        raise SkillContractError(f"no repository provider for capability: {capability}")
+    if provider.contract:
+        binding = CONTRACT_BINDINGS.get(provider.contract)
+        if binding is None:
+            raise SkillContractError(
+                f"capability {capability} references unbound contract: {provider.contract}"
+            )
+        binding.resolve()
     return CapabilityResolution(
-        capability=capability, provider="skill", contract=contract
+        capability=capability, provider=provider.kind, contract=provider.contract
     )
 
 

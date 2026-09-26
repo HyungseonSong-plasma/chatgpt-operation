@@ -41,11 +41,22 @@ class ExecutionProvider:
 
 
 @dataclass(frozen=True)
+class ProviderFailureEvidence:
+    provider: str
+    capability: GitHubCapability
+    operation: str
+    attempted: bool
+    error_type: str
+    message: str
+
+
+@dataclass(frozen=True)
 class ExecutionReceipt:
     capability: GitHubCapability
     provider: str
     attempted: bool
     result: ExecutionResult
+    provider_failures: tuple[ProviderFailureEvidence, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -65,29 +76,46 @@ class ExecutionKernel:
         except (TypeError, ValueError) as exc:
             raise ExecutionKernelError(f"unsupported action: {raw_action}") from exc
         capability = ACTION_CAPABILITIES[action]
-        provider = next(
-            (p for p in self._providers if capability in p.capabilities),
-            None,
-        )
-        if provider is None:
+        providers = tuple(p for p in self._providers if capability in p.capabilities)
+        if not providers:
             raise ExecutionKernelError(
                 f"no registered execution provider for {capability.value}"
             )
 
-        # Capability-related BLOCKED state cannot be inferred by the controller:
-        # a provider must be selected and the mutation path actually entered.
-        result = execute_native_github(
-            plan,
-            read_state=provider.read_state,
-            mutate=provider.mutate,
+        failures: list[ProviderFailureEvidence] = []
+        for provider in providers:
+            try:
+                result = execute_native_github(
+                    plan,
+                    read_state=provider.read_state,
+                    mutate=provider.mutate,
+                )
+            except Exception as exc:
+                failures.append(ProviderFailureEvidence(
+                    provider=provider.name,
+                    capability=capability,
+                    operation=action.value,
+                    attempted=True,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                ))
+                continue
+
+            attempted = result.status not in {
+                ExecutionStatus.NOOP,
+                ExecutionStatus.REJECTED,
+            }
+            return ExecutionReceipt(
+                capability=capability,
+                provider=provider.name,
+                attempted=attempted,
+                result=result,
+                provider_failures=tuple(failures),
+            )
+
+        summary = "; ".join(
+            f"{f.provider}:{f.error_type}:{f.message}" for f in failures
         )
-        attempted = result.status not in {
-            ExecutionStatus.NOOP,
-            ExecutionStatus.REJECTED,
-        }
-        return ExecutionReceipt(
-            capability=capability,
-            provider=provider.name,
-            attempted=attempted,
-            result=result,
+        raise ExecutionKernelError(
+            f"all registered providers failed for {capability.value}: {summary}"
         )
