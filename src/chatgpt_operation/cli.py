@@ -576,6 +576,7 @@ def parser() -> argparse.ArgumentParser:
     gnd.set_defaults(func=github_native_dispatch)
     gn=ghs.add_parser("execute-native")
     gn.add_argument("--input",required=True); gn.add_argument("--result")
+    gn.add_argument("--recovery-state"); gn.add_argument("--recovery-authorization")
     gn.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
     gn.add_argument("--token-env",default="GITHUB_TOKEN")
     gn.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com"))
