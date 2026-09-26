@@ -24,6 +24,36 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Persist bootstrap heartbeat evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          marker='<!-- samuel-bootstrap-heartbeat -->'
+          payload="$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+              "schema_version": 1,
+              "event_name": os.environ["GITHUB_EVENT_NAME"],
+              "event_action": os.environ.get("GITHUB_EVENT_ACTION", ""),
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "head_sha": os.environ["GITHUB_SHA"],
+              "ref": os.environ["GITHUB_REF"],
+          }, sort_keys=True, separators=(",", ":")))
+          PY
+          )"
+          body="$marker
+          \`\`\`json
+          $payload
+          \`\`\`"
+          comments="$(gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100")"
+          comment_id="$(python3 -c 'import json,sys; m="<!-- samuel-bootstrap-heartbeat -->"; xs=json.load(sys.stdin); ids=[x["id"] for x in xs if m in x.get("body","")]; assert len(ids)<=1; print(ids[0] if ids else "")' <<<"$comments")"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
       - name: Load durable controller state and select work
         env:
           PYTHONPATH: src
