@@ -1,7 +1,15 @@
 """Adversarial regressions for Samuel controller governance and liveness."""
 import unittest
 
-from chatgpt_operation.controller.execution import ExecutionResult, require_action_recoverable, resolve_diagnostic_recovery
+from chatgpt_operation.controller.execution import (
+    ExecutionResult,
+    require_action_recoverable,
+    resolve_diagnostic_recovery,
+    diagnostic_next_action,
+    record_diagnostic_root_cause,
+    record_diagnostic_corrective_action,
+    record_diagnostic_resolution,
+)
 from chatgpt_operation.controller.invariants import (
     Continuation,
     ContinuationKind,
@@ -140,4 +148,23 @@ def test_attack_11_diagnosis_suspends_same_action_until_resolved():
         corrective_action="refresh provider authority evidence",
         resolution_evidence="fresh provider probe passed",
     )
+    require_action_recoverable(state, failed.action_id)
+
+
+def test_attack_12_diagnostic_recovery_is_ordered_closed_loop():
+    state = ResearchState("attack-suite", "break controller", stage=ResearchStage.EXECUTE)
+    failed = execution()
+    govern_execution_failure(state, failed, history=(failed, failed), repeat_limit=3)
+
+    assert diagnostic_next_action(state, failed.action_id)["kind"] == "investigate_root_cause"
+    with unittest.TestCase().assertRaisesRegex(ResearchStateError, "root cause"):
+        record_diagnostic_corrective_action(state, failed.action_id, "change provider")
+
+    record_diagnostic_root_cause(state, failed.action_id, "provider token scope stale")
+    assert diagnostic_next_action(state, failed.action_id)["kind"] == "apply_corrective_action"
+
+    record_diagnostic_corrective_action(state, failed.action_id, "refresh provider authority")
+    assert diagnostic_next_action(state, failed.action_id)["kind"] == "verify_resolution"
+
+    record_diagnostic_resolution(state, failed.action_id, "provider probe and readback passed")
     require_action_recoverable(state, failed.action_id)
