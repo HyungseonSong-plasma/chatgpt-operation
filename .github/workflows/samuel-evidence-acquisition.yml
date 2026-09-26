@@ -1,0 +1,65 @@
+name: Samuel Evidence Acquisition
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_json:
+        required: true
+        type: string
+      controller_state:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acquire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Acquire typed recovery evidence
+        env:
+          PYTHONPATH: src
+          RECOVERY_JSON: ${{ inputs.recovery_json }}
+          CONTROLLER_STATE: ${{ inputs.controller_state }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from chatgpt_operation.controller.durable_state import decode_state, encode_state
+          from chatgpt_operation.controller.diagnostic import record_acquired_diagnostic_evidence
+          from chatgpt_operation.skills.capability_registry import resolve_providers
+          recovery=json.loads(os.environ["RECOVERY_JSON"])
+          action_id=recovery.get("action_id")
+          state=decode_state(os.environ["CONTROLLER_STATE"])
+          item=state.diagnostic_recoveries.get(action_id)
+          if not item or item.get("status")!="needs_evidence":
+              raise SystemExit("SAMUEL_EVIDENCE=HARD_STOP recovery is not waiting for evidence")
+          failure=item.get("failure") or {}
+          details=failure.get("details") or {}
+          provider=str(details.get("provider","")).strip()
+          providers=[]
+          for capability in ("GITHUB_PR_WRITE","GITHUB_ISSUE_WRITE","GITHUB_WORKFLOW_DISPATCH"):
+              try:
+                  providers.extend(p.name for p in resolve_providers(capability))
+              except Exception:
+                  pass
+          evidence={
+              "provider":provider,
+              "error_type":str(details.get("error_type","")).strip(),
+              "provider_status":str(details.get("provider_status","")).strip(),
+              "available_providers":sorted(set(providers)),
+              "evidence_source":"repository-capability-registry",
+              "evidence_request_fingerprint":(item.get("evidence_request") or {}).get("fingerprint"),
+          }
+          if not evidence["available_providers"]:
+              raise SystemExit("SAMUEL_EVIDENCE=HARD_STOP no repository providers resolved")
+          record_acquired_diagnostic_evidence(state,action_id,evidence)
+          out={"action_id":action_id,"evidence":evidence,"controller_state":encode_state(state),"revision_delta":1}
+          open("samuel-evidence-result.json","w").write(json.dumps(out,sort_keys=True,separators=(",",":")))
+          print("SAMUEL_EVIDENCE=ACQUIRED action_id="+action_id)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: samuel-evidence-result
+          path: samuel-evidence-result.json
+          if-no-files-found: error

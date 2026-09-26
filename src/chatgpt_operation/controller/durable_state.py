@@ -186,3 +186,19 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
         attach_source_plan(proposed, result.action_id, plan)
         mark_action_suspended(proposed, result.action_id)
     return proposed
+
+
+def apply_evidence_patch(current: ResearchState, artifact: dict[str, Any]) -> ResearchState:
+    """Apply acquired diagnostic evidence only to the exact waiting recovery."""
+    from chatgpt_operation.controller.diagnostic import record_acquired_diagnostic_evidence
+    import copy
+    if artifact.get("revision_delta") != 1:
+        raise DurableStateError("evidence patch must advance exactly one revision")
+    action_id = artifact.get("action_id")
+    evidence = artifact.get("evidence")
+    proposed = copy.deepcopy(current)
+    before = proposed.revision
+    record_acquired_diagnostic_evidence(proposed, action_id, evidence)
+    if proposed.revision != before + 1:
+        raise DurableStateError("evidence patch revision mismatch")
+    return proposed
