@@ -65,8 +65,11 @@ def admit_issue(comments: list[dict[str,Any]], issue: dict[str,Any]) -> dict[str
     item=AdmittedIssueWork.from_issue(issue)
     existing=current.get(item.work_id)
     encoded=asdict(item)
-    if existing is not None and existing != encoded:
-        raise AdmissionError("admitted issue identity changed")
+    if existing is not None:
+        immutable=("work_id","issue_number","title","body","html_url")
+        if any(existing.get(key) != encoded.get(key) for key in immutable):
+            raise AdmissionError("admitted issue identity changed")
+        encoded["status"]=existing.get("status","admitted")
     current[item.work_id]=encoded
     return {
         "changed": existing is None,
@@ -74,3 +77,16 @@ def admit_issue(comments: list[dict[str,Any]], issue: dict[str,Any]) -> dict[str
         "body": encode_admission_ledger(current),
         "work_id": item.work_id,
     }
+
+
+def transition_issue_status(
+    work: dict[str, dict[str, Any]], work_id: str, status: str
+) -> dict[str, dict[str, Any]]:
+    allowed={"admitted","reasoning_required","planned","active","complete","blocked","revision_required"}
+    if status not in allowed:
+        raise AdmissionError("unsupported issue lifecycle status")
+    if work_id not in work:
+        raise AdmissionError("unknown admitted issue")
+    updated={key:dict(value) for key,value in work.items()}
+    updated[work_id]["status"]=status
+    return updated
