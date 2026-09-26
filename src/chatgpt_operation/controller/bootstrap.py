@@ -77,3 +77,23 @@ def resolve_bootstrap_provider(
             "GITHUB_WORKFLOW_DISPATCH has no repository-executable provider"
         )
     return eligible[0]
+
+
+def select_controller_work(
+    pending: list[BootstrapWork],
+    *,
+    diagnostic_recoveries: dict[str, dict[str, Any]] | None = None,
+) -> tuple[str, Any] | None:
+    """Prioritize unresolved recovery work over ordinary pending work."""
+    recoveries = diagnostic_recoveries or {}
+    open_ids = sorted(
+        action_id
+        for action_id, recovery in recoveries.items()
+        if recovery.get("status") == "open"
+    )
+    if open_ids:
+        action_id = open_ids[0]
+        return ("diagnostic", {"action_id": action_id, "recovery": recoveries[action_id]})
+    if pending:
+        return ("pending", pending[0])
+    return None
