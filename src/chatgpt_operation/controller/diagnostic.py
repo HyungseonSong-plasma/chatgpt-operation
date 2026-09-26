@@ -192,3 +192,24 @@ def validate_recovery_authorization(
     expected = recovery_authorization(state, plan.idempotency_key)
     if authorization != expected:
         raise ValueError("recovery authorization does not match current diagnostic state")
+
+
+def recovery_authorization_from_dict(raw: dict[str, Any]) -> RecoveryAuthorization:
+    required = {"action_id", "source_plan_id", "corrective_action", "token"}
+    if not isinstance(raw, dict) or set(raw) != required:
+        raise ValueError("invalid recovery authorization schema")
+    return RecoveryAuthorization(
+        action_id=str(raw["action_id"]),
+        source_plan_id=str(raw["source_plan_id"]),
+        corrective_action=str(raw["corrective_action"]),
+        token=str(raw["token"]),
+    )
+
+
+def recovery_authorization_to_dict(auth: RecoveryAuthorization) -> dict[str, str]:
+    return {
+        "action_id": auth.action_id,
+        "source_plan_id": auth.source_plan_id,
+        "corrective_action": auth.corrective_action,
+        "token": auth.token,
+    }

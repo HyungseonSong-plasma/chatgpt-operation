@@ -23,6 +23,8 @@ def dispatch_native_plan(
     expected_head_sha: str | None = None,
     timeout_seconds: float = 600,
     poll_interval_seconds: float = 5,
+    recovery_state: str | None = None,
+    recovery_authorization: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if plan.executor is not ExecutorKind.GITHUB_NATIVE:
         raise NativeOrchestrationError("only github_native plans may be dispatched")
@@ -34,7 +36,8 @@ def dispatch_native_plan(
         transport,
         workflow=workflow,
         ref=ref,
-        inputs={"plan_json": json.dumps({
+        inputs={
+            "plan_json": json.dumps({
             "schema_version": 1,
             "research_id": plan.research_id,
             "stage": plan.stage.value,
@@ -46,7 +49,18 @@ def dispatch_native_plan(
                 "uncertainty": plan.decision_risk.uncertainty,
                 "irreversibility": plan.decision_risk.irreversibility,
             },
-        }, sort_keys=True)},
+            }, sort_keys=True),
+            **(
+                {
+                    "recovery_state": recovery_state,
+                    "recovery_authorization": json.dumps(
+                        recovery_authorization, sort_keys=True, separators=(",", ":")
+                    ),
+                }
+                if recovery_state is not None and recovery_authorization is not None
+                else {}
+            ),
+        },
         correlation_id=correlation_id,
         correlation_input=None,
         expected_head_sha=expected_head_sha,
