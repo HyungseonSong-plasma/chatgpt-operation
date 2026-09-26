@@ -97,6 +97,14 @@
         "SCIENTIFIC_DISCRIMINATOR_CONTROLLER"
       ],
       "activation": "trigger"
+    },
+    {
+      "name": "research-controller",
+      "path": "skills/research-controller/README.md",
+      "load_on": [
+        "RESEARCH_CONTROLLER"
+      ],
+      "activation": "trigger"
     }
   ]
 }
