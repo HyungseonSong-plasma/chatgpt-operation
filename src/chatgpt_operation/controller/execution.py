@@ -178,3 +178,53 @@ def transition_from_execution(
         target,
         execution_evidence=True,
     )
+
+
+def open_diagnostic_recovery(
+    state: ResearchState,
+    result: ExecutionResult,
+    *,
+    fingerprint: tuple[str, ...],
+) -> None:
+    """Persist a loop break before the failed action can execute again."""
+    state.diagnostic_recoveries[result.action_id] = {
+        "status": "open",
+        "fingerprint": list(fingerprint),
+        "failure": result.to_dict(),
+        "root_cause": None,
+        "corrective_action": None,
+        "resolution_evidence": None,
+    }
+    state.revision += 1
+
+
+def resolve_diagnostic_recovery(
+    state: ResearchState,
+    action_id: str,
+    *,
+    root_cause: str,
+    corrective_action: str,
+    resolution_evidence: str,
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ResearchStateError("no open diagnostic recovery for action")
+    values=(root_cause, corrective_action, resolution_evidence)
+    if any(not isinstance(value, str) or not value.strip() for value in values):
+        raise ResearchStateError("diagnostic resolution requires root cause, corrective action, and evidence")
+    recovery.update({
+        "status": "resolved",
+        "root_cause": root_cause.strip(),
+        "corrective_action": corrective_action.strip(),
+        "resolution_evidence": resolution_evidence.strip(),
+    })
+    state.revision += 1
+
+
+def require_action_recoverable(state: ResearchState, action_id: str) -> None:
+    """Forbid replay while diagnosis is open."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is not None and recovery.get("status") == "open":
+        raise ResearchStateError(
+            f"action {action_id} is suspended pending diagnostic recovery"
+        )
