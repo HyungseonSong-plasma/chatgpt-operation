@@ -1,0 +1,54 @@
+name: Samuel Bootstrap
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: samuel-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wake pending Samuel work
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from chatgpt_operation.controller.bootstrap import load_pending
+          from chatgpt_operation.github.actions_runtime import GitHubActionsTransport, dispatch_and_wait
+
+          repo=os.environ["GITHUB_REPOSITORY"]
+          sha=os.environ["GITHUB_SHA"]
+          transport=GitHubActionsTransport(repo, os.environ["GITHUB_TOKEN"])
+          pending=load_pending("automation/samuel/bootstrap.json")
+          if not pending:
+              print("SAMUEL_BOOTSTRAP=IDLE")
+          for work in pending:
+              outcome=dispatch_and_wait(
+                  transport,
+                  workflow=work.workflow,
+                  ref=work.ref,
+                  inputs={},
+                  correlation_id=work.work_id,
+                  correlation_input=None,
+                  expected_head_sha=sha if work.ref == os.environ.get("GITHUB_REF_NAME") else None,
+                  timeout_seconds=600,
+                  poll_interval_seconds=5,
+              )
+              observation=outcome["observation"]
+              if observation.get("status") != "MATCHED_TERMINAL" or observation.get("conclusion") != "success":
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP "+str(observation))
+              print("SAMUEL_BOOTSTRAP=PASS "+work.work_id)
+          PY
