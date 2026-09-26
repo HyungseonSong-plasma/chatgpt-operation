@@ -209,17 +209,18 @@ def github_native_execute(args: argparse.Namespace) -> int:
             state = decode_state(Path(args.recovery_state).read_text(encoding="utf-8"))
             auth_raw = json.loads(Path(args.recovery_authorization).read_text(encoding="utf-8"))
             auth = recovery_authorization_from_dict(auth_raw)
-            receipt = ExecutionKernel(
-                [native_runtime_provider("repository-native", transport)],
-                state=state,
-            ).execute(plan, recovery_authorization=auth)
-            result = receipt.result
         else:
-            result = execute_native_github(
-                plan,
-                read_state=transport.read_state,
-                mutate=transport.mutate,
+            state = ResearchState(
+                research_id=plan.research_id,
+                objective="native execution",
+                stage=plan.stage,
             )
+            auth = None
+        receipt = ExecutionKernel(
+            [native_runtime_provider("repository-native", transport)],
+            state=state,
+        ).execute(plan, recovery_authorization=auth)
+        result = receipt.result
     except (OSError, json.JSONDecodeError, ActionPlanError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
         print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
         return 2
