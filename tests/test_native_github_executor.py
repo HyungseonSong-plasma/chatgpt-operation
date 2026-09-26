@@ -67,7 +67,11 @@ class NativeGitHubExecutorTests(unittest.TestCase):
 
     def test_unknown_action_fails_closed(self):
         with self.assertRaises(NativeGitHubError):
-            plan("delete_repository")
+            execute_native_github(
+                plan("delete_repository"),
+                read_state=lambda action, target: self.fail("must not read state"),
+                mutate=lambda action, target: self.fail("must not mutate"),
+            )
 
 
 if __name__ == "__main__":
