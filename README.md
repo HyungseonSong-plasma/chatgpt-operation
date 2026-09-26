@@ -316,3 +316,39 @@ consumer matrix manifest
 ```
 
 Consumers call `.github/workflows/governed-matrix.yml` at an exact immutable central SHA and pass the same SHA as `operation_sha`. See `skills/governed-matrix/README.md`.
+
+
+## Samuel external scheduler boundary
+
+An external scheduler, including a ChatGPT scheduled invocation, is **not** the
+Samuel Controller. Its only authority is to wake the repository-owned
+controller by dispatching the canonical workflow:
+
+```text
+external scheduler
+  -> workflow_dispatch: samuel-bootstrap.yml @ main
+  -> STOP
+
+samuel-bootstrap.yml
+  -> reconstruct durable Issue #44 state
+  -> select diagnostic / evidence / durable action / pending work
+  -> ExecutionKernel
+  -> registered provider
+  -> typed ExecutionResult / postcondition verification
+  -> durable state transition
+```
+
+The external scheduler MUST NOT independently select work, merge a pull request,
+comment on or close an issue, execute the native provider, infer capability
+failure, or substitute another mutation route. A host/tool-layer rejection
+before the canonical bootstrap dispatch is **host-boundary evidence**, not a
+Samuel capability BLOCKED result, because no repository ExecutionReceipt exists.
+
+The executable contract is
+`chatgpt_operation.controller.host_boundary.scheduled_controller_contract()`.
+`validate_host_operation()` fails closed for every host operation except
+`dispatch_workflow(samuel-bootstrap.yml, main)`.
+
+This separation is deliberate: the scheduler supplies liveness; the repository
+owns state, reasoning inputs, execution authority, provider fallback, diagnosis,
+verification, and recovery.
