@@ -144,24 +144,32 @@ jobs:
           import json
           from chatgpt_operation.controller.decisions import DecisionRegistry
           from chatgpt_operation.controller.issue_planning import plan_admitted_issue
+          from chatgpt_operation.controller.reasoning_provider import ReasoningProviderRegistry
 
           selected=json.load(open("samuel-selected-work.json"))
           if selected.get("kind") != "issue":
               raise SystemExit(0)
           registry=DecisionRegistry.load("automation/samuel/decisions.json")
           result=plan_admitted_issue(selected,registry=registry)
+          provider=ReasoningProviderRegistry()
+          provider_status=provider.status()
           payload={
               "schema_version":1,
               "work_id":result.work_id,
-              "outcome":result.outcome.value,
-              "reason":result.reason,
+              "outcome":"blocked" if not provider_status.available else result.outcome.value,
+              "reason":provider_status.reason if not provider_status.available else result.reason,
+              "blocker":None if provider_status.available else "semantic_provider_unavailable",
+              "semantic_provider":{
+                  "available":provider_status.available,
+                  "provider":provider_status.provider,
+              },
               "action_plan":result.action_plan,
               "reasoning_context":result.envelope.as_reasoning_context(),
           }
           open("samuel-issue-planning.json","w").write(
               json.dumps(payload,sort_keys=True,separators=(",",":"))
           )
-          print("SAMUEL_ISSUE_PLANNING="+result.outcome.value.upper()+" work_id="+result.work_id)
+          print("SAMUEL_ISSUE_PLANNING="+payload["outcome"].upper()+" work_id="+result.work_id)
           PY
           if [ ! -f samuel-issue-planning.json ]; then exit 0; fi
           marker='<!-- samuel-issue-planning -->'
