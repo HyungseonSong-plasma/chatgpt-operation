@@ -75,7 +75,7 @@ class LifecycleScenario:
         execution = ExecutionResult(
             research_id=self.state.research_id,
             action_id=action_id,
-            executor=ExecutorKind.REPOSITORY,
+            executor=ExecutorKind.REPOSITORY_MUTATION,
             status=ExecutionStatus.PASS,
             observation="final write committed",
             details={"evidence": "writer returned successfully"},
