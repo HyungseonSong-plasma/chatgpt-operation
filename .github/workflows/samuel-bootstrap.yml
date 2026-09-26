@@ -72,9 +72,22 @@ jobs:
           transport=GitHubActionsTransport(repo, os.environ["GITHUB_TOKEN"])
           selected=__import__("json").load(open("samuel-selected-work.json"))
           if selected.get("kind") == "diagnostic":
-              raise SystemExit(
-                  "SAMUEL_BOOTSTRAP=DIAGNOSTIC_REQUIRED action_id="+selected["action_id"]
+              outcome=dispatch_and_wait(
+                  transport,
+                  workflow="samuel-diagnostic-recovery.yml",
+                  ref="main",
+                  inputs={"recovery_json": __import__("json").dumps(selected,sort_keys=True,separators=(",",":"))},
+                  correlation_id="diagnostic:"+selected["action_id"],
+                  correlation_input=None,
+                  expected_head_sha=sha,
+                  timeout_seconds=600,
+                  poll_interval_seconds=5,
               )
+              observation=outcome["observation"]
+              if observation.get("status") != "MATCHED_TERMINAL" or observation.get("conclusion") != "success":
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP diagnostic dispatch "+str(observation))
+              print("SAMUEL_BOOTSTRAP=DIAGNOSTIC_DISPATCHED action_id="+selected["action_id"])
+              raise SystemExit(0)
           pending=load_pending("automation/samuel/bootstrap.json")
           selected_id=selected.get("work_id") if selected.get("kind") == "pending" else None
           pending=[work for work in pending if work.work_id == selected_id]
