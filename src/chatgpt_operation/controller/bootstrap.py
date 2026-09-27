@@ -113,6 +113,7 @@ def select_controller_work(
     )
     evidence_in_flight: list[tuple[str, str, dict[str, Any]]] = []
     diagnostic_in_flight: list[tuple[str, str, dict[str, Any]]] = []
+    corrective_in_flight: list[tuple[str, str, dict[str, Any]]] = []
     for action_id, recovery in recoveries.items():
         if recovery.get("status") == "needs_evidence":
             dispatch = recovery.get("evidence_dispatch")
@@ -132,8 +133,22 @@ def select_controller_work(
                 }:
                     raise BootstrapError("diagnostic dispatch has unsupported lifecycle status")
                 diagnostic_in_flight.append((action_id, dispatch["status"], dispatch))
+            corrective = recovery.get("corrective_dispatch")
+            if corrective is not None:
+                if not isinstance(corrective, dict) or corrective.get("status") not in {
+                    ActionLifecycle.DISPATCH_INTENT.value,
+                    ActionLifecycle.DISPATCHED.value,
+                }:
+                    raise BootstrapError("corrective dispatch has unsupported lifecycle status")
+                corrective_in_flight.append((action_id, corrective["status"], corrective))
 
-    if len(in_flight) + len(evidence_in_flight) + len(diagnostic_in_flight) > 1:
+    if (
+        len(in_flight)
+        + len(evidence_in_flight)
+        + len(diagnostic_in_flight)
+        + len(corrective_in_flight)
+        > 1
+    ):
         raise BootstrapError("multiple in-flight durable workflows")
     if in_flight:
         action_id = in_flight[0]
@@ -155,6 +170,22 @@ def select_controller_work(
             "plan": item["plan"],
             "dispatch_receipt": item["dispatch_receipt"],
         })
+    if corrective_in_flight:
+        action_id, status, dispatch = corrective_in_flight[0]
+        if not isinstance(dispatch.get("intent"), dict):
+            raise BootstrapError("corrective dispatch lifecycle has no typed intent")
+        if status == ActionLifecycle.DISPATCH_INTENT.value:
+            return ("corrective_intent", {
+                "action_id": action_id,
+                "recovery": recoveries[action_id],
+            })
+        if not isinstance(dispatch.get("receipt"), dict):
+            raise BootstrapError("dispatched corrective lifecycle has no typed receipt")
+        return ("corrective_observation", {
+            "action_id": action_id,
+            "recovery": recoveries[action_id],
+        })
+
     if evidence_in_flight:
         action_id, status, dispatch = evidence_in_flight[0]
         if not isinstance(dispatch.get("intent"), dict):
@@ -183,6 +214,24 @@ def select_controller_work(
         if not isinstance(dispatch.get("receipt"), dict):
             raise BootstrapError("dispatched diagnostic lifecycle has no typed receipt")
         return ("diagnostic_observation", {
+            "action_id": action_id,
+            "recovery": recoveries[action_id],
+        })
+
+    corrective_ids = sorted(
+        action_id
+        for action_id, recovery in recoveries.items()
+        if recovery.get("status") == "open"
+        and recovery.get("root_cause")
+        and recovery.get("corrective_action")
+        and recovery.get("corrective_provider")
+        and not recovery.get("resolution_evidence")
+        and recovery.get("corrective_dispatch") is None
+        and recovery.get("diagnostic_dispatch") is None
+    )
+    if corrective_ids:
+        action_id = corrective_ids[0]
+        return ("corrective", {
             "action_id": action_id,
             "recovery": recoveries[action_id],
         })
