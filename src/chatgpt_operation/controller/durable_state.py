@@ -210,6 +210,7 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
     """Record typed failure; repeated identical retryable failure opens diagnosis."""
     from chatgpt_operation.controller.execution import (
         ExecutionStatus, open_diagnostic_recovery, record_execution_result,
+        require_execution_provenance,
     )
     from chatgpt_operation.controller.diagnostic import (
         attach_source_plan, mark_action_suspended,
@@ -219,8 +220,13 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
     if result.status is not ExecutionStatus.FAILED:
         raise DurableStateError("failure governance requires FAILED execution evidence")
     item = current.action_queue.get(result.action_id)
-    if item is None or item.get("status") != "pending":
-        raise DurableStateError("failed action is not pending in durable queue")
+    if item is None or item.get("status") != "dispatched":
+        raise DurableStateError("failed action is not dispatched in durable queue")
+    receipt = item.get("dispatch_receipt")
+    run_id = None if not isinstance(receipt, dict) else receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise DurableStateError("failed action has no authoritative workflow_run_id")
+    require_execution_provenance(result, workflow_run_id=run_id)
     proposed = copy.deepcopy(current)
     previous = proposed.execution_results.get(result.action_id)
     record_execution_result(proposed, result)
@@ -243,6 +249,14 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
         open_diagnostic_recovery(proposed, result, fingerprint=(fingerprint,))
         plan = ActionPlan.from_dict(proposed.action_queue[result.action_id]["plan"])
         attach_source_plan(proposed, result.action_id, plan)
+        mark_action_suspended(proposed, result.action_id)
+    elif result.retryable:
+        queued = proposed.action_queue[result.action_id]
+        queued["status"] = "pending"
+        queued.pop("dispatch_intent", None)
+        queued.pop("dispatch_receipt", None)
+        proposed.revision += 1
+    else:
         mark_action_suspended(proposed, result.action_id)
     return proposed
 
