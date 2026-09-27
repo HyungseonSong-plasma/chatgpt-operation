@@ -18,6 +18,13 @@ from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_ru
 from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
 from chatgpt_operation.controller.durable_state import decode_state
 from chatgpt_operation.controller.research import ResearchState
+from chatgpt_operation.controller.qualification_gate import (
+    QualificationCheck,
+    QualificationGateError,
+    QualificationMetrics,
+    evaluate_qualification_gate,
+    load_qualification_policy,
+)
 from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 from chatgpt_operation.github.native_orchestration import NativeOrchestrationError, dispatch_native_plan
 from chatgpt_operation.repository.mutation import MutationError, execute_from_files
@@ -408,6 +415,36 @@ def controller_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+def controller_qualify(args: argparse.Namespace) -> int:
+    try:
+        raw_checks=json.loads(Path(args.checks).read_text(encoding="utf-8"))
+        if not isinstance(raw_checks,dict) or set(raw_checks)!={"schema_version","checks"}:
+            raise QualificationGateError("invalid qualification checks envelope")
+        if raw_checks["schema_version"] != 1 or not isinstance(raw_checks["checks"],list):
+            raise QualificationGateError("invalid qualification checks envelope")
+        checks=[QualificationCheck.from_dict(item) for item in raw_checks["checks"]]
+        metrics=QualificationMetrics.from_dict(
+            json.loads(Path(args.metrics).read_text(encoding="utf-8"))
+        )
+        policy=load_qualification_policy(args.policy)
+        result=evaluate_qualification_gate(
+            checks=checks,metrics=metrics,policy=policy
+        ).to_dict()
+    except (OSError,json.JSONDecodeError,QualificationGateError,ValueError) as exc:
+        print(f"CONTROLLER_QUALIFICATION=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_QUALIFICATION="+(
+        "PASS" if result["passed"] else "BLOCKED"
+    ))
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(f"CONTROLLER_QUALIFICATION=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
 def controller_test(args: argparse.Namespace) -> int:
     try:
         return controller_self_test()
@@ -596,6 +633,12 @@ def parser() -> argparse.ArgumentParser:
     ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
     ce.set_defaults(func=controller_evaluate)
+    cq=ctls.add_parser("qualify")
+    cq.add_argument("--checks",required=True)
+    cq.add_argument("--metrics",required=True)
+    cq.add_argument("--policy",default="automation/samuel/qualification-policy.json")
+    cq.add_argument("--result")
+    cq.set_defaults(func=controller_qualify)
     ct=ctls.add_parser("self-test"); ct.set_defaults(func=controller_test)
     ctp=ctls.add_parser("throughput"); ctp.add_argument("--input",required=True); ctp.add_argument("--result")
     ctp.set_defaults(func=controller_throughput)
