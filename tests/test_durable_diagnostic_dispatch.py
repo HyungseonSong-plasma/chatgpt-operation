@@ -5,6 +5,7 @@ from chatgpt_operation.controller.diagnostic import (
     resume_diagnostic_dispatch_intent,
     resume_dispatched_diagnostic,
 )
+from chatgpt_operation.controller.durable_state import apply_diagnostic_patch
 from chatgpt_operation.controller.research import ResearchState
 
 
@@ -93,3 +94,63 @@ def test_dispatched_diagnostic_round_trip_preserves_identity():
     assert resumed_intent==intent
     assert resumed_correlation==correlation
     assert resumed_receipt==receipt
+
+
+def dispatched_state():
+    s=state()
+    _,correlation=record_diagnostic_dispatch_intent(
+        s,ACTION,workflow="samuel-diagnostic-recovery.yml",ref="main",
+        requested_at="2026-09-27T19:00:00Z",expected_head_sha=HEAD,
+    )
+    receipt={
+        "workflow_path":".github/workflows/samuel-diagnostic-recovery.yml",
+        "ref":"main","correlation_id":correlation,"workflow_run_id":99,
+    }
+    record_diagnostic_dispatch(s,ACTION,receipt)
+    return s,correlation
+
+
+def diagnostic_artifact(correlation, run_id=99):
+    return {
+        "schema_version":1,
+        "action_id":ACTION,
+        "phase":"investigate_root_cause",
+        "advanced":True,
+        "evidence":"typed failure",
+        "revision_delta":1,
+        "execution_run_id":None,
+        "recovery":{
+            "status":"open",
+            "fingerprint":["failure"],
+            "failure":{"details":{"provider":"native","error_type":"HTTPError"}},
+            "root_cause":"provider=native;error_type=HTTPError",
+            "corrective_action":None,
+            "resolution_evidence":None,
+        },
+        "provenance":{
+            "schema_version":1,
+            "workflow_run_id":run_id,
+            "run_attempt":1,
+            "head_sha":HEAD,
+            "action_id":ACTION,
+            "dispatch_id":correlation,
+        },
+    }
+
+
+def test_diagnostic_patch_requires_matching_dispatch_provenance():
+    s,correlation=dispatched_state()
+    proposed=apply_diagnostic_patch(s,diagnostic_artifact(correlation))
+    recovery=proposed.diagnostic_recoveries[ACTION]
+    assert recovery["root_cause"]=="provider=native;error_type=HTTPError"
+    assert "diagnostic_dispatch" not in recovery
+
+
+def test_diagnostic_patch_rejects_foreign_workflow_run():
+    s,correlation=dispatched_state()
+    try:
+        apply_diagnostic_patch(s,diagnostic_artifact(correlation,run_id=100))
+    except Exception as exc:
+        assert "workflow_run_id mismatch" in str(exc)
+    else:
+        raise AssertionError("foreign diagnostic artifact must fail closed")
