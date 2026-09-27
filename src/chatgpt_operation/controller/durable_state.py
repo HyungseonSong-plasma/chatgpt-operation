@@ -295,6 +295,92 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
     return proposed
 
 
+def apply_corrective_execution_result(
+    current: ResearchState,
+    action_id: str,
+    result,
+) -> ResearchState:
+    """Apply one corrective native result as a single durable recovery transaction."""
+    from chatgpt_operation.controller.action_plan import ExecutorKind
+    from chatgpt_operation.controller.diagnostic import (
+        resume_dispatched_corrective,
+        resolve_from_execution_receipt,
+        resume_resolved_action,
+    )
+    from chatgpt_operation.controller.execution import (
+        ExecutionStatus,
+        require_execution_provenance,
+    )
+    import copy
+
+    try:
+        plan, authorization, intent, correlation_id, receipt = (
+            resume_dispatched_corrective(current, action_id)
+        )
+    except ValueError as exc:
+        raise DurableStateError(
+            "corrective result has no matching durable dispatch"
+        ) from exc
+    if result.research_id != current.research_id or result.action_id != action_id:
+        raise DurableStateError("corrective result identity mismatch")
+    if result.executor is not ExecutorKind.GITHUB_NATIVE:
+        raise DurableStateError("corrective result came from wrong executor")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise DurableStateError("corrective dispatch has no authoritative workflow_run_id")
+    require_execution_provenance(
+        result,
+        workflow_run_id=run_id,
+        head_sha=intent.expected_head_sha,
+    )
+    if plan.idempotency_key != action_id or authorization.action_id != action_id:
+        raise DurableStateError("corrective source plan identity changed")
+    if receipt.get("correlation_id") != correlation_id:
+        raise DurableStateError("corrective dispatch correlation changed")
+
+    proposed = copy.deepcopy(current)
+    before = current.revision
+    resolution = resolve_from_execution_receipt(
+        proposed,
+        action_id,
+        corrective_result=result,
+    )
+    recovery = proposed.diagnostic_recoveries[action_id]
+    if resolution.advanced:
+        recovery.pop("corrective_dispatch", None)
+        resume_resolved_action(proposed, action_id)
+        proposed.revision = before + 1
+        return proposed
+
+    # A terminal result that cannot verify the correction is evidence against the
+    # selected provider. Keep the source action suspended and return diagnosis to
+    # provider selection rather than silently replaying the same correction.
+    provider = str(recovery.get("corrective_provider", "")).strip()
+    failure = dict(recovery.get("failure") or {})
+    details = dict(failure.get("details") or {})
+    provider_failures = list(details.get("provider_failures") or [])
+    evidence = {
+        "provider": provider,
+        "error_type": str(result.details.get("error_type") or result.status.value),
+        "provider_status": str(result.details.get("provider_status") or ""),
+        "observation": result.observation,
+    }
+    if provider and not any(
+        isinstance(item, dict) and item.get("provider") == provider
+        for item in provider_failures
+    ):
+        provider_failures.append(evidence)
+    details["provider_failures"] = provider_failures
+    failure["details"] = details
+    recovery["failure"] = failure
+    recovery["last_corrective_result"] = result.to_dict()
+    recovery["corrective_action"] = None
+    recovery.pop("corrective_provider", None)
+    recovery.pop("corrective_dispatch", None)
+    proposed.revision = before + 1
+    return proposed
+
+
 def apply_evidence_patch(current: ResearchState, artifact: dict[str, Any]) -> ResearchState:
     """Apply evidence only when it is bound to the persisted dispatch identity."""
     from chatgpt_operation.controller.diagnostic import (
