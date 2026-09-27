@@ -40,9 +40,15 @@ class NativeGitHubCommand:
         if plan.requires_escalation():
             raise ActionPlanError("action plan requires escalation before execution")
         raw = plan.payload
-        allowed = {"action", "repository", "target", "preconditions", "desired_postcondition"}
-        if set(raw) != allowed:
-            raise NativeGitHubError("native GitHub payload must use the closed-world schema")
+        allowed = {
+            "action", "repository", "target",
+            "preconditions", "desired_postcondition",
+        }
+        required = {"action", "repository", "target", "desired_postcondition"}
+        if set(raw) - allowed or not required.issubset(raw):
+            raise NativeGitHubError(
+                "native GitHub payload must use the closed-world schema"
+            )
         try:
             action = NativeGitHubAction(raw["action"])
         except (TypeError, ValueError) as exc:
@@ -50,12 +56,54 @@ class NativeGitHubCommand:
         repository = raw["repository"]
         if not isinstance(repository, str) or "/" not in repository:
             raise NativeGitHubError("repository must be owner/name")
-        for field in ("target", "preconditions", "desired_postcondition"):
+        for field in ("target", "desired_postcondition"):
             if not isinstance(raw[field], dict):
                 raise NativeGitHubError(f"{field} must be an object")
+        supplied_preconditions = raw.get("preconditions")
+        if supplied_preconditions is not None and not isinstance(
+            supplied_preconditions, dict
+        ):
+            raise NativeGitHubError("preconditions must be an object")
+        if action is not NativeGitHubAction.MERGE_PR and supplied_preconditions is None:
+            raise NativeGitHubError("preconditions are required for this action")
         if not raw["desired_postcondition"]:
             raise NativeGitHubError("desired_postcondition must not be empty")
         target = dict(raw["target"])
+        preconditions = dict(supplied_preconditions or {})
+        if action is NativeGitHubAction.MERGE_PR:
+            required_merge = {"number", "expected_head_sha"}
+            optional_merge = {"merge_method"}
+            if (
+                not required_merge.issubset(target)
+                or set(target) - required_merge - optional_merge
+            ):
+                raise NativeGitHubError(
+                    "merge_pr target requires number and expected_head_sha"
+                )
+            expected_head = target["expected_head_sha"]
+            if (
+                not isinstance(expected_head, str)
+                or not expected_head.strip()
+            ):
+                raise NativeGitHubError(
+                    "merge_pr expected_head_sha must be non-empty"
+                )
+            mandatory = {
+                "head_sha": expected_head,
+                "mergeable": True,
+                "ci": "success",
+            }
+            for key, value in mandatory.items():
+                if key in preconditions and preconditions[key] != value:
+                    raise NativeGitHubError(
+                        "merge_pr precondition conflicts with mandatory safety gate: "
+                        + key
+                    )
+                preconditions[key] = value
+            if raw["desired_postcondition"] != {"merged": True}:
+                raise NativeGitHubError(
+                    "merge_pr desired_postcondition must be merged=true"
+                )
         if action is NativeGitHubAction.CREATE_PR:
             required = {"head", "base", "title", "body"}
             if set(target) != required:
@@ -75,7 +123,7 @@ class NativeGitHubCommand:
             action,
             repository,
             target,
-            dict(raw["preconditions"]),
+            preconditions,
             dict(raw["desired_postcondition"]),
         )
 
