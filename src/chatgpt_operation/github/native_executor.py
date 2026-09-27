@@ -15,6 +15,7 @@ class NativeGitHubError(ValueError):
 
 class NativeGitHubAction(str, Enum):
     MERGE_PR = "merge_pr"
+    CREATE_PR = "create_pr"
     COMMENT_ISSUE = "comment_issue"
     CLOSE_ISSUE = "close_issue"
     DISPATCH_WORKFLOW = "dispatch_workflow"
@@ -54,7 +55,29 @@ class NativeGitHubCommand:
                 raise NativeGitHubError(f"{field} must be an object")
         if not raw["desired_postcondition"]:
             raise NativeGitHubError("desired_postcondition must not be empty")
-        return cls(action, repository, dict(raw["target"]), dict(raw["preconditions"]), dict(raw["desired_postcondition"]))
+        target = dict(raw["target"])
+        if action is NativeGitHubAction.CREATE_PR:
+            required = {"head", "base", "title", "body"}
+            if set(target) != required:
+                raise NativeGitHubError(
+                    "create_pr target must contain head, base, title, and body"
+                )
+            if any(
+                not isinstance(target[key], str) or not target[key].strip()
+                for key in ("head", "base", "title")
+            ):
+                raise NativeGitHubError(
+                    "create_pr head, base, and title must be non-empty strings"
+                )
+            if not isinstance(target["body"], str):
+                raise NativeGitHubError("create_pr body must be a string")
+        return cls(
+            action,
+            repository,
+            target,
+            dict(raw["preconditions"]),
+            dict(raw["desired_postcondition"]),
+        )
 
 
 def _matches(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
