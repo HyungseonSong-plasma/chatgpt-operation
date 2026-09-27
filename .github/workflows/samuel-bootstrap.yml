@@ -459,6 +459,85 @@ jobs:
               raise SystemExit("SAMUEL_EVIDENCE_INTENT=HARD_STOP intent not durable")
           print("SAMUEL_EVIDENCE_INTENT=PERSISTED action_id="+selected["action_id"])
           PY
+      - name: Persist durable diagnostic dispatch intent
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+          SAMUEL_EXECUTOR_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          SAMUEL_EXECUTOR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          selected_kind="$(python3 -c 'import json; print(json.load(open("samuel-selected-work.json")).get("kind",""))')"
+          if [ "$selected_kind" != "diagnostic" ]; then exit 0; fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-intent-comments.json
+          python3 - <<'PY'
+          import copy, json, os
+          from datetime import datetime, timezone
+          from chatgpt_operation.controller.diagnostic import record_diagnostic_dispatch_intent
+          from chatgpt_operation.controller.durable_state import load_state_comment, state_write_request
+
+          selected=json.load(open("samuel-selected-work.json"))
+          comments=json.load(open("diagnostic-intent-comments.json"))
+          current=load_state_comment(comments)
+          if current is None:
+              raise SystemExit("SAMUEL_DIAGNOSTIC_INTENT=HARD_STOP durable state missing")
+          action_id=selected["action_id"]
+          recovery=current.diagnostic_recoveries.get(action_id)
+          if not isinstance(recovery,dict) or recovery.get("status") != "open":
+              raise SystemExit("SAMUEL_DIAGNOSTIC_INTENT=HARD_STOP recovery is not open")
+          if recovery.get("diagnostic_dispatch") is not None:
+              print("SAMUEL_DIAGNOSTIC_INTENT=NOOP action_id="+action_id)
+              raise SystemExit(0)
+          executor_ref=os.environ["SAMUEL_EXECUTOR_REF"]
+          executor_sha=os.environ["SAMUEL_EXECUTOR_SHA"]
+          if not executor_ref or not executor_sha:
+              raise SystemExit("SAMUEL_DIAGNOSTIC_INTENT=HARD_STOP executor identity missing")
+          proposed=copy.deepcopy(current)
+          requested_at=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
+          record_diagnostic_dispatch_intent(
+              proposed,action_id,workflow="samuel-diagnostic-recovery.yml",
+              ref=executor_ref,requested_at=requested_at,expected_head_sha=executor_sha,
+          )
+          request=state_write_request(comments,proposed)
+          open("samuel-diagnostic-intent-write.json","w").write(
+              json.dumps(request,sort_keys=True,separators=(",",":"))
+          )
+          PY
+          if [ ! -f samuel-diagnostic-intent-write.json ]; then exit 0; fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-intent-prewrite-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          validate_state_write_precondition(
+              json.load(open("diagnostic-intent-prewrite-comments.json")),
+              json.load(open("samuel-diagnostic-intent-write.json")),
+          )
+          PY
+          method="$(python3 -c 'import json; print(json.load(open("samuel-diagnostic-intent-write.json"))["method"])')"
+          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-diagnostic-intent-write.json"))["comment_id"]; print("" if x is None else x)')"
+          body="$(python3 -c 'import json; print(json.load(open("samuel-diagnostic-intent-write.json"))["body"])')"
+          if [ "$method" = "PATCH" ]; then
+            test -n "$comment_id"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-intent-readback-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import load_state_comment
+          request=json.load(open("samuel-diagnostic-intent-write.json"))
+          selected=json.load(open("samuel-selected-work.json"))
+          persisted=load_state_comment(json.load(open("diagnostic-intent-readback-comments.json")))
+          if persisted is None or persisted.revision != request["expected_revision"]:
+              raise SystemExit("SAMUEL_DIAGNOSTIC_INTENT=HARD_STOP readback revision mismatch")
+          dispatch=(persisted.diagnostic_recoveries.get(selected["action_id"],{})
+                    .get("diagnostic_dispatch",{}))
+          if dispatch.get("status") != "dispatch_intent":
+              raise SystemExit("SAMUEL_DIAGNOSTIC_INTENT=HARD_STOP intent not durable")
+          print("SAMUEL_DIAGNOSTIC_INTENT=PERSISTED action_id="+selected["action_id"])
+          PY
+
       - name: Wake pending Samuel work
         env:
           PYTHONPATH: src
