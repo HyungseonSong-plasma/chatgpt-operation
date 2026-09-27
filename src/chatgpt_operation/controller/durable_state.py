@@ -268,13 +268,52 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
 
 
 def apply_evidence_patch(current: ResearchState, artifact: dict[str, Any]) -> ResearchState:
-    """Apply acquired diagnostic evidence only to the exact waiting recovery."""
-    from chatgpt_operation.controller.diagnostic import record_acquired_diagnostic_evidence
+    """Apply evidence only when it is bound to the persisted dispatch identity."""
+    from chatgpt_operation.controller.diagnostic import (
+        record_acquired_diagnostic_evidence,
+        resume_dispatched_evidence,
+    )
     import copy
+    if not isinstance(artifact, dict) or artifact.get("schema_version") != 1:
+        raise DurableStateError("unsupported evidence artifact schema")
     if artifact.get("revision_delta") != 1:
         raise DurableStateError("evidence patch must advance exactly one revision")
     action_id = artifact.get("action_id")
+    if not isinstance(action_id, str) or not action_id:
+        raise DurableStateError("evidence artifact action_id missing")
     evidence = artifact.get("evidence")
+    if not isinstance(evidence, dict) or not evidence:
+        raise DurableStateError("evidence artifact payload missing")
+
+    try:
+        intent, correlation_id, receipt = resume_dispatched_evidence(current, action_id)
+    except ValueError as exc:
+        raise DurableStateError("evidence artifact has no matching durable dispatch") from exc
+
+    provenance = artifact.get("provenance")
+    required = {
+        "schema_version", "workflow_run_id", "run_attempt",
+        "head_sha", "action_id", "dispatch_id",
+    }
+    if not isinstance(provenance, dict) or set(provenance) != required:
+        raise DurableStateError("evidence provenance schema is invalid")
+    if provenance.get("schema_version") != 1:
+        raise DurableStateError("evidence provenance schema_version must be 1")
+    run_id = provenance.get("workflow_run_id")
+    run_attempt = provenance.get("run_attempt")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise DurableStateError("evidence workflow_run_id must be positive")
+    if not isinstance(run_attempt, int) or isinstance(run_attempt, bool) or run_attempt < 1:
+        raise DurableStateError("evidence run_attempt must be positive")
+    if provenance.get("action_id") != action_id:
+        raise DurableStateError("evidence provenance action_id mismatch")
+    if provenance.get("dispatch_id") != correlation_id:
+        raise DurableStateError("evidence provenance dispatch_id mismatch")
+    if receipt.get("workflow_run_id") != run_id:
+        raise DurableStateError("evidence provenance workflow_run_id mismatch")
+    if provenance.get("head_sha") != intent.expected_head_sha:
+        raise DurableStateError("evidence provenance head_sha mismatch")
+
     proposed = copy.deepcopy(current)
     before = proposed.revision
     record_acquired_diagnostic_evidence(proposed, action_id, evidence)
