@@ -304,6 +304,8 @@ jobs:
         env:
           PYTHONPATH: src
           GH_TOKEN: ${{ github.token }}
+          SAMUEL_EXECUTOR_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          SAMUEL_EXECUTOR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           selected_kind="$(python3 -c 'import json; print(json.load(open("samuel-selected-work.json")).get("kind",""))')"
@@ -332,8 +334,12 @@ jobs:
               raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP unexpected status "+str(status))
           proposed=copy.deepcopy(current)
           requested_at=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
+          import os
+          executor_ref=os.environ["SAMUEL_EXECUTOR_REF"]
+          if not executor_ref:
+              raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP executor ref missing")
           record_action_dispatch_intent(
-              proposed,action_id,workflow="samuel-native-github.yml",ref="main",
+              proposed,action_id,workflow="samuel-native-github.yml",ref=executor_ref,
               requested_at=requested_at,
           )
           request=state_write_request(comments,proposed)
@@ -378,6 +384,8 @@ jobs:
           PYTHONPATH: src
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
+          SAMUEL_EXECUTOR_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          SAMUEL_EXECUTOR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 - <<'PY'
           import os
@@ -429,7 +437,9 @@ jobs:
               if current is None:
                   raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP durable state disappeared")
               action_id=selected["action_id"]
-              expected_head=sha if os.environ.get("GITHUB_REF_NAME") == "main" else None
+              executor_ref=os.environ.get("SAMUEL_EXECUTOR_REF","")
+              executor_sha=os.environ.get("SAMUEL_EXECUTOR_SHA","")
+              expected_head=executor_sha if executor_ref and intent.ref == executor_ref else None
 
               if selected["kind"] == "action":
                   plan,intent=resume_dispatch_intent(current,action_id)
