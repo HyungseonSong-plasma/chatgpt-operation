@@ -351,6 +351,9 @@ def record_action_dispatch(
     intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
     if not isinstance(receipt, dict) or receipt.get("correlation_id") != action_id:
         raise ValueError("dispatch receipt does not match queued action")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("dispatch receipt has no authoritative workflow_run_id")
     if receipt.get("ref") != intent.ref:
         raise ValueError("dispatch receipt ref does not match intent")
     workflow_path = receipt.get("workflow_path")
