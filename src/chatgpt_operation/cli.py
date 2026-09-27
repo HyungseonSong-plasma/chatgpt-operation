@@ -509,7 +509,7 @@ def controller_execute_command(args: argparse.Namespace) -> int:
             "action":args.action_run_id_result,
             "evidence":args.evidence_run_id_result,
             "diagnostic":args.diagnostic_run_id_result,
-            "corrective":args.corrective_run_id_result,
+            "corrective":getattr(args,"corrective_run_id_result",None),
         }
         if result.receipt is not None:
             proposed=apply_dispatch_receipt(
