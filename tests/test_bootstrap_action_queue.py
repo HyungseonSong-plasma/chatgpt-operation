@@ -200,3 +200,86 @@ def test_diagnostic_and_action_cannot_be_in_flight_together():
         assert "multiple in-flight durable workflows" in str(exc)
     else:
         raise AssertionError("diagnostic and action may not execute concurrently")
+
+def test_ready_corrective_execution_preempts_new_diagnostic_phase():
+    recovery={
+        "status":"open",
+        "root_cause":"provider failure",
+        "corrective_action":"retry fallback",
+        "corrective_provider":"fallback",
+        "resolution_evidence":None,
+        "source_plan":{"schema_version":1},
+    }
+    selected=select_controller_work(
+        [],diagnostic_recoveries={"c":recovery},
+        action_queue={"p":{"status":"pending","plan":{"schema_version":1}}},
+    )
+    assert selected[0]=="corrective"
+    assert selected[1]["action_id"]=="c"
+
+
+def test_corrective_dispatch_intent_preempts_new_work():
+    recoveries={
+        "c":{
+            "status":"open",
+            "root_cause":"provider failure",
+            "corrective_action":"retry fallback",
+            "corrective_provider":"fallback",
+            "resolution_evidence":None,
+            "corrective_dispatch":{
+                "status":"dispatch_intent",
+                "intent":{"schema_version":2},
+                "correlation_id":"corrective-x",
+            },
+        },
+    }
+    selected=select_controller_work(
+        [],diagnostic_recoveries=recoveries,
+        action_queue={"p":{"status":"pending","plan":{"schema_version":1}}},
+    )
+    assert selected[0]=="corrective_intent"
+
+
+def test_dispatched_corrective_preempts_new_work():
+    recoveries={
+        "c":{
+            "status":"open",
+            "corrective_dispatch":{
+                "status":"dispatched",
+                "intent":{"schema_version":2},
+                "correlation_id":"corrective-x",
+                "receipt":{"workflow_run_id":99},
+            },
+        },
+    }
+    selected=select_controller_work([],diagnostic_recoveries=recoveries)
+    assert selected[0]=="corrective_observation"
+
+
+def test_corrective_and_diagnostic_cannot_be_in_flight_together():
+    recoveries={
+        "c":{
+            "status":"open",
+            "corrective_dispatch":{
+                "status":"dispatch_intent",
+                "intent":{"schema_version":2},
+                "correlation_id":"corrective-x",
+            },
+        },
+        "d":{
+            "status":"open",
+            "diagnostic_dispatch":{
+                "status":"dispatched",
+                "intent":{"schema_version":2},
+                "correlation_id":"diagnostic-x",
+                "receipt":{"workflow_run_id":100},
+            },
+        },
+    }
+    try:
+        select_controller_work([],diagnostic_recoveries=recoveries)
+    except Exception as exc:
+        assert "multiple in-flight durable workflows" in str(exc)
+    else:
+        raise AssertionError("corrective and diagnostic workflows may not overlap")
+
