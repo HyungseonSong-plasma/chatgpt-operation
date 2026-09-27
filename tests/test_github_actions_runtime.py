@@ -122,6 +122,35 @@ class ActionsRuntimeTests(unittest.TestCase):
         self.assertEqual(result["matched_run_ids"], [9001])
         self.assertEqual(result["correlation_id"], "science-exp-26-001")
 
+    def test_direct_bound_run_source_mismatch_is_explicit(self):
+        mismatched=run()
+        mismatched["head_sha"]="0"*40
+        t=FakeTransport(
+            dispatch=(200,{"workflow_run_id":9001}),
+            run=mismatched,
+        )
+        receipt=dispatch_workflow(
+            t,
+            workflow="issue-26-observation-e2e.yml",
+            ref="issue-26-actions-observation",
+            correlation_id="science-exp-26-001",
+            now=lambda:dt(),
+        )
+        result=observe_dispatch_once(
+            t,
+            receipt,
+            expected_head_sha="77c231b8bcd2f8dc8cb14444323b2ad8d5d91e5e",
+            now=lambda:dt(10),
+        )
+        self.assertEqual(result["status"],"BOUND_RUN_IDENTITY_MISMATCH")
+        self.assertEqual(result["matched_run_ids"],[9001])
+        self.assertEqual(result["run_status"],"completed")
+        self.assertEqual(result["conclusion"],"success")
+        self.assertEqual(
+            result["identity_mismatches"]["head_sha"]["observed"],
+            "0"*40,
+        )
+
     def test_empty_legacy_dispatch_fallback_with_observable_correlation_fails_closed(self):
         t = FakeTransport(dispatch=(204, None), runs=[run()])
         receipt = dispatch_workflow(
