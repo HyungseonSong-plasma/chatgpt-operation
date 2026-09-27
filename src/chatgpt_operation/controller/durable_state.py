@@ -122,11 +122,53 @@ def prepare_state_write(
     }
 
 
+def validate_state_write_precondition(
+    comments: list[dict[str, Any]],
+    request: dict[str, Any],
+) -> None:
+    """Re-read authoritative state immediately before a transport write."""
+    required = {
+        "method", "comment_id", "body", "expected_previous_revision",
+        "expected_revision", "research_id",
+    }
+    if not isinstance(request, dict) or set(request) != required:
+        raise DurableStateError("invalid durable state write request schema")
+    proposed = decode_state(str(request["body"]))
+    if (
+        proposed.research_id != request["research_id"]
+        or proposed.revision != request["expected_revision"]
+    ):
+        raise DurableStateError("durable state write request payload mismatch")
+
+    comment = find_state_comment(comments)
+    current = None if comment is None else decode_state(str(comment["body"]))
+    expected_previous = request["expected_previous_revision"]
+    if current is None:
+        if expected_previous is not None:
+            raise DurableStateError("stale durable state create precondition")
+        if request["method"] != "POST" or request["comment_id"] is not None:
+            raise DurableStateError("durable state create request is inconsistent")
+        return
+
+    if expected_previous is None:
+        raise DurableStateError("stale durable state create precondition")
+    if request["method"] != "PATCH" or request["comment_id"] != int(comment["id"]):
+        raise DurableStateError("durable state update target changed")
+    if current.research_id != proposed.research_id:
+        raise DurableStateError("cannot overwrite a different research state")
+    if expected_previous != current.revision:
+        raise DurableStateError(
+            f"stale durable state precondition {expected_previous} != {current.revision}"
+        )
+    if proposed.revision <= current.revision:
+        raise DurableStateError("durable state revision did not advance")
+
+
 def apply_diagnostic_patch(
     current: ResearchState,
     artifact: dict[str, Any],
 ) -> ResearchState:
-    """Apply one diagnostic artifact to the authoritative state without whole-state replacement."""
+    """Apply one diagnostic artifact only from its authoritative workflow dispatch."""
     action_id = artifact.get("action_id")
     if not isinstance(action_id, str) or action_id not in current.diagnostic_recoveries:
         raise DurableStateError("diagnostic patch action is not present in current state")
@@ -138,17 +180,45 @@ def apply_diagnostic_patch(
     before = current.diagnostic_recoveries[action_id]
     if before.get("status") != "open":
         raise DurableStateError("diagnostic patch target is not open")
-    proposed = ResearchState(
-        research_id=current.research_id,
-        objective=current.objective,
-        stage=current.stage,
-        completed_operation_ids=list(current.completed_operation_ids),
-        execution_results=dict(current.execution_results),
-        diagnostic_recoveries=dict(current.diagnostic_recoveries),
-        action_queue=dict(current.action_queue),
-        revision=current.revision + 1,
-    )
-    proposed.diagnostic_recoveries[action_id] = dict(patched)
+
+    if before.get("diagnostic_dispatch") is not None:
+        from chatgpt_operation.controller.diagnostic import resume_dispatched_diagnostic
+        try:
+            intent, correlation_id, receipt = resume_dispatched_diagnostic(current, action_id)
+        except ValueError as exc:
+            raise DurableStateError(
+                "diagnostic artifact has no matching durable dispatch"
+            ) from exc
+        provenance = artifact.get("provenance")
+        required = {
+            "schema_version", "workflow_run_id", "run_attempt",
+            "head_sha", "action_id", "dispatch_id",
+        }
+        if not isinstance(provenance, dict) or set(provenance) != required:
+            raise DurableStateError("diagnostic provenance schema is invalid")
+        if provenance.get("schema_version") != 1:
+            raise DurableStateError("diagnostic provenance schema_version must be 1")
+        run_id = provenance.get("workflow_run_id")
+        run_attempt = provenance.get("run_attempt")
+        if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+            raise DurableStateError("diagnostic workflow_run_id must be positive")
+        if not isinstance(run_attempt, int) or isinstance(run_attempt, bool) or run_attempt < 1:
+            raise DurableStateError("diagnostic run_attempt must be positive")
+        if provenance.get("action_id") != action_id:
+            raise DurableStateError("diagnostic provenance action_id mismatch")
+        if provenance.get("dispatch_id") != correlation_id:
+            raise DurableStateError("diagnostic provenance dispatch_id mismatch")
+        if receipt.get("workflow_run_id") != run_id:
+            raise DurableStateError("diagnostic provenance workflow_run_id mismatch")
+        if provenance.get("head_sha") != intent.expected_head_sha:
+            raise DurableStateError("diagnostic provenance head_sha mismatch")
+
+    import copy
+    proposed = copy.deepcopy(current)
+    clean_patch = copy.deepcopy(patched)
+    clean_patch.pop("diagnostic_dispatch", None)
+    proposed.diagnostic_recoveries[action_id] = clean_patch
+    proposed.revision = current.revision + 1
     return proposed
 
 
@@ -168,6 +238,7 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
     """Record typed failure; repeated identical retryable failure opens diagnosis."""
     from chatgpt_operation.controller.execution import (
         ExecutionStatus, open_diagnostic_recovery, record_execution_result,
+        require_execution_provenance,
     )
     from chatgpt_operation.controller.diagnostic import (
         attach_source_plan, mark_action_suspended,
@@ -177,8 +248,19 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
     if result.status is not ExecutionStatus.FAILED:
         raise DurableStateError("failure governance requires FAILED execution evidence")
     item = current.action_queue.get(result.action_id)
-    if item is None or item.get("status") != "pending":
-        raise DurableStateError("failed action is not pending in durable queue")
+    if item is None or item.get("status") != "dispatched":
+        raise DurableStateError("failed action is not dispatched in durable queue")
+    receipt = item.get("dispatch_receipt")
+    run_id = None if not isinstance(receipt, dict) else receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise DurableStateError("failed action has no authoritative workflow_run_id")
+    from chatgpt_operation.controller.action_lifecycle import DispatchIntent
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    require_execution_provenance(
+        result,
+        workflow_run_id=run_id,
+        head_sha=intent.expected_head_sha,
+    )
     proposed = copy.deepcopy(current)
     previous = proposed.execution_results.get(result.action_id)
     record_execution_result(proposed, result)
@@ -202,17 +284,150 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
         plan = ActionPlan.from_dict(proposed.action_queue[result.action_id]["plan"])
         attach_source_plan(proposed, result.action_id, plan)
         mark_action_suspended(proposed, result.action_id)
+    elif result.retryable:
+        queued = proposed.action_queue[result.action_id]
+        queued["status"] = "pending"
+        queued.pop("dispatch_intent", None)
+        queued.pop("dispatch_receipt", None)
+        proposed.revision += 1
+    else:
+        mark_action_suspended(proposed, result.action_id)
+    return proposed
+
+
+def apply_corrective_execution_result(
+    current: ResearchState,
+    action_id: str,
+    result,
+) -> ResearchState:
+    """Apply one corrective native result as a single durable recovery transaction."""
+    from chatgpt_operation.controller.action_plan import ExecutorKind
+    from chatgpt_operation.controller.diagnostic import (
+        resume_dispatched_corrective,
+        resolve_from_execution_receipt,
+        resume_resolved_action,
+    )
+    from chatgpt_operation.controller.execution import (
+        ExecutionStatus,
+        require_execution_provenance,
+    )
+    import copy
+
+    try:
+        plan, authorization, intent, correlation_id, receipt = (
+            resume_dispatched_corrective(current, action_id)
+        )
+    except ValueError as exc:
+        raise DurableStateError(
+            "corrective result has no matching durable dispatch"
+        ) from exc
+    if result.research_id != current.research_id or result.action_id != action_id:
+        raise DurableStateError("corrective result identity mismatch")
+    if result.executor is not ExecutorKind.GITHUB_NATIVE:
+        raise DurableStateError("corrective result came from wrong executor")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise DurableStateError("corrective dispatch has no authoritative workflow_run_id")
+    require_execution_provenance(
+        result,
+        workflow_run_id=run_id,
+        head_sha=intent.expected_head_sha,
+    )
+    if plan.idempotency_key != action_id or authorization.action_id != action_id:
+        raise DurableStateError("corrective source plan identity changed")
+    if receipt.get("correlation_id") != correlation_id:
+        raise DurableStateError("corrective dispatch correlation changed")
+
+    proposed = copy.deepcopy(current)
+    before = current.revision
+    resolution = resolve_from_execution_receipt(
+        proposed,
+        action_id,
+        corrective_result=result,
+    )
+    recovery = proposed.diagnostic_recoveries[action_id]
+    if resolution.advanced:
+        recovery.pop("corrective_dispatch", None)
+        resume_resolved_action(proposed, action_id)
+        proposed.revision = before + 1
+        return proposed
+
+    # A terminal result that cannot verify the correction is evidence against the
+    # selected provider. Keep the source action suspended and return diagnosis to
+    # provider selection rather than silently replaying the same correction.
+    provider = str(recovery.get("corrective_provider", "")).strip()
+    failure = dict(recovery.get("failure") or {})
+    details = dict(failure.get("details") or {})
+    provider_failures = list(details.get("provider_failures") or [])
+    evidence = {
+        "provider": provider,
+        "error_type": str(result.details.get("error_type") or result.status.value),
+        "provider_status": str(result.details.get("provider_status") or ""),
+        "observation": result.observation,
+    }
+    if provider and not any(
+        isinstance(item, dict) and item.get("provider") == provider
+        for item in provider_failures
+    ):
+        provider_failures.append(evidence)
+    details["provider_failures"] = provider_failures
+    failure["details"] = details
+    recovery["failure"] = failure
+    recovery["last_corrective_result"] = result.to_dict()
+    recovery["corrective_action"] = None
+    recovery.pop("corrective_provider", None)
+    recovery.pop("corrective_dispatch", None)
+    proposed.revision = before + 1
     return proposed
 
 
 def apply_evidence_patch(current: ResearchState, artifact: dict[str, Any]) -> ResearchState:
-    """Apply acquired diagnostic evidence only to the exact waiting recovery."""
-    from chatgpt_operation.controller.diagnostic import record_acquired_diagnostic_evidence
+    """Apply evidence only when it is bound to the persisted dispatch identity."""
+    from chatgpt_operation.controller.diagnostic import (
+        record_acquired_diagnostic_evidence,
+        resume_dispatched_evidence,
+    )
     import copy
+    if not isinstance(artifact, dict) or artifact.get("schema_version") != 1:
+        raise DurableStateError("unsupported evidence artifact schema")
     if artifact.get("revision_delta") != 1:
         raise DurableStateError("evidence patch must advance exactly one revision")
     action_id = artifact.get("action_id")
+    if not isinstance(action_id, str) or not action_id:
+        raise DurableStateError("evidence artifact action_id missing")
     evidence = artifact.get("evidence")
+    if not isinstance(evidence, dict) or not evidence:
+        raise DurableStateError("evidence artifact payload missing")
+
+    try:
+        intent, correlation_id, receipt = resume_dispatched_evidence(current, action_id)
+    except ValueError as exc:
+        raise DurableStateError("evidence artifact has no matching durable dispatch") from exc
+
+    provenance = artifact.get("provenance")
+    required = {
+        "schema_version", "workflow_run_id", "run_attempt",
+        "head_sha", "action_id", "dispatch_id",
+    }
+    if not isinstance(provenance, dict) or set(provenance) != required:
+        raise DurableStateError("evidence provenance schema is invalid")
+    if provenance.get("schema_version") != 1:
+        raise DurableStateError("evidence provenance schema_version must be 1")
+    run_id = provenance.get("workflow_run_id")
+    run_attempt = provenance.get("run_attempt")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise DurableStateError("evidence workflow_run_id must be positive")
+    if not isinstance(run_attempt, int) or isinstance(run_attempt, bool) or run_attempt < 1:
+        raise DurableStateError("evidence run_attempt must be positive")
+    if provenance.get("action_id") != action_id:
+        raise DurableStateError("evidence provenance action_id mismatch")
+    if provenance.get("dispatch_id") != correlation_id:
+        raise DurableStateError("evidence provenance dispatch_id mismatch")
+    if receipt.get("workflow_run_id") != run_id:
+        raise DurableStateError("evidence provenance workflow_run_id mismatch")
+    if provenance.get("head_sha") != intent.expected_head_sha:
+        raise DurableStateError("evidence provenance head_sha mismatch")
+
     proposed = copy.deepcopy(current)
     before = proposed.revision
     record_acquired_diagnostic_evidence(proposed, action_id, evidence)

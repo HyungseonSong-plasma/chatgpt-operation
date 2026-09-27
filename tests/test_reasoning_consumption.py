@@ -21,8 +21,16 @@ class ReasoningConsumptionTests(unittest.TestCase):
         p=IssueReasoningProposal("analyze","github_execution_authority",True,False,None)
         body=encode_submission(ReasoningSubmission("issue:44",p))
         x=consume_reasoning_submission([{"body":body}],self.work,"issue:44",registry=self.registry,state=self.state)
-        self.assertNotEqual(x.outcome,"blocked")
-        self.assertNotEqual(x.work["issue:44"]["status"],"blocked")
+        self.assertEqual(x.outcome,"reasoning_required")
+        self.assertEqual(x.work["issue:44"]["status"],"reasoning_required")
+        self.assertIsNone(x.action_id)
+
+    def test_unknown_decision_still_blocks(self):
+        p=IssueReasoningProposal("analyze","not-a-locked-decision",True,False,None)
+        body=encode_submission(ReasoningSubmission("issue:44",p))
+        x=consume_reasoning_submission([{"body":body}],self.work,"issue:44",registry=self.registry,state=self.state)
+        self.assertEqual(x.outcome,"blocked")
+        self.assertEqual(x.work["issue:44"]["status"],"blocked")
 
     def test_guarded_plan_enters_existing_queue(self):
         p=IssueReasoningProposal("analyze","github_execution_authority",True,False,{

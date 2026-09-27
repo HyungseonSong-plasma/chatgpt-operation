@@ -1,8 +1,19 @@
 name: Samuel Native GitHub Executor
+run-name: Samuel Native GitHub Executor dispatch:${{ inputs.samuel_dispatch_id != '' && inputs.samuel_dispatch_id || inputs.samuel_action_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      samuel_action_id:
+        description: Durable Samuel ActionPlan identity for causal run recovery
+        required: false
+        default: ""
+        type: string
+      samuel_dispatch_id:
+        description: Durable Samuel physical dispatch identity
+        required: false
+        default: ""
+        type: string
       plan_json:
         description: Typed Samuel ActionPlan JSON
         required: true
@@ -80,6 +91,30 @@ jobs:
             --result samuel-execution-result.json \
             "${args[@]}"
 
+      - name: Bind execution provenance
+        if: always() && hashFiles('samuel-execution-result.json') != ''
+        env:
+          SAMUEL_ACTION_ID: ${{ inputs.samuel_action_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          path=pathlib.Path("samuel-execution-result.json")
+          raw=json.loads(path.read_text(encoding="utf-8"))
+          action_id=str(raw.get("action_id",""))
+          expected=os.environ.get("SAMUEL_ACTION_ID","").strip()
+          if expected and action_id != expected:
+              raise SystemExit("SAMUEL_EXECUTION=HARD_STOP action identity mismatch")
+          details=dict(raw.get("details") or {})
+          details["provenance"]={
+              "schema_version":1,
+              "workflow_run_id":int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "head_sha":os.environ["GITHUB_SHA"],
+              "action_id":action_id,
+          }
+          raw["details"]=details
+          path.write_text(json.dumps(raw,sort_keys=True,separators=(",",":"))+"\n",encoding="utf-8")
+          PY
       - name: Upload typed execution result
         if: always() && hashFiles('samuel-execution-result.json') != ''
         uses: actions/upload-artifact@v4

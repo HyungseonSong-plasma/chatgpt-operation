@@ -13,13 +13,26 @@ class IssueReasoningTests(unittest.TestCase):
             registry=registry,
         ).envelope
 
-    def test_missing_action_plan_blocks_execution(self):
+    def test_analyze_without_action_plan_preserves_continue(self):
         proposal=IssueReasoningProposal.from_dict({
             "operation":"analyze","decision_id":None,
             "compatible_with_locked_decisions":True,
             "revision_requested":False,"action_plan":None,
         })
         outcome,plan,_=compile_guarded_action(proposal,self.envelope())
+        self.assertEqual(outcome,GuardOutcome.CONTINUE)
+        self.assertIsNone(plan)
+
+    def test_implement_gap_without_action_plan_blocks_execution(self):
+        proposal=IssueReasoningProposal.from_dict({
+            "operation":"implement_gap","decision_id":None,
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,"action_plan":None,
+        })
+        envelope=self.envelope()
+        from dataclasses import replace
+        envelope=replace(envelope,implementation_gaps=("missing:test-capability",))
+        outcome,plan,_=compile_guarded_action(proposal,envelope)
         self.assertEqual(outcome,GuardOutcome.BLOCKED)
         self.assertIsNone(plan)
 

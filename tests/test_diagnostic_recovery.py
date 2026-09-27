@@ -46,7 +46,8 @@ def test_corrective_action_requires_typed_alternative_provider():
     s = state({
         "provider": "connector",
         "error_type": "RuntimeError",
-        "provider_failures": [{"provider": "repository-native"}],
+        "available_providers": ["repository-native"],
+        "provider_failures": [{"provider": "connector"}],
     })
     assert advance_diagnostic(s, ACTION).advanced
     result = advance_diagnostic(s, ACTION)
@@ -77,7 +78,7 @@ def test_verified_pass_receipt_resolves_diagnostic():
     s.diagnostic_recoveries[ACTION]["corrective_action"] = "execute repository-native corrective plan"
     result = ExecutionResult(
         research_id=s.research_id,
-        action_id="corrective-action",
+        action_id=ACTION,
         executor=ExecutorKind.GITHUB_NATIVE,
         status=ExecutionStatus.PASS,
         observation="GitHub mutation verified by postcondition readback",
@@ -94,7 +95,7 @@ def test_failed_or_unverified_corrective_result_cannot_resolve():
     s.diagnostic_recoveries[ACTION]["corrective_action"] = "execute repository-native corrective plan"
     failed = ExecutionResult(
         research_id=s.research_id,
-        action_id="corrective-action",
+        action_id=ACTION,
         executor=ExecutorKind.GITHUB_NATIVE,
         status=ExecutionStatus.FAILED,
         observation="postcondition failed",
@@ -106,7 +107,7 @@ def test_failed_or_unverified_corrective_result_cannot_resolve():
 
     fake_pass = ExecutionResult(
         research_id=s.research_id,
-        action_id="corrective-action",
+        action_id=ACTION,
         executor=ExecutorKind.GITHUB_NATIVE,
         status=ExecutionStatus.PASS,
         observation="claimed pass",

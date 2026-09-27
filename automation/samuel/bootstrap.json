@@ -6,7 +6,7 @@
       "kind": "workflow",
       "workflow": "samuel-write-blocker-qualification.yml",
       "ref": "main",
-      "status": "pending"
+      "status": "complete"
     }
   ]
 }

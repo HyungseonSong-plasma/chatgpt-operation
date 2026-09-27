@@ -33,7 +33,7 @@ def consume_reasoning_submission(
     envelope=plan_admitted_issue(item,registry=registry).envelope
     outcome,plan,reason=compile_guarded_action(submission.proposal,envelope)
     if plan is None:
-        if submission.proposal.operation == "analyze" and outcome is GuardOutcome.BLOCKED:
+        if submission.proposal.operation == "analyze" and outcome is GuardOutcome.CONTINUE:
             return ReasoningConsumption(
                 "reasoning_required",
                 "analysis accepted; executable ActionPlan not yet produced",

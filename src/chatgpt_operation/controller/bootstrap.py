@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from chatgpt_operation.controller.action_lifecycle import ActionLifecycle
 from chatgpt_operation.skills.capability_registry import (
     RegisteredProvider,
     resolve_providers,
@@ -87,7 +88,105 @@ def select_controller_work(
     admitted_work: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, Any] | None:
     """Prioritize unresolved recovery work over ordinary pending work."""
+    actions = action_queue or {}
+    valid_action_statuses = {
+        ActionLifecycle.PENDING.value,
+        ActionLifecycle.DISPATCH_INTENT.value,
+        ActionLifecycle.DISPATCHED.value,
+        ActionLifecycle.SUSPENDED.value,
+        ActionLifecycle.COMPLETE.value,
+    }
+    invalid = sorted(
+        action_id for action_id, item in actions.items()
+        if item.get("status") not in valid_action_statuses
+    )
+    if invalid:
+        raise BootstrapError("durable action has unsupported lifecycle status: " + invalid[0])
+
     recoveries = diagnostic_recoveries or {}
+    in_flight = sorted(
+        action_id for action_id, item in actions.items()
+        if item.get("status") in {
+            ActionLifecycle.DISPATCH_INTENT.value,
+            ActionLifecycle.DISPATCHED.value,
+        }
+    )
+    evidence_in_flight: list[tuple[str, str, dict[str, Any]]] = []
+    diagnostic_in_flight: list[tuple[str, str, dict[str, Any]]] = []
+    for action_id, recovery in recoveries.items():
+        if recovery.get("status") == "needs_evidence":
+            dispatch = recovery.get("evidence_dispatch")
+            if dispatch is not None:
+                if not isinstance(dispatch, dict) or dispatch.get("status") not in {
+                    ActionLifecycle.DISPATCH_INTENT.value,
+                    ActionLifecycle.DISPATCHED.value,
+                }:
+                    raise BootstrapError("evidence dispatch has unsupported lifecycle status")
+                evidence_in_flight.append((action_id, dispatch["status"], dispatch))
+        if recovery.get("status") == "open":
+            dispatch = recovery.get("diagnostic_dispatch")
+            if dispatch is not None:
+                if not isinstance(dispatch, dict) or dispatch.get("status") not in {
+                    ActionLifecycle.DISPATCH_INTENT.value,
+                    ActionLifecycle.DISPATCHED.value,
+                }:
+                    raise BootstrapError("diagnostic dispatch has unsupported lifecycle status")
+                diagnostic_in_flight.append((action_id, dispatch["status"], dispatch))
+
+    if len(in_flight) + len(evidence_in_flight) + len(diagnostic_in_flight) > 1:
+        raise BootstrapError("multiple in-flight durable workflows")
+    if in_flight:
+        action_id = in_flight[0]
+        item = actions[action_id]
+        if not isinstance(item.get("plan"), dict):
+            raise BootstrapError("in-flight durable action has no typed plan")
+        if item.get("status") == ActionLifecycle.DISPATCH_INTENT.value:
+            if not isinstance(item.get("dispatch_intent"), dict):
+                raise BootstrapError("dispatch intent lifecycle has no typed intent")
+            return ("action_intent", {
+                "action_id": action_id,
+                "plan": item["plan"],
+                "dispatch_intent": item["dispatch_intent"],
+            })
+        if not isinstance(item.get("dispatch_receipt"), dict):
+            raise BootstrapError("dispatched lifecycle has no typed receipt")
+        return ("action_observation", {
+            "action_id": action_id,
+            "plan": item["plan"],
+            "dispatch_receipt": item["dispatch_receipt"],
+        })
+    if evidence_in_flight:
+        action_id, status, dispatch = evidence_in_flight[0]
+        if not isinstance(dispatch.get("intent"), dict):
+            raise BootstrapError("evidence dispatch lifecycle has no typed intent")
+        if status == ActionLifecycle.DISPATCH_INTENT.value:
+            return ("evidence_intent", {
+                "action_id": action_id,
+                "recovery": recoveries[action_id],
+            })
+        if not isinstance(dispatch.get("receipt"), dict):
+            raise BootstrapError("dispatched evidence lifecycle has no typed receipt")
+        return ("evidence_observation", {
+            "action_id": action_id,
+            "recovery": recoveries[action_id],
+        })
+
+    if diagnostic_in_flight:
+        action_id, status, dispatch = diagnostic_in_flight[0]
+        if not isinstance(dispatch.get("intent"), dict):
+            raise BootstrapError("diagnostic dispatch lifecycle has no typed intent")
+        if status == ActionLifecycle.DISPATCH_INTENT.value:
+            return ("diagnostic_intent", {
+                "action_id": action_id,
+                "recovery": recoveries[action_id],
+            })
+        if not isinstance(dispatch.get("receipt"), dict):
+            raise BootstrapError("dispatched diagnostic lifecycle has no typed receipt")
+        return ("diagnostic_observation", {
+            "action_id": action_id,
+            "recovery": recoveries[action_id],
+        })
+
     open_ids = sorted(
         action_id
         for action_id, recovery in recoveries.items()
@@ -99,11 +198,11 @@ def select_controller_work(
     evidence_ids = sorted(
         action_id for action_id, recovery in recoveries.items()
         if recovery.get("status") == "needs_evidence"
+        and recovery.get("evidence_dispatch") is None
     )
     if evidence_ids:
         action_id = evidence_ids[0]
         return ("evidence", {"action_id": action_id, "recovery": recoveries[action_id]})
-    actions = action_queue or {}
     pending_actions = sorted(
         action_id for action_id, item in actions.items()
         if item.get("status") == "pending"

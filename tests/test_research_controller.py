@@ -1,3 +1,4 @@
+from math import isclose
 from chatgpt_operation.controller.research import (
     AnalysisResult,
     DecisionRisk,
@@ -86,7 +87,7 @@ def test_decision_risk_score_and_policy():
         "uncertainty": 0.8,
         "irreversibility": 0.9,
     })
-    assert risk.score == 0.648
+    assert isclose(risk.score, 0.648, rel_tol=0.0, abs_tol=1e-12)
     assert EscalationPolicy(threshold=0.5).requires_escalation(risk)
 
 

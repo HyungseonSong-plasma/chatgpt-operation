@@ -1,39 +1,62 @@
 import pathlib
 import tempfile
 import unittest
-from chatgpt_operation.controller.bootstrap import load_pending, resolve_bootstrap_provider, select_controller_work, BootstrapError
+
+from chatgpt_operation.controller.bootstrap import (
+    BootstrapError,
+    BootstrapKind,
+    BootstrapWork,
+    load_pending,
+    resolve_bootstrap_provider,
+    select_controller_work,
+)
+
+
+def synthetic_pending():
+    return [
+        BootstrapWork(
+            "legacy-qualification",
+            BootstrapKind.WORKFLOW,
+            "samuel-write-blocker-qualification.yml",
+        )
+    ]
 
 
 class SamuelBootstrapTests(unittest.TestCase):
-    def test_repository_queue_contains_live_qualification(self):
+    def test_repository_queue_retires_one_shot_qualification(self):
         pending=load_pending("automation/samuel/bootstrap.json")
-        self.assertEqual([x.work_id for x in pending], ["issue-44-write-blocker-qualification"])
-        self.assertEqual(pending[0].workflow, "samuel-write-blocker-qualification.yml")
+        self.assertEqual(pending, [])
 
     def test_schedule_is_root_trigger_not_plan_injection(self):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
         self.assertIn("schedule:", text)
         self.assertIn("actions: write", text)
         self.assertIn("issues: write", text)
-        self.assertIn("samuel-bootstrap-ledger", text)
-        self.assertIn("samuel-qualification-result.json", text)
-        self.assertIn('result.get("http_code") == 403', text)
-        self.assertIn('result.get("status") == "BLOCKED"', text)
-        self.assertIn('result.get("continuation") == "RETRY"', text)
-        self.assertIn("dispatch_and_wait", text)
+        self.assertNotIn("dispatch_and_wait", text)
+        self.assertIn("legacy static workflow work", text)
         self.assertNotIn("plan_json", text)
 
+    def test_evidence_path_never_uses_blocking_dispatch_wait(self):
+        text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
+        start=text.index('if selected.get("kind") in {"evidence","evidence_intent","evidence_observation"}:')
+        end=text.index('if selected.get("kind") in {"action","action_intent","action_observation"}:',start)
+        self.assertNotIn("dispatch_and_wait",text[start:end])
+        self.assertIn("dispatch_workflow(",text[start:end])
+        self.assertIn("observe_dispatch_once(",text[start:end])
 
-    def test_pending_work_resolves_repository_provider_from_registry(self):
-        work=load_pending("automation/samuel/bootstrap.json")[0]
+    def test_diagnostic_path_never_uses_blocking_dispatch_wait(self):
+        text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
+        start=text.index('if selected.get("kind") in {"diagnostic","diagnostic_intent","diagnostic_observation"}:')
+        end=text.index('if selected.get("kind") == "pending":',start)
+        self.assertNotIn("dispatch_and_wait",text[start:end])
+        self.assertIn("dispatch_workflow(",text[start:end])
+        self.assertIn("observe_dispatch_once(",text[start:end])
+
+    def test_legacy_work_still_resolves_repository_provider_outside_runtime(self):
+        work=synthetic_pending()[0]
         provider=resolve_bootstrap_provider(work)
         self.assertEqual(provider.name, "repository-actions")
         self.assertEqual(provider.contract, "github-native-dispatch")
-
-    def test_bootstrap_workflow_cannot_bypass_registry_resolution(self):
-        text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
-        self.assertIn("resolve_bootstrap_provider(work)", text)
-        self.assertIn("SAMUEL_BOOTSTRAP_PROVIDER=", text)
 
     def test_duplicate_work_ids_fail_closed(self):
         with tempfile.NamedTemporaryFile("w+", suffix=".json") as f:
@@ -48,9 +71,8 @@ if __name__ == "__main__":
 
 
 def test_open_diagnostic_recovery_preempts_pending_work():
-    pending = load_pending("automation/samuel/bootstrap.json")
     selected = select_controller_work(
-        pending,
+        synthetic_pending(),
         diagnostic_recoveries={
             "b" * 64: {"status": "resolved"},
             "a" * 64: {"status": "open", "root_cause": None},
@@ -60,8 +82,8 @@ def test_open_diagnostic_recovery_preempts_pending_work():
     assert selected[1]["action_id"] == "a" * 64
 
 
-def test_pending_work_runs_when_no_open_diagnosis():
-    pending = load_pending("automation/samuel/bootstrap.json")
+def test_selector_can_surface_legacy_pending_work_for_explicit_rejection():
+    pending = synthetic_pending()
     selected = select_controller_work(
         pending,
         diagnostic_recoveries={"a" * 64: {"status": "resolved"}},
@@ -70,7 +92,7 @@ def test_pending_work_runs_when_no_open_diagnosis():
 
 
 def test_admitted_issue_preempts_legacy_pending_work():
-    pending = load_pending("automation/samuel/bootstrap.json")
+    pending = synthetic_pending()
     admitted = {
         "issue:44": {
             "work_id": "issue:44",

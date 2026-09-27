@@ -6,11 +6,13 @@ import hashlib
 import json
 from typing import Any
 
-from .action_plan import ActionPlan
+from .action_plan import ActionPlan, ExecutorKind
+from .action_lifecycle import ActionLifecycle, DispatchIntent
 
 from .execution import (
     ExecutionStatus,
     diagnostic_next_action,
+    require_execution_provenance,
     record_diagnostic_corrective_action,
     record_diagnostic_resolution,
     record_diagnostic_root_cause,
@@ -98,6 +100,8 @@ def resolve_from_execution_receipt(
         raise ValueError("diagnostic correction has not been planned")
     if corrective_result.research_id != state.research_id:
         raise ValueError("corrective result belongs to a different research state")
+    if corrective_result.action_id != action_id:
+        raise ValueError("corrective result does not match recovery action")
     if corrective_result.status not in {ExecutionStatus.PASS, ExecutionStatus.NOOP}:
         return DiagnosticAdvance(
             action_id, "verify_resolution", False,
@@ -233,27 +237,206 @@ def recovery_authorization_to_dict(auth: RecoveryAuthorization) -> dict[str, str
     }
 
 
-def enqueue_suspended_action(state: ResearchState, plan: ActionPlan) -> None:
-    """Persist ownership of an action before it can enter diagnostic suspension."""
-    if plan.research_id != state.research_id:
-        raise ValueError("queued plan belongs to a different research state")
-    state.action_queue[plan.idempotency_key] = {
-        "status": "pending",
-        "plan": {
-            "schema_version": 1,
-            "research_id": plan.research_id,
-            "stage": plan.stage.value,
-            "executor": plan.executor.value,
-            "payload": dict(plan.payload),
-            "expected_observation": plan.expected_observation,
-            "decision_risk": None if plan.decision_risk is None else {
-                "impact": plan.decision_risk.impact,
-                "uncertainty": plan.decision_risk.uncertainty,
-                "irreversibility": plan.decision_risk.irreversibility,
-            },
+def _serialized_plan(plan: ActionPlan) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "research_id": plan.research_id,
+        "stage": plan.stage.value,
+        "executor": plan.executor.value,
+        "payload": dict(plan.payload),
+        "expected_observation": plan.expected_observation,
+        "decision_risk": None if plan.decision_risk is None else {
+            "impact": plan.decision_risk.impact,
+            "uncertainty": plan.decision_risk.uncertainty,
+            "irreversibility": plan.decision_risk.irreversibility,
         },
     }
+
+
+def enqueue_suspended_action(state: ResearchState, plan: ActionPlan) -> None:
+    """Persist ownership of an action without allowing identity overwrite."""
+    if plan.research_id != state.research_id:
+        raise ValueError("queued plan belongs to a different research state")
+    action_id = plan.idempotency_key
+    serialized = _serialized_plan(plan)
+    existing = state.action_queue.get(action_id)
+    if existing is not None:
+        if existing.get("plan") == serialized:
+            return
+        raise ValueError("action id already owns a different plan")
+    state.action_queue[action_id] = {
+        "status": ActionLifecycle.PENDING.value,
+        "plan": serialized,
+    }
     state.revision += 1
+
+
+def record_action_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow: str,
+    ref: str,
+    requested_at: str,
+    expected_head_sha: str,
+) -> DispatchIntent:
+    """Durably reserve one logical dispatch before the external side effect."""
+    if not isinstance(workflow, str) or not workflow.strip():
+        raise ValueError("workflow must be a non-empty string")
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError("ref must be a non-empty string")
+    item = state.action_queue.get(action_id)
+    if item is None:
+        raise ValueError("action is not owned by durable queue")
+    plan = ActionPlan.from_dict(item.get("plan"))
+    if plan.idempotency_key != action_id or plan.research_id != state.research_id:
+        raise ValueError("queued action identity changed")
+
+    if item.get("status") == ActionLifecycle.DISPATCH_INTENT.value:
+        intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+        if (
+            intent.workflow != workflow
+            or intent.ref != ref
+            or intent.expected_head_sha != expected_head_sha
+        ):
+            raise ValueError("existing dispatch intent conflicts with requested dispatch")
+        return intent
+    if item.get("status") != ActionLifecycle.PENDING.value:
+        raise ValueError("action is not pending")
+
+    intent = DispatchIntent.from_dict({
+        "schema_version": 2,
+        "action_id": action_id,
+        "research_id": state.research_id,
+        "workflow": workflow,
+        "ref": ref,
+        "requested_at": requested_at,
+        "state_revision": state.revision + 1,
+        "expected_head_sha": expected_head_sha,
+    })
+    item["dispatch_intent"] = intent.to_dict()
+    item["status"] = ActionLifecycle.DISPATCH_INTENT.value
+    state.revision += 1
+    return intent
+
+
+def resume_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, DispatchIntent]:
+    """Resume only the exact pre-dispatch transaction already persisted."""
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("action is not awaiting dispatch")
+    plan = ActionPlan.from_dict(item.get("plan"))
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+    ):
+        raise ValueError("dispatch intent identity changed")
+    return plan, intent
+
+
+def record_action_dispatch(
+    state: ResearchState,
+    action_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    """Bind one external dispatch receipt to a previously persisted intent."""
+    item = state.action_queue.get(action_id)
+    if item is None:
+        raise ValueError("action is not owned by durable queue")
+    if item.get("status") == ActionLifecycle.DISPATCHED.value:
+        existing = item.get("dispatch_receipt")
+        if existing == receipt:
+            return
+        raise ValueError("action already has a different dispatch receipt")
+    if item.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("action has no durable dispatch intent")
+
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    if not isinstance(receipt, dict) or receipt.get("correlation_id") != action_id:
+        raise ValueError("dispatch receipt does not match queued action")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("dispatch receipt has no authoritative workflow_run_id")
+    if receipt.get("ref") != intent.ref:
+        raise ValueError("dispatch receipt ref does not match intent")
+    workflow_path = receipt.get("workflow_path")
+    if workflow_path is not None and str(workflow_path).rsplit("/", 1)[-1] != intent.workflow:
+        raise ValueError("dispatch receipt workflow does not match intent")
+
+    item["dispatch_receipt"] = dict(receipt)
+    item["status"] = ActionLifecycle.DISPATCHED.value
+    state.revision += 1
+
+
+def record_native_dispatch_evidence_failure(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow_run_id: int,
+    conclusion: str,
+    failure_kind: str,
+) -> None:
+    """Retire one native dispatch whose terminal result evidence is unusable.
+
+    The logical ActionPlan remains pending. The failed physical attempt is retained
+    for audit, and only the idempotent native executor may take this recovery path.
+    """
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("action is not dispatched")
+    plan = ActionPlan.from_dict(item.get("plan"))
+    if plan.executor is not ExecutorKind.GITHUB_NATIVE:
+        raise ValueError("only github_native dispatches may recover invalid result evidence")
+    receipt = item.get("dispatch_receipt")
+    if not isinstance(receipt, dict) or receipt.get("workflow_run_id") != workflow_run_id:
+        raise ValueError("terminal evidence does not match dispatched workflow run")
+    if not isinstance(conclusion, str) or not conclusion.strip():
+        raise ValueError("terminal workflow conclusion is required")
+    if not isinstance(failure_kind, str) or not failure_kind.strip():
+        raise ValueError("dispatch evidence failure kind is required")
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    history = list(item.get("dispatch_attempt_history", []))
+    history.append({
+        "schema_version": 1,
+        "workflow_run_id": workflow_run_id,
+        "conclusion": conclusion.strip(),
+        "failure_kind": failure_kind.strip(),
+        "dispatch_intent": intent.to_dict(),
+        "dispatch_receipt": dict(receipt),
+    })
+    item["dispatch_attempt_history"] = history
+    item.pop("dispatch_intent", None)
+    item.pop("dispatch_receipt", None)
+    item["status"] = ActionLifecycle.PENDING.value
+    state.revision += 1
+
+
+def resume_dispatched_action(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, dict[str, Any]]:
+    """Return the exact plan and receipt for a previously dispatched action."""
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("action is not awaiting observation")
+    plan = ActionPlan.from_dict(item.get("plan"))
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    receipt = item.get("dispatch_receipt")
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or not isinstance(receipt, dict)
+    ):
+        raise ValueError("dispatched action identity changed")
+    if receipt.get("correlation_id") != action_id or receipt.get("ref") != intent.ref:
+        raise ValueError("dispatch receipt correlation changed")
+    return plan, dict(receipt)
 
 
 def mark_action_suspended(state: ResearchState, action_id: str) -> None:
@@ -281,13 +464,23 @@ def resume_resolved_action(state: ResearchState, action_id: str) -> ActionPlan:
 
 def complete_queued_action(state: ResearchState, action_id: str, result) -> None:
     item = state.action_queue.get(action_id)
-    if item is None or item.get("status") != "pending":
-        raise ValueError("action is not pending")
+    if item is None or item.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("action is not dispatched")
     if result.action_id != action_id or result.research_id != state.research_id:
         raise ValueError("execution result does not match queued action")
     if result.status not in {ExecutionStatus.PASS, ExecutionStatus.NOOP}:
         raise ValueError("queued action requires PASS/NOOP completion evidence")
-    item["status"] = "complete"
+    receipt = item.get("dispatch_receipt")
+    run_id = None if not isinstance(receipt, dict) else receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("dispatched action has no authoritative workflow_run_id")
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    require_execution_provenance(
+        result,
+        workflow_run_id=run_id,
+        head_sha=intent.expected_head_sha,
+    )
+    item["status"] = ActionLifecycle.COMPLETE.value
     item["completion_result"] = result.to_dict()
     state.revision += 1
 
@@ -327,6 +520,466 @@ def record_diagnostic_wait(
     return recovery["status"]
 
 
+def corrective_dispatch_correlation_id(
+    state: ResearchState,
+    action_id: str,
+) -> str:
+    """Return one physical dispatch identity for an authorized corrective replay."""
+    authorization = recovery_authorization(state, action_id)
+    semantic = {
+        "kind": "corrective",
+        "research_id": state.research_id,
+        "action_id": action_id,
+        "authorization_token": authorization.token,
+    }
+    return "corrective-" + hashlib.sha256(json.dumps(
+        semantic, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+
+
+def record_corrective_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow: str,
+    ref: str,
+    requested_at: str,
+    expected_head_sha: str,
+) -> tuple[DispatchIntent, str]:
+    """Persist corrective execution ownership before the native side effect."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    if recovery.get("resolution_evidence"):
+        raise ValueError("resolved diagnostic cannot dispatch corrective execution")
+    # This validates source plan, root cause, corrective action and provider binding.
+    recovery_authorization(state, action_id)
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    existing = recovery.get("corrective_dispatch")
+    if existing is not None:
+        if not isinstance(existing, dict) or existing.get("status") not in {
+            ActionLifecycle.DISPATCH_INTENT.value,
+            ActionLifecycle.DISPATCHED.value,
+        }:
+            raise ValueError("invalid corrective dispatch lifecycle")
+        intent = DispatchIntent.from_dict(existing.get("intent"))
+        if (
+            existing.get("correlation_id") != correlation_id
+            or intent.workflow != workflow
+            or intent.ref != ref
+            or intent.expected_head_sha != expected_head_sha
+        ):
+            raise ValueError("existing corrective dispatch conflicts with requested dispatch")
+        return intent, correlation_id
+
+    intent = DispatchIntent.from_dict({
+        "schema_version": 2,
+        "action_id": action_id,
+        "research_id": state.research_id,
+        "workflow": workflow,
+        "ref": ref,
+        "requested_at": requested_at,
+        "state_revision": state.revision + 1,
+        "expected_head_sha": expected_head_sha,
+    })
+    recovery["corrective_dispatch"] = {
+        "status": ActionLifecycle.DISPATCH_INTENT.value,
+        "correlation_id": correlation_id,
+        "intent": intent.to_dict(),
+    }
+    state.revision += 1
+    return intent, correlation_id
+
+
+def resume_corrective_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, RecoveryAuthorization, DispatchIntent, str]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("corrective_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("corrective execution is not awaiting dispatch")
+    plan = corrective_plan_from_recovery(state, action_id)
+    authorization = recovery_authorization(state, action_id)
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("corrective dispatch intent identity changed")
+    return plan, authorization, intent, correlation_id
+
+
+def record_corrective_dispatch(
+    state: ResearchState,
+    action_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("corrective_dispatch")
+    if not isinstance(dispatch, dict):
+        raise ValueError("corrective execution has no durable dispatch intent")
+    if dispatch.get("status") == ActionLifecycle.DISPATCHED.value:
+        if dispatch.get("receipt") == receipt:
+            return
+        raise ValueError("corrective execution already has a different receipt")
+    if dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("corrective execution is not awaiting dispatch")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    if not isinstance(receipt, dict) or receipt.get("correlation_id") != correlation_id:
+        raise ValueError("corrective dispatch receipt correlation mismatch")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("corrective dispatch receipt has no authoritative workflow_run_id")
+    if receipt.get("ref") != intent.ref:
+        raise ValueError("corrective dispatch receipt ref mismatch")
+    workflow_path = receipt.get("workflow_path")
+    if workflow_path is not None and str(workflow_path).rsplit("/", 1)[-1] != intent.workflow:
+        raise ValueError("corrective dispatch receipt workflow mismatch")
+    dispatch["receipt"] = dict(receipt)
+    dispatch["status"] = ActionLifecycle.DISPATCHED.value
+    state.revision += 1
+
+
+def resume_dispatched_corrective(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, RecoveryAuthorization, DispatchIntent, str, dict[str, Any]]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("corrective_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("corrective execution is not dispatched")
+    plan = corrective_plan_from_recovery(state, action_id)
+    authorization = recovery_authorization(state, action_id)
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    receipt = dispatch.get("receipt")
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+        or not isinstance(receipt, dict)
+        or receipt.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("corrective dispatch identity changed")
+    return plan, authorization, intent, correlation_id, dict(receipt)
+
+
+def diagnostic_dispatch_correlation_id(
+    state: ResearchState,
+    action_id: str,
+) -> str:
+    """Return the deterministic identity for one diagnostic phase execution."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    semantic_recovery = {
+        key: value for key, value in recovery.items()
+        if key != "diagnostic_dispatch"
+    }
+    semantic = {
+        "kind": "diagnostic",
+        "research_id": state.research_id,
+        "action_id": action_id,
+        "recovery": semantic_recovery,
+    }
+    return "diagnostic-" + hashlib.sha256(json.dumps(
+        semantic, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+
+
+def record_diagnostic_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow: str,
+    ref: str,
+    requested_at: str,
+    expected_head_sha: str,
+) -> tuple[DispatchIntent, str]:
+    """Persist one diagnostic workflow intent before external dispatch."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    correlation_id = diagnostic_dispatch_correlation_id(state, action_id)
+    existing = recovery.get("diagnostic_dispatch")
+    if existing is not None:
+        if not isinstance(existing, dict) or existing.get("status") not in {
+            ActionLifecycle.DISPATCH_INTENT.value,
+            ActionLifecycle.DISPATCHED.value,
+        }:
+            raise ValueError("invalid diagnostic dispatch lifecycle")
+        intent = DispatchIntent.from_dict(existing.get("intent"))
+        if (
+            existing.get("correlation_id") != correlation_id
+            or intent.workflow != workflow
+            or intent.ref != ref
+            or intent.expected_head_sha != expected_head_sha
+        ):
+            raise ValueError("existing diagnostic dispatch conflicts with requested dispatch")
+        return intent, correlation_id
+
+    intent = DispatchIntent.from_dict({
+        "schema_version": 2,
+        "action_id": action_id,
+        "research_id": state.research_id,
+        "workflow": workflow,
+        "ref": ref,
+        "requested_at": requested_at,
+        "state_revision": state.revision + 1,
+        "expected_head_sha": expected_head_sha,
+    })
+    recovery["diagnostic_dispatch"] = {
+        "status": ActionLifecycle.DISPATCH_INTENT.value,
+        "correlation_id": correlation_id,
+        "intent": intent.to_dict(),
+    }
+    state.revision += 1
+    return intent, correlation_id
+
+
+def resume_diagnostic_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[DispatchIntent, str]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("diagnostic_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("diagnostic recovery is not awaiting dispatch")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = diagnostic_dispatch_correlation_id(state, action_id)
+    if (
+        intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("diagnostic dispatch intent identity changed")
+    return intent, correlation_id
+
+
+def record_diagnostic_dispatch(
+    state: ResearchState,
+    action_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("diagnostic_dispatch")
+    if not isinstance(dispatch, dict):
+        raise ValueError("diagnostic recovery has no durable dispatch intent")
+    if dispatch.get("status") == ActionLifecycle.DISPATCHED.value:
+        if dispatch.get("receipt") == receipt:
+            return
+        raise ValueError("diagnostic recovery already has a different receipt")
+    if dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("diagnostic recovery is not awaiting dispatch")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = diagnostic_dispatch_correlation_id(state, action_id)
+    if not isinstance(receipt, dict) or receipt.get("correlation_id") != correlation_id:
+        raise ValueError("diagnostic dispatch receipt correlation mismatch")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("diagnostic dispatch receipt has no authoritative workflow_run_id")
+    if receipt.get("ref") != intent.ref:
+        raise ValueError("diagnostic dispatch receipt ref mismatch")
+    workflow_path = receipt.get("workflow_path")
+    if workflow_path is not None and str(workflow_path).rsplit("/", 1)[-1] != intent.workflow:
+        raise ValueError("diagnostic dispatch receipt workflow mismatch")
+    dispatch["receipt"] = dict(receipt)
+    dispatch["status"] = ActionLifecycle.DISPATCHED.value
+    state.revision += 1
+
+
+def resume_dispatched_diagnostic(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[DispatchIntent, str, dict[str, Any]]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("diagnostic_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("diagnostic recovery is not dispatched")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    receipt = dispatch.get("receipt")
+    correlation_id = diagnostic_dispatch_correlation_id(state, action_id)
+    if (
+        intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+        or not isinstance(receipt, dict)
+        or receipt.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("diagnostic dispatch identity changed")
+    return intent, correlation_id, dict(receipt)
+
+
+def evidence_dispatch_correlation_id(
+    state: ResearchState,
+    action_id: str,
+) -> str:
+    """Return the deterministic identity for one evidence-acquisition request."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "needs_evidence":
+        raise ValueError("diagnostic is not waiting for evidence acquisition")
+    request = recovery.get("evidence_request")
+    fingerprint = None if not isinstance(request, dict) else request.get("fingerprint")
+    if not isinstance(fingerprint, str) or not fingerprint.strip():
+        raise ValueError("evidence request fingerprint is required")
+    semantic = {
+        "kind": "evidence",
+        "research_id": state.research_id,
+        "action_id": action_id,
+        "request_fingerprint": fingerprint.strip(),
+    }
+    return "evidence-" + hashlib.sha256(json.dumps(
+        semantic, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+
+
+def record_evidence_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow: str,
+    ref: str,
+    requested_at: str,
+    expected_head_sha: str,
+) -> tuple[DispatchIntent, str]:
+    """Persist evidence-dispatch intent before any external workflow side effect."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "needs_evidence":
+        raise ValueError("diagnostic is not waiting for evidence acquisition")
+    correlation_id = evidence_dispatch_correlation_id(state, action_id)
+    existing = recovery.get("evidence_dispatch")
+    if existing is not None:
+        if not isinstance(existing, dict) or existing.get("status") not in {
+            ActionLifecycle.DISPATCH_INTENT.value,
+            ActionLifecycle.DISPATCHED.value,
+        }:
+            raise ValueError("invalid evidence dispatch lifecycle")
+        intent = DispatchIntent.from_dict(existing.get("intent"))
+        if (
+            existing.get("correlation_id") != correlation_id
+            or intent.workflow != workflow
+            or intent.ref != ref
+            or intent.expected_head_sha != expected_head_sha
+        ):
+            raise ValueError("existing evidence dispatch conflicts with requested dispatch")
+        return intent, correlation_id
+
+    intent = DispatchIntent.from_dict({
+        "schema_version": 2,
+        "action_id": action_id,
+        "research_id": state.research_id,
+        "workflow": workflow,
+        "ref": ref,
+        "requested_at": requested_at,
+        "state_revision": state.revision + 1,
+        "expected_head_sha": expected_head_sha,
+    })
+    recovery["evidence_dispatch"] = {
+        "status": ActionLifecycle.DISPATCH_INTENT.value,
+        "correlation_id": correlation_id,
+        "intent": intent.to_dict(),
+    }
+    state.revision += 1
+    return intent, correlation_id
+
+
+def resume_evidence_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[DispatchIntent, str]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "needs_evidence":
+        raise ValueError("diagnostic is not waiting for evidence acquisition")
+    dispatch = recovery.get("evidence_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("evidence acquisition is not awaiting dispatch")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = evidence_dispatch_correlation_id(state, action_id)
+    if (
+        intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("evidence dispatch intent identity changed")
+    return intent, correlation_id
+
+
+def record_evidence_dispatch(
+    state: ResearchState,
+    action_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "needs_evidence":
+        raise ValueError("diagnostic is not waiting for evidence acquisition")
+    dispatch = recovery.get("evidence_dispatch")
+    if not isinstance(dispatch, dict):
+        raise ValueError("evidence acquisition has no durable dispatch intent")
+    if dispatch.get("status") == ActionLifecycle.DISPATCHED.value:
+        if dispatch.get("receipt") == receipt:
+            return
+        raise ValueError("evidence acquisition already has a different receipt")
+    if dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("evidence acquisition is not awaiting dispatch")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = evidence_dispatch_correlation_id(state, action_id)
+    if not isinstance(receipt, dict) or receipt.get("correlation_id") != correlation_id:
+        raise ValueError("evidence dispatch receipt correlation mismatch")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("evidence dispatch receipt has no authoritative workflow_run_id")
+    if receipt.get("ref") != intent.ref:
+        raise ValueError("evidence dispatch receipt ref mismatch")
+    workflow_path = receipt.get("workflow_path")
+    if workflow_path is not None and str(workflow_path).rsplit("/", 1)[-1] != intent.workflow:
+        raise ValueError("evidence dispatch receipt workflow mismatch")
+    dispatch["receipt"] = dict(receipt)
+    dispatch["status"] = ActionLifecycle.DISPATCHED.value
+    state.revision += 1
+
+
+def resume_dispatched_evidence(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[DispatchIntent, str, dict[str, Any]]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "needs_evidence":
+        raise ValueError("diagnostic is not waiting for evidence acquisition")
+    dispatch = recovery.get("evidence_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("evidence acquisition is not dispatched")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    receipt = dispatch.get("receipt")
+    correlation_id = evidence_dispatch_correlation_id(state, action_id)
+    if (
+        intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+        or not isinstance(receipt, dict)
+        or receipt.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("evidence dispatch identity changed")
+    return intent, correlation_id, dict(receipt)
+
+
 def record_acquired_diagnostic_evidence(
     state: ResearchState,
     action_id: str,
@@ -346,4 +999,5 @@ def record_acquired_diagnostic_evidence(
     recovery["failure"] = failure
     recovery["status"] = "open"
     recovery.pop("evidence_request", None)
+    recovery.pop("evidence_dispatch", None)
     state.revision += 1
