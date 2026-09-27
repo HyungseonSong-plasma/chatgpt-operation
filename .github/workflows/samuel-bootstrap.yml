@@ -548,8 +548,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
-          from chatgpt_operation.controller.bootstrap import load_pending, resolve_bootstrap_provider
-          from chatgpt_operation.github.actions_runtime import GitHubActionsTransport, dispatch_and_wait
+          from chatgpt_operation.github.actions_runtime import GitHubActionsTransport
 
           repo=os.environ["GITHUB_REPOSITORY"]
           sha=os.environ["GITHUB_SHA"]
@@ -864,35 +863,12 @@ jobs:
               open("samuel-diagnostic-run-id.txt","w").write(str(matched[0])+"\n")
               print("SAMUEL_DIAGNOSTIC=TERMINAL action_id="+action_id)
               raise SystemExit(0)
-          pending=load_pending("automation/samuel/bootstrap.json")
-          selected_id=selected.get("work_id") if selected.get("kind") == "pending" else None
-          pending=[work for work in pending if work.work_id == selected_id]
-          if not pending:
-              print("SAMUEL_BOOTSTRAP=IDLE")
-          for work in pending:
-              provider=resolve_bootstrap_provider(work)
-              if provider.contract != "github-native-dispatch":
-                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP invalid provider contract")
-              print("SAMUEL_BOOTSTRAP_PROVIDER="+provider.name)
-              outcome=dispatch_and_wait(
-                  transport,
-                  workflow=work.workflow,
-                  ref=work.ref,
-                  inputs={},
-                  correlation_id=work.work_id,
-                  correlation_input=None,
-                  expected_head_sha=sha if work.ref == os.environ.get("GITHUB_REF_NAME") else None,
-                  timeout_seconds=600,
-                  poll_interval_seconds=5,
+          if selected.get("kind") == "pending":
+              raise SystemExit(
+                  "SAMUEL_BOOTSTRAP=HARD_STOP legacy static workflow work "
+                  "must run outside the production controller"
               )
-              observation=outcome["observation"]
-              if observation.get("status") != "MATCHED_TERMINAL" or observation.get("conclusion") != "success":
-                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP "+str(observation))
-              run_ids=observation.get("matched_run_ids") or ([observation.get("workflow_run_id")] if observation.get("workflow_run_id") else [])
-              if len(run_ids) != 1:
-                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP ambiguous qualification run "+str(run_ids))
-              open("samuel-qualified-run-id.txt","w").write(str(run_ids[0])+"\n")
-              print("SAMUEL_BOOTSTRAP=PASS "+work.work_id)
+          print("SAMUEL_BOOTSTRAP=IDLE")
           PY
 
       - name: Persist durable action dispatch receipt
