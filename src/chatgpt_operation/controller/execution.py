@@ -117,6 +117,56 @@ class ExecutionResult:
         }
 
 
+@dataclass(frozen=True)
+class ExecutionProvenance:
+    workflow_run_id: int
+    run_attempt: int
+    head_sha: str
+    action_id: str
+
+    @classmethod
+    def from_result(cls, result: ExecutionResult) -> "ExecutionProvenance":
+        raw = result.details.get("provenance")
+        required = {
+            "schema_version", "workflow_run_id", "run_attempt", "head_sha", "action_id"
+        }
+        if not isinstance(raw, dict) or set(raw) != required:
+            raise ExecutionResultError("execution provenance schema is invalid")
+        if raw["schema_version"] != 1:
+            raise ExecutionResultError("execution provenance schema_version must be 1")
+        run_id = raw["workflow_run_id"]
+        attempt = raw["run_attempt"]
+        if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+            raise ExecutionResultError("workflow_run_id must be a positive integer")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+            raise ExecutionResultError("run_attempt must be a positive integer")
+        head_sha = raw["head_sha"]
+        if not isinstance(head_sha, str) or not head_sha.strip():
+            raise ExecutionResultError("head_sha must be a non-empty string")
+        action_id = raw["action_id"]
+        if not isinstance(action_id, str) or not ACTION_ID.fullmatch(action_id):
+            raise ExecutionResultError("provenance action_id must be lowercase 64-hex")
+        if action_id != result.action_id:
+            raise ExecutionResultError("execution provenance action_id mismatch")
+        return cls(
+            workflow_run_id=run_id,
+            run_attempt=attempt,
+            head_sha=head_sha.strip(),
+            action_id=action_id,
+        )
+
+
+def require_execution_provenance(
+    result: ExecutionResult,
+    *,
+    workflow_run_id: int | None = None,
+) -> ExecutionProvenance:
+    provenance = ExecutionProvenance.from_result(result)
+    if workflow_run_id is not None and provenance.workflow_run_id != workflow_run_id:
+        raise ExecutionResultError("execution provenance workflow_run_id mismatch")
+    return provenance
+
+
 def record_execution_result(
     state: ResearchState,
     result: ExecutionResult,
