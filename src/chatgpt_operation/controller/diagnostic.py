@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any
 
-from .action_plan import ActionPlan
+from .action_plan import ActionPlan, ExecutorKind
 from .action_lifecycle import ActionLifecycle, DispatchIntent
 
 from .execution import (
@@ -368,6 +368,49 @@ def record_action_dispatch(
 
     item["dispatch_receipt"] = dict(receipt)
     item["status"] = ActionLifecycle.DISPATCHED.value
+    state.revision += 1
+
+
+def record_native_dispatch_evidence_failure(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow_run_id: int,
+    conclusion: str,
+    failure_kind: str,
+) -> None:
+    """Retire one native dispatch whose terminal result evidence is unusable.
+
+    The logical ActionPlan remains pending. The failed physical attempt is retained
+    for audit, and only the idempotent native executor may take this recovery path.
+    """
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("action is not dispatched")
+    plan = ActionPlan.from_dict(item.get("plan"))
+    if plan.executor is not ExecutorKind.GITHUB_NATIVE:
+        raise ValueError("only github_native dispatches may recover invalid result evidence")
+    receipt = item.get("dispatch_receipt")
+    if not isinstance(receipt, dict) or receipt.get("workflow_run_id") != workflow_run_id:
+        raise ValueError("terminal evidence does not match dispatched workflow run")
+    if not isinstance(conclusion, str) or not conclusion.strip():
+        raise ValueError("terminal workflow conclusion is required")
+    if not isinstance(failure_kind, str) or not failure_kind.strip():
+        raise ValueError("dispatch evidence failure kind is required")
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    history = list(item.get("dispatch_attempt_history", []))
+    history.append({
+        "schema_version": 1,
+        "workflow_run_id": workflow_run_id,
+        "conclusion": conclusion.strip(),
+        "failure_kind": failure_kind.strip(),
+        "dispatch_intent": intent.to_dict(),
+        "dispatch_receipt": dict(receipt),
+    })
+    item["dispatch_attempt_history"] = history
+    item.pop("dispatch_intent", None)
+    item.pop("dispatch_receipt", None)
+    item["status"] = ActionLifecycle.PENDING.value
     state.revision += 1
 
 
