@@ -331,7 +331,7 @@ jobs:
                   },
                   correlation_id="evidence-"+selected["action_id"],
                   correlation_input=None,
-                  expected_head_sha=sha,
+                  expected_head_sha=sha if os.environ.get("GITHUB_REF_NAME") == "main" else None,
                   timeout_seconds=600,poll_interval_seconds=5,
               )
               obs=outcome["observation"]
@@ -369,7 +369,7 @@ jobs:
                   inputs={"recovery_json": __import__("json").dumps(selected,sort_keys=True,separators=(",",":")), "controller_state": next((str(c.get("body","")) for c in comments if "<!-- samuel-controller-state -->" in str(c.get("body",""))), "")},
                   correlation_id="diagnostic:"+selected["action_id"],
                   correlation_input=None,
-                  expected_head_sha=sha,
+                  expected_head_sha=sha if os.environ.get("GITHUB_REF_NAME") == "main" else None,
                   timeout_seconds=600,
                   poll_interval_seconds=5,
               )
