@@ -167,17 +167,27 @@ class PromotionThresholds:
 
 @dataclass(frozen=True)
 class QualificationPolicy:
+    required_domains: tuple[QualificationDomain, ...]
     auto_with_audit: PromotionThresholds
     auto: PromotionThresholds
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "QualificationPolicy":
         if not isinstance(raw, dict) or set(raw) != {
-            "schema_version", "auto_with_audit", "auto"
+            "schema_version", "required_domains", "auto_with_audit", "auto"
         }:
             raise QualificationGateError("invalid qualification policy schema")
         if raw["schema_version"] != 1:
             raise QualificationGateError("unsupported qualification policy schema")
+        raw_domains = raw["required_domains"]
+        if not isinstance(raw_domains, list) or not raw_domains:
+            raise QualificationGateError("qualification policy requires domains")
+        try:
+            required_domains = tuple(QualificationDomain(item) for item in raw_domains)
+        except ValueError as exc:
+            raise QualificationGateError("qualification policy contains unknown domain") from exc
+        if len(required_domains) != len(set(required_domains)):
+            raise QualificationGateError("qualification policy contains duplicate domain")
         audit = PromotionThresholds.from_dict(raw["auto_with_audit"])
         auto = PromotionThresholds.from_dict(raw["auto"])
         if auto.minimum_cycles < audit.minimum_cycles:
@@ -191,7 +201,7 @@ class QualificationPolicy:
         ):
             if getattr(auto, field) > getattr(audit, field):
                 raise QualificationGateError(f"AUTO {field} cannot be weaker than AUTO_WITH_AUDIT")
-        return cls(audit, auto)
+        return cls(required_domains, audit, auto)
 
 
 def load_qualification_policy(path: str | Path) -> QualificationPolicy:
@@ -311,10 +321,22 @@ def evaluate_qualification_gate(
     if len(ids) != len(set(ids)):
         raise QualificationGateError("qualification gate contains duplicate check_id")
 
+    covered_domains = {check.domain for check in values}
+    missing_domains = tuple(
+        domain.value for domain in policy.required_domains
+        if domain not in covered_domains
+    )
+    blocked: dict[str, tuple[str, ...]] = {}
+    if missing_domains:
+        reason = tuple(f"required domain missing: {item}" for item in missing_domains)
+        blocked[AutonomyMode.SHADOW.value] = reason
+        blocked[AutonomyMode.AUTO_WITH_AUDIT.value] = reason
+        blocked[AutonomyMode.AUTO.value] = reason
+        return QualificationGateReport(values, metrics, (), blocked)
+
     mandatory_failures = tuple(
         check.check_id for check in values if check.mandatory and not check.passed
     )
-    blocked: dict[str, tuple[str, ...]] = {}
     if mandatory_failures:
         reason = tuple(f"mandatory check failed: {item}" for item in mandatory_failures)
         blocked[AutonomyMode.SHADOW.value] = reason
