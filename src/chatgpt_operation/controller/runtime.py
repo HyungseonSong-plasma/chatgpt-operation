@@ -350,6 +350,22 @@ class SamuelController:
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
         context["execution_contracts"] = {
+            "action_plan": {
+                "required_fields": [
+                    "schema_version",
+                    "research_id",
+                    "stage",
+                    "executor",
+                    "payload",
+                    "expected_observation",
+                ],
+                "schema_version": 1,
+                "research_id": work_id,
+                "stage": (
+                    "one non-terminal ResearchStage such as implement or execute"
+                ),
+                "decision_risk": "optional",
+            },
             "repository_mutation": {
                 "purpose": "bounded branch/file mutation through deterministic policy",
                 "resource_actions": {
@@ -399,6 +415,12 @@ class SamuelController:
                     "implement_gap is invalid because implementation_gaps is empty; "
                     "use analyze for an action within accepted architecture"
                 )
+            if proposal.action_plan is not None:
+                candidate = ActionPlan.from_dict(proposal.action_plan)
+                if candidate.research_id != work_id:
+                    raise ValueError(
+                        "ActionPlan research_id must equal active work_id " + work_id
+                    )
             return proposal
 
         proposal = StructuredReasoningNode(
