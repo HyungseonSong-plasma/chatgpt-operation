@@ -114,7 +114,7 @@ def test_duplicate_enqueue_is_idempotent_but_identity_conflict_is_rejected():
     raw={
         "schema_version":1,"research_id":"r","stage":"execute","executor":"github_native",
         "payload":dict(p.payload),"expected_observation":"verified",
-        "decision_risk":{"impact":"high","uncertainty":"low","irreversibility":"low"},
+        "decision_risk":{"impact":0.9,"uncertainty":0.2,"irreversibility":0.1},
     }
     conflicting=ActionPlan.from_dict(raw)
     assert conflicting.idempotency_key==p.idempotency_key
