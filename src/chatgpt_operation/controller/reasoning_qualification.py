@@ -93,3 +93,39 @@ def qualify(provider: Any, cases: list[QualificationCase]) -> list[ShadowResult]
     if not cases:
         raise ValueError("qualification requires at least one case")
     return [evaluate_shadow(provider=provider, case=case) for case in cases]
+
+
+@dataclass(frozen=True)
+class ProviderComparison:
+    case_id: str
+    results: tuple[ShadowResult, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "case_id": self.case_id,
+            "results": [
+                {
+                    "provider": result.provider,
+                    "passed": result.passed,
+                    "failures": [failure.value for failure in result.failures],
+                    "executed": result.executed,
+                    "provider_failure": result.provider_failure,
+                    "schema_error": result.schema_error,
+                    "raw_proposal": result.raw_proposal,
+                }
+                for result in self.results
+            ],
+        }
+
+
+def compare_providers(*, providers: list[Any], case: QualificationCase) -> ProviderComparison:
+    """Evaluate providers against one immutable case and the same validator."""
+    if len(providers) < 2:
+        raise ValueError("provider comparison requires at least two providers")
+    names = [provider.name for provider in providers]
+    if len(set(names)) != len(names):
+        raise ValueError("provider comparison requires unique provider names")
+    results = tuple(evaluate_shadow(provider=provider, case=case) for provider in providers)
+    if any(result.executed for result in results):
+        raise AssertionError("qualification comparison must never execute actions")
+    return ProviderComparison(case.case_id, results)
