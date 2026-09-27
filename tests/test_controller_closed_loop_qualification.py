@@ -50,8 +50,8 @@ def trigger():
     )
 
 
-def action_plan():
-    return ActionPlan.from_dict({
+def action_plan_dict():
+    return {
         "schema_version":1,
         "research_id":"issue:44",
         "stage":"implement",
@@ -71,7 +71,11 @@ def action_plan():
             "desired_postcondition":{"comment_present":True},
         },
         "expected_observation":"qualification marker is visible",
-    })
+    }
+
+
+def action_plan():
+    return ActionPlan.from_dict(action_plan_dict())
 
 
 def admission_comment(status="reasoning_required"):
@@ -95,7 +99,7 @@ def reasoning_comment():
         decision_id="github_execution_authority",
         compatible_with_locked_decisions=True,
         revision_requested=False,
-        action_plan=plan.to_dict(),
+        action_plan=action_plan_dict(),
     )
     return {
         "id":8,
