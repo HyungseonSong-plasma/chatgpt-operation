@@ -13,6 +13,7 @@ class QualificationFailure(str, Enum):
     DECISION_DRIFT = "decision_drift"
     EVIDENCE_UNGROUNDED = "evidence_ungrounded"
     FALSE_BLOCKED = "false_blocked"
+    EXPECTATION_MISMATCH = "expectation_mismatch"
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,11 @@ class QualificationCase:
     context: dict[str, Any]
     allowed_decision_ids: tuple[str, ...] = ()
     evidence_ids: tuple[str, ...] = ()
+    expected_operation: str | None = None
+    expected_decision_id: str | None = None
+    expected_compatible: bool | None = None
+    expected_revision_requested: bool | None = None
+    require_null_action_plan: bool = False
 
 
 @dataclass(frozen=True)
@@ -84,8 +90,19 @@ def evaluate_shadow(
     ):
         failures.append(QualificationFailure.EVIDENCE_UNGROUNDED)
 
+    expectations = (
+        (case.expected_operation, proposal.operation),
+        (case.expected_decision_id, proposal.decision_id),
+        (case.expected_compatible, proposal.compatible_with_locked_decisions),
+        (case.expected_revision_requested, proposal.revision_requested),
+    )
+    if any(expected is not None and actual != expected for expected, actual in expectations):
+        failures.append(QualificationFailure.EXPECTATION_MISMATCH)
+    if case.require_null_action_plan and proposal.action_plan is not None:
+        failures.append(QualificationFailure.EXPECTATION_MISMATCH)
+
     return ShadowResult(
-        case.case_id, provider.name, not failures, tuple(failures), proposal, False
+        case.case_id, provider.name, not failures, tuple(dict.fromkeys(failures)), proposal, False
     )
 
 
