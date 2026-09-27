@@ -15,6 +15,9 @@ from chatgpt_operation.github.actions_runtime import (
 )
 
 
+NATIVE_RUN_NAME_PREFIX = "Samuel Native GitHub Executor action:"
+
+
 class NativeOrchestrationError(RuntimeError):
     pass
 
@@ -35,6 +38,7 @@ def dispatch_native_plan_async(
     if plan.requires_escalation():
         raise NativeOrchestrationError("plan requires escalation before dispatch")
     inputs = {
+        "samuel_action_id": plan.idempotency_key,
         "plan_json": json.dumps({
             "schema_version": 1,
             "research_id": plan.research_id,
@@ -60,7 +64,8 @@ def dispatch_native_plan_async(
         ref=ref,
         inputs=inputs,
         correlation_id=plan.idempotency_key,
-        correlation_input=None,
+        correlation_input="samuel_action_id",
+        correlation_run_name_prefix=NATIVE_RUN_NAME_PREFIX,
     )
 
 

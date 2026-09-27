@@ -50,8 +50,9 @@ def run(
     conclusion="success",
     run_id=9001,
     created_at="2026-09-22T08:00:02Z",
+    display_title=None,
 ):
-    return {
+    value = {
         "id": run_id,
         "workflow_id": 260,
         "event": "workflow_dispatch",
@@ -62,6 +63,9 @@ def run(
         "status": status,
         "conclusion": conclusion,
     }
+    if display_title is not None:
+        value["display_title"] = display_title
+    return value
 
 
 class ActionsRuntimeTests(unittest.TestCase):
@@ -129,6 +133,28 @@ class ActionsRuntimeTests(unittest.TestCase):
         )
         result = observe_dispatch_once(t, receipt, now=lambda: dt(10))
         self.assertEqual(result["status"], "OBSERVATION_INCOMPLETE")
+
+    def test_run_name_correlation_recovers_dispatch_without_direct_run_id(self):
+        prefix = "Samuel Native GitHub Executor action:"
+        correlation = "science-exp-26-001"
+        t = FakeTransport(
+            dispatch=(204, None),
+            runs=[run(display_title=prefix + correlation)],
+        )
+        receipt = dispatch_workflow(
+            t,
+            workflow="issue-26-observation-e2e.yml",
+            ref="issue-26-actions-observation",
+            correlation_id=correlation,
+            correlation_input="samuel_action_id",
+            correlation_run_name_prefix=prefix,
+            now=lambda: dt(),
+        )
+        result = observe_dispatch_once(t, receipt, now=lambda: dt(10))
+        self.assertEqual(result["status"], "MATCHED_TERMINAL")
+        self.assertEqual(result["matched_run_ids"], [9001])
+        post = [item for item in t.requests if item[0] == "POST"][0]
+        self.assertEqual(post[2]["inputs"]["samuel_action_id"], correlation)
 
     def test_empty_legacy_dispatch_without_correlation_can_use_complete_enumeration(self):
         t = FakeTransport(dispatch=(204, None), runs=[run()])

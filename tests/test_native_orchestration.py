@@ -71,7 +71,9 @@ class AsyncNativeOrchestrationTests(unittest.TestCase):
         self.assertEqual(dispatch_native_plan_async(p,transport=object(),ref="main"),receipt)
         self.assertEqual(dispatch.call_count,1)
         self.assertEqual(dispatch.call_args.kwargs["correlation_id"],p.idempotency_key)
-        self.assertIsNone(dispatch.call_args.kwargs["correlation_input"])
+        self.assertEqual(dispatch.call_args.kwargs["correlation_input"],"samuel_action_id")
+        self.assertEqual(dispatch.call_args.kwargs["correlation_run_name_prefix"],"Samuel Native GitHub Executor action:")
+        self.assertEqual(dispatch.call_args.kwargs["inputs"]["samuel_action_id"],p.idempotency_key)
 
     @patch("chatgpt_operation.github.native_orchestration.observe_dispatch_once")
     def test_async_observation_never_redispatches(self, observe):

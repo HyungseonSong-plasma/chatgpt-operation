@@ -1,8 +1,14 @@
 name: Samuel Native GitHub Executor
+run-name: Samuel Native GitHub Executor action:${{ inputs.samuel_action_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      samuel_action_id:
+        description: Durable Samuel ActionPlan identity for causal run recovery
+        required: false
+        default: ""
+        type: string
       plan_json:
         description: Typed Samuel ActionPlan JSON
         required: true

@@ -144,6 +144,7 @@ def dispatch_workflow(
     inputs: dict[str, Any] | None = None,
     correlation_id: str | None = None,
     correlation_input: str | None = "correlation_id",
+    correlation_run_name_prefix: str | None = None,
     now: Callable[[], datetime] = _now,
 ) -> dict[str, Any]:
     """Dispatch one workflow and return a durable correlation receipt."""
@@ -153,6 +154,11 @@ def dispatch_workflow(
         not isinstance(correlation_input, str) or not correlation_input
     ):
         raise ActionsRuntimeError("correlation_input must be non-empty or null")
+    if correlation_run_name_prefix is not None and (
+        not isinstance(correlation_run_name_prefix, str)
+        or not correlation_run_name_prefix
+    ):
+        raise ActionsRuntimeError("correlation_run_name_prefix must be non-empty or null")
 
     workflow_meta = resolve_workflow(transport, workflow)
     workflow_id = workflow_meta["id"]
@@ -199,6 +205,7 @@ def dispatch_workflow(
         "ref": ref,
         "correlation_id": request_id,
         "correlation_input": correlation_input,
+        "correlation_run_name_prefix": correlation_run_name_prefix,
         "requested_at": requested_at,
         "workflow_run_id": run_id,
         "run_url": run_url,
@@ -216,13 +223,23 @@ def _run_evidence(
     required = ("id", "workflow_id", "event", "created_at", "run_attempt", "status")
     if any(key not in run for key in required):
         raise ActionsRuntimeError("workflow run evidence is incomplete")
+    correlation_id = receipt.get("correlation_id") if direct_receipt_binding else None
+    if not direct_receipt_binding:
+        prefix = receipt.get("correlation_run_name_prefix")
+        title = run.get("display_title")
+        if (
+            isinstance(prefix, str)
+            and prefix
+            and isinstance(title, str)
+            and title.startswith(prefix)
+        ):
+            candidate = title[len(prefix):]
+            correlation_id = candidate or None
     return {
         "run_id": run["id"],
         "workflow": str(run["workflow_id"]),
         "event": run["event"],
-        "correlation_id": (
-            receipt.get("correlation_id") if direct_receipt_binding else None
-        ),
+        "correlation_id": correlation_id,
         "head_sha": run.get("head_sha"),
         "ref": receipt.get("ref") if direct_receipt_binding else run.get("head_branch"),
         "created_at": run["created_at"],
@@ -316,7 +333,11 @@ def observe_dispatch_once(
 
     request_correlation = (
         receipt.get("correlation_id")
-        if direct_binding or receipt.get("correlation_input") is not None
+        if (
+            direct_binding
+            or receipt.get("correlation_input") is not None
+            or receipt.get("correlation_run_name_prefix") is not None
+        )
         else None
     )
     snapshot = {
