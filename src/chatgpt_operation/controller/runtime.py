@@ -10,8 +10,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import copy
+import hashlib
+import json
 from typing import Any, Callable
 
+from .action_lifecycle import ActionLifecycle
 from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
@@ -43,11 +46,118 @@ from .reasoning_consumption import (
     consume_reasoning_submission,
 )
 from .reasoning_provider import ReasoningProviderRegistry
+from chatgpt_operation.github.native_executor import (
+    NativeGitHubAction,
+    NativeGitHubCommand,
+)
+from chatgpt_operation.repository.action_plan_adapter import (
+    to_repository_manifest,
+)
 from .research import ResearchState
 
 
 class ControllerCompositionError(ValueError):
     pass
+
+
+def _validate_executable_plan(
+    plan: ActionPlan,
+    repository_context: dict[str, Any] | None = None,
+) -> None:
+    """Validate executor-specific shape before durable dispatch ownership."""
+    if plan.executor is ExecutorKind.GITHUB_NATIVE:
+        command = NativeGitHubCommand.from_plan(plan)
+        if (
+            command.action is NativeGitHubAction.MERGE_PR
+            and isinstance(repository_context, dict)
+        ):
+            pulls = repository_context.get("open_pull_requests", [])
+            if isinstance(pulls, list):
+                number = command.target.get("number")
+                matches = [
+                    item for item in pulls
+                    if isinstance(item, dict) and item.get("number") == number
+                ]
+                if len(matches) > 1:
+                    raise ValueError("merge_pr repository context is ambiguous")
+                if matches:
+                    observed = matches[0].get("head_sha")
+                    expected = command.target.get("expected_head_sha")
+                    if observed != expected:
+                        raise ValueError(
+                            "merge_pr expected_head_sha is stale: "
+                            f"{expected} != {observed}"
+                        )
+        return
+    if plan.executor is ExecutorKind.REPOSITORY_MUTATION:
+        to_repository_manifest(plan)
+        return
+    raise ValueError(
+        "unsupported production action executor: " + plan.executor.value
+    )
+
+
+def _reasoning_audit_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Persist bounded reasoning provenance instead of duplicating the full prompt."""
+    encoded = json.dumps(context, sort_keys=True, separators=(",", ":")).encode()
+    repo = context.get("repository_context")
+    repo = repo if isinstance(repo, dict) else {}
+    durable = context.get("durable_state")
+    durable = durable if isinstance(durable, dict) else {}
+    decisions = context.get("locked_decisions")
+    decision_ids = []
+    if isinstance(decisions, list):
+        for item in decisions:
+            if isinstance(item, dict):
+                value = item.get("decision_id")
+                if isinstance(value, str):
+                    decision_ids.append(value)
+    issues = repo.get("open_issues")
+    issue_numbers = []
+    if isinstance(issues, list):
+        issue_numbers = [
+            item.get("number")
+            for item in issues
+            if isinstance(item, dict) and isinstance(item.get("number"), int)
+        ]
+    pulls = repo.get("open_pull_requests")
+    pull_summary = []
+    if isinstance(pulls, list):
+        pull_summary = [
+            {
+                "number": item.get("number"),
+                "head_sha": item.get("head_sha"),
+                "base": item.get("base"),
+            }
+            for item in pulls
+            if isinstance(item, dict)
+        ]
+    branches = repo.get("samuel_branches")
+    branch_summary = []
+    if isinstance(branches, list):
+        branch_summary = [
+            {
+                "ref": item.get("ref"),
+                "head_sha": item.get("head_sha"),
+            }
+            for item in branches
+            if isinstance(item, dict)
+        ]
+    return {
+        "schema_version": 1,
+        "full_context_sha256": hashlib.sha256(encoded).hexdigest(),
+        "locked_decision_ids": sorted(decision_ids),
+        "implementation_gaps": copy.deepcopy(
+            context.get("implementation_gaps", [])
+        ),
+        "durable_state_revision": durable.get("revision"),
+        "repository": {
+            "observed_head_sha": repo.get("observed_head_sha"),
+            "open_issue_numbers": sorted(issue_numbers),
+            "open_pull_requests": pull_summary,
+            "samuel_branches": branch_summary,
+        },
+    }
 
 
 class TriggerKind(str, Enum):
@@ -398,6 +508,11 @@ class SamuelController:
                 },
                 "merge_pr": {
                     "target_required": ["number", "expected_head_sha"],
+                    "preconditions": {
+                        "head_sha": "must equal target.expected_head_sha",
+                        "mergeable": True,
+                        "ci": "success",
+                    },
                     "desired_postcondition": {"merged": True},
                 },
                 "dispatch_workflow": {
@@ -423,6 +538,7 @@ class SamuelController:
                     raise ValueError(
                         "ActionPlan research_id must equal active work_id " + work_id
                     )
+                _validate_executable_plan(candidate, repository_context)
             return proposal
 
         proposal = StructuredReasoningNode(
@@ -466,7 +582,7 @@ class SamuelController:
                 "revision_requested": proposal.revision_requested,
             },
             "action_plan": proposal.action_plan,
-            "reasoning_context": context,
+            "reasoning_context": _reasoning_audit_context(context),
         }
         if plan is None:
             if (
@@ -630,13 +746,62 @@ class SamuelController:
                 admission_comment_id = admission["comment_id"]
 
         if state is not None and self.reasoning.status().available:
+            for action_id, queued in sorted(state.action_queue.items()):
+                if queued.get("status") not in {
+                    ActionLifecycle.PENDING.value,
+                    ActionLifecycle.DISPATCH_INTENT.value,
+                }:
+                    continue
+                raw_plan = queued.get("plan")
+                if not isinstance(raw_plan, dict):
+                    continue
+                try:
+                    candidate = ActionPlan.from_dict(raw_plan)
+                    _validate_executable_plan(candidate)
+                except (TypeError, ValueError, KeyError) as exc:
+                    proposed = copy.deepcopy(state)
+                    item = proposed.action_queue[action_id]
+                    item["status"] = ActionLifecycle.RETIRED.value
+                    item["retirement_reason"] = {
+                        "kind": "invalid_execution_contract",
+                        "error": str(exc),
+                    }
+                    item.pop("dispatch_intent", None)
+                    item.pop("dispatch_receipt", None)
+                    proposed.revision += 1
+                    current = admitted.get(state.research_id)
+                    if not isinstance(current, dict):
+                        raise ControllerCompositionError(
+                            "active state has no admitted work for replan"
+                        )
+                    admitted = transition_issue_status(
+                        admitted, state.research_id, "reasoning_required"
+                    )
+                    continuation_write = _admission_write(
+                        admission_comment_id, admitted
+                    )
+                    return self._consume_waiting_reasoning(
+                        trigger=trigger,
+                        comments=comments,
+                        work=admitted,
+                        work_id=state.research_id,
+                        state=proposed,
+                        admission_comment_id=admission_comment_id,
+                        prior_admission_write=continuation_write,
+                        repository_context=repository_context,
+                    )
+
+        if state is not None and self.reasoning.status().available:
             current = admitted.get(state.research_id)
             if (
                 isinstance(current, dict)
                 and current.get("status") == "planned"
                 and state.action_queue
                 and all(
-                    item.get("status") == "complete"
+                    item.get("status") in {
+                        ActionLifecycle.COMPLETE.value,
+                        ActionLifecycle.RETIRED.value,
+                    }
                     for item in state.action_queue.values()
                 )
                 and not any(
