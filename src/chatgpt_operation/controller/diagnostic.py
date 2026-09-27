@@ -429,7 +429,12 @@ def complete_queued_action(state: ResearchState, action_id: str, result) -> None
     run_id = None if not isinstance(receipt, dict) else receipt.get("workflow_run_id")
     if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
         raise ValueError("dispatched action has no authoritative workflow_run_id")
-    require_execution_provenance(result, workflow_run_id=run_id)
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    require_execution_provenance(
+        result,
+        workflow_run_id=run_id,
+        head_sha=intent.expected_head_sha,
+    )
     item["status"] = ActionLifecycle.COMPLETE.value
     item["completion_result"] = result.to_dict()
     state.revision += 1
