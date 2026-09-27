@@ -12,6 +12,10 @@ from chatgpt_operation.controller.qualification_gate import (
     load_qualification_policy,
 )
 from chatgpt_operation.controller.scientific_qualification import contradicted_hypothesis_case
+from chatgpt_operation.controller.reasoning_qualification import (
+    QualificationCase as ReasoningCase,
+    evaluate_shadow,
+)
 
 
 POLICY_PATH = "automation/samuel/qualification-policy.json"
@@ -136,6 +140,29 @@ class QualificationGateTests(unittest.TestCase):
         self.assertTrue(check.passed)
         self.assertEqual(check.check_id, result.case_id)
         self.assertEqual(check.domain, QualificationDomain.SCIENCE)
+
+    def test_nested_enum_details_are_json_safe(self):
+        class Provider:
+            name = "fixture"
+            def reason(self, **kwargs):
+                return {
+                    "operation":"analyze",
+                    "decision_id":"github_execution_authority",
+                    "compatible_with_locked_decisions":True,
+                    "revision_requested":False,
+                    "action_plan":None,
+                }
+        result=evaluate_shadow(
+            provider=Provider(),
+            case=ReasoningCase(
+                "reasoning-json",
+                {},
+                allowed_decision_ids=("github_execution_authority",),
+            ),
+        )
+        check=check_from_result(result,domain=QualificationDomain.REASONING)
+        import json
+        json.dumps(check.to_dict())
 
     def test_metrics_counts_cannot_exceed_cycles(self):
         with self.assertRaisesRegex(QualificationGateError, "cannot exceed cycles"):
