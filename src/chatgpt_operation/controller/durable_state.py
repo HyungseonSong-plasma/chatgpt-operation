@@ -122,6 +122,46 @@ def prepare_state_write(
     }
 
 
+def validate_state_write_precondition(
+    comments: list[dict[str, Any]],
+    request: dict[str, Any],
+) -> None:
+    """Re-read authoritative state immediately before a transport write."""
+    required = {
+        "method", "comment_id", "body", "expected_previous_revision",
+        "expected_revision", "research_id",
+    }
+    if not isinstance(request, dict) or set(request) != required:
+        raise DurableStateError("invalid durable state write request schema")
+    proposed = decode_state(str(request["body"]))
+    if (
+        proposed.research_id != request["research_id"]
+        or proposed.revision != request["expected_revision"]
+    ):
+        raise DurableStateError("durable state write request payload mismatch")
+
+    comment = find_state_comment(comments)
+    current = None if comment is None else decode_state(str(comment["body"]))
+    expected_previous = request["expected_previous_revision"]
+    if current is None:
+        if expected_previous is not None:
+            raise DurableStateError("stale durable state create precondition")
+        if request["method"] != "POST" or request["comment_id"] is not None:
+            raise DurableStateError("durable state create request is inconsistent")
+        return
+
+    if request["method"] != "PATCH" or request["comment_id"] != int(comment["id"]):
+        raise DurableStateError("durable state update target changed")
+    if current.research_id != proposed.research_id:
+        raise DurableStateError("cannot overwrite a different research state")
+    if expected_previous != current.revision:
+        raise DurableStateError(
+            f"stale durable state precondition {expected_previous} != {current.revision}"
+        )
+    if proposed.revision <= current.revision:
+        raise DurableStateError("durable state revision did not advance")
+
+
 def apply_diagnostic_patch(
     current: ResearchState,
     artifact: dict[str, Any],
