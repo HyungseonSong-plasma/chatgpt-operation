@@ -41,3 +41,26 @@ def contradicted_hypothesis_case() -> ScientificQualificationResult:
         analysis=analysis,
         expected=ResearchStage.GENERATE_HYPOTHESIS,
     )
+
+
+def insufficient_information_case(*, high_consequence: bool = False) -> ScientificQualificationResult:
+    """Missing knowledge must acquire evidence; consequential ambiguity must escalate."""
+    analysis = AnalysisResult.from_dict({
+        "hypothesis_status": "inconclusive",
+        "confidence": 0.0,
+        "knowledge_gap": True,
+        "additional_experiment_needed": False,
+        "high_consequence_ambiguity": high_consequence,
+    })
+    expected = (
+        ResearchStage.ESCALATE if high_consequence
+        else ResearchStage.ACQUIRE_KNOWLEDGE
+    )
+    return qualify_analysis_transition(
+        case_id=(
+            "high-consequence-insufficient-information"
+            if high_consequence else "insufficient-information"
+        ),
+        analysis=analysis,
+        expected=expected,
+    )
