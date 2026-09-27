@@ -20,7 +20,8 @@ class NativeOrchestrationTests(unittest.TestCase):
         p=plan()
         dispatch_native_plan(p,transport=object(),ref="main")
         self.assertEqual(dispatch.call_args.kwargs["correlation_id"],p.idempotency_key)
-        self.assertIsNone(dispatch.call_args.kwargs["correlation_input"])
+        self.assertEqual(dispatch.call_args.kwargs["correlation_input"],"correlation_id")
+        self.assertEqual(dispatch.call_args.kwargs["inputs"]["correlation_id"],p.idempotency_key)
 
     @patch("chatgpt_operation.github.native_orchestration.dispatch_and_wait")
     def test_non_terminal_observation_fails_closed(self, dispatch):
