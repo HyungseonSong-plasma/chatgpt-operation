@@ -168,7 +168,7 @@ def apply_diagnostic_patch(
     current: ResearchState,
     artifact: dict[str, Any],
 ) -> ResearchState:
-    """Apply one diagnostic artifact to the authoritative state without whole-state replacement."""
+    """Apply one diagnostic artifact only from its authoritative workflow dispatch."""
     action_id = artifact.get("action_id")
     if not isinstance(action_id, str) or action_id not in current.diagnostic_recoveries:
         raise DurableStateError("diagnostic patch action is not present in current state")
@@ -180,17 +180,45 @@ def apply_diagnostic_patch(
     before = current.diagnostic_recoveries[action_id]
     if before.get("status") != "open":
         raise DurableStateError("diagnostic patch target is not open")
-    proposed = ResearchState(
-        research_id=current.research_id,
-        objective=current.objective,
-        stage=current.stage,
-        completed_operation_ids=list(current.completed_operation_ids),
-        execution_results=dict(current.execution_results),
-        diagnostic_recoveries=dict(current.diagnostic_recoveries),
-        action_queue=dict(current.action_queue),
-        revision=current.revision + 1,
-    )
-    proposed.diagnostic_recoveries[action_id] = dict(patched)
+
+    if before.get("diagnostic_dispatch") is not None:
+        from chatgpt_operation.controller.diagnostic import resume_dispatched_diagnostic
+        try:
+            intent, correlation_id, receipt = resume_dispatched_diagnostic(current, action_id)
+        except ValueError as exc:
+            raise DurableStateError(
+                "diagnostic artifact has no matching durable dispatch"
+            ) from exc
+        provenance = artifact.get("provenance")
+        required = {
+            "schema_version", "workflow_run_id", "run_attempt",
+            "head_sha", "action_id", "dispatch_id",
+        }
+        if not isinstance(provenance, dict) or set(provenance) != required:
+            raise DurableStateError("diagnostic provenance schema is invalid")
+        if provenance.get("schema_version") != 1:
+            raise DurableStateError("diagnostic provenance schema_version must be 1")
+        run_id = provenance.get("workflow_run_id")
+        run_attempt = provenance.get("run_attempt")
+        if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+            raise DurableStateError("diagnostic workflow_run_id must be positive")
+        if not isinstance(run_attempt, int) or isinstance(run_attempt, bool) or run_attempt < 1:
+            raise DurableStateError("diagnostic run_attempt must be positive")
+        if provenance.get("action_id") != action_id:
+            raise DurableStateError("diagnostic provenance action_id mismatch")
+        if provenance.get("dispatch_id") != correlation_id:
+            raise DurableStateError("diagnostic provenance dispatch_id mismatch")
+        if receipt.get("workflow_run_id") != run_id:
+            raise DurableStateError("diagnostic provenance workflow_run_id mismatch")
+        if provenance.get("head_sha") != intent.expected_head_sha:
+            raise DurableStateError("diagnostic provenance head_sha mismatch")
+
+    import copy
+    proposed = copy.deepcopy(current)
+    clean_patch = copy.deepcopy(patched)
+    clean_patch.pop("diagnostic_dispatch", None)
+    proposed.diagnostic_recoveries[action_id] = clean_patch
+    proposed.revision = current.revision + 1
     return proposed
 
 
