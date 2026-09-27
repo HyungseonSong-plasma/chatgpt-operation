@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -40,26 +41,32 @@ if __name__=="__main__":
 
 
 def test_recovery_context_is_dispatched_with_native_plan():
-    plan = make_plan()
-    transport = FakeTransport()
-    dispatch_native_plan(
-        plan,
-        transport=transport,
-        ref="main",
-        recovery_state="<!-- samuel-controller-state -->\n{}",
-        recovery_authorization={
-            "action_id": plan.idempotency_key,
-            "source_plan_id": plan.idempotency_key,
-            "corrective_action": "retry exact source plan",
-            "token": "a" * 64,
-        },
-        timeout_seconds=1,
-        poll_interval_seconds=0,
-    )
-    inputs = transport.dispatched_inputs
+    p = plan()
+    authorization = {
+        "action_id": p.idempotency_key,
+        "source_plan_id": p.idempotency_key,
+        "corrective_action": "retry exact source plan",
+        "corrective_provider": "fallback",
+        "token": "a" * 64,
+    }
+    with patch("chatgpt_operation.github.native_orchestration.dispatch_and_wait") as dispatch:
+        dispatch.return_value = {
+            "dispatch": {},
+            "observation": {"status": "MATCHED_TERMINAL", "conclusion": "success"},
+        }
+        dispatch_native_plan(
+            p,
+            transport=object(),
+            ref="main",
+            recovery_state="<!-- samuel-controller-state -->\n{}",
+            recovery_authorization=authorization,
+            timeout_seconds=1,
+            poll_interval_seconds=0,
+        )
+    inputs = dispatch.call_args.kwargs["inputs"]
     assert inputs["recovery_state"].startswith("<!-- samuel-controller-state -->")
     auth = json.loads(inputs["recovery_authorization"])
-    assert auth["action_id"] == plan.idempotency_key
+    assert auth == authorization
 
 
 class AsyncNativeOrchestrationTests(unittest.TestCase):
