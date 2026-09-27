@@ -3,8 +3,6 @@ name: Samuel Bootstrap
 on:
   issues:
     types: [opened, reopened, labeled]
-  pull_request:
-    types: [opened, reopened, synchronize, closed]
   issue_comment:
     types: [created]
   schedule:
@@ -63,6 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" > samuel-open-issues.json
+          gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" > samuel-open-prs.json
           python3 - <<'PY'
           import json, os, subprocess
           issues=[
@@ -84,11 +83,41 @@ jobs:
               {"head_sha":line.split()[0],"ref":line.split()[1]}
               for line in refs[:20] if len(line.split())==2
           ]
+          pull_requests=[]
+          for item in json.load(open("samuel-open-prs.json"))[:30]:
+              head_sha=item["head"]["sha"]
+              status=subprocess.run(
+                  [
+                      "gh","api",
+                      "repos/"+os.environ["GITHUB_REPOSITORY"]
+                      +"/commits/"+head_sha+"/status",
+                  ],
+                  check=False,capture_output=True,text=True,
+              )
+              ci_state="unknown"
+              if status.returncode==0:
+                  try:
+                      ci_state=json.loads(status.stdout).get(
+                          "state","unknown"
+                      )
+                  except json.JSONDecodeError:
+                      pass
+              pull_requests.append({
+                  "number":item["number"],
+                  "title":item["title"],
+                  "state":item["state"],
+                  "draft":bool(item.get("draft")),
+                  "head_ref":item["head"]["ref"],
+                  "head_sha":head_sha,
+                  "base_ref":item["base"]["ref"],
+                  "ci_state":ci_state,
+              })
           context={
               "schema_version":1,
               "repository":os.environ["GITHUB_REPOSITORY"],
               "observed_head_sha":os.environ["GITHUB_SHA"],
               "open_issues":issues,
+              "open_pull_requests":pull_requests,
               "samuel_branches":branches,
           }
           open("samuel-repository-context.json","w").write(
@@ -100,10 +129,10 @@ jobs:
         env:
           PYTHONPATH: src
           GH_TOKEN: ${{ github.token }}
-          OPENAI_API_KEY: ${{ github.event_name != 'pull_request' && secrets.OPENAI_API_KEY || '' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SAMUEL_OPENAI_MODEL: gpt-5.6-luna
-          SAMUEL_REASONING_MODE: ${{ github.event_name != 'pull_request' && 'AUTO_WITH_AUDIT' || 'OFF' }}
-          ISSUE_JSON: ${{ toJSON(github.event.issue) }}
+          SAMUEL_REASONING_MODE: AUTO_WITH_AUDIT
+          ISSUE_JSON: ${{ github.event_name == 'issues' && toJSON(github.event.issue) || 'null' }}
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-issue-comments.json
@@ -117,8 +146,8 @@ jobs:
             --repository-context samuel-repository-context.json \
             --head-sha "$GITHUB_SHA" \
             --ref "$GITHUB_REF" \
-            --executor-ref "${{ github.event.pull_request.head.ref || github.ref_name }}" \
-            --executor-head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --executor-ref "${{ github.ref_name }}" \
+            --executor-head-sha "${{ github.sha }}" \
             --result samuel-controller-cycle.json \
             --selected-work-result samuel-selected-work.json \
             --planning-result samuel-issue-planning.json \
@@ -163,17 +192,38 @@ jobs:
           outcome="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["outcome"])')"
           work_id="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["work_id"])')"
           echo "SAMUEL_ISSUE_PLANNING=${outcome^^} work_id=$work_id"
-          marker='<!-- samuel-issue-planning -->'
-          body="$marker
-          ~~~json
-          $(cat samuel-issue-planning.json)
-          ~~~"
-          comments="$(gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100")"
-          comment_id="$(python3 -c 'import json,sys; m="<!-- samuel-issue-planning -->"; xs=json.load(sys.stdin); ids=[x["id"] for x in xs if m in x.get("body","")]; assert len(ids)<=1; print(ids[0] if ids else "")' <<<"$comments")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-planning-comments.json
+          python3 - <<'PY'
+          import json
+          marker="<!-- samuel-issue-planning -->"
+          planning=open(
+              "samuel-issue-planning.json",encoding="utf-8"
+          ).read().strip()
+          body=marker+"\n~~~json\n"+planning+"\n~~~"
+          comments=json.load(open("samuel-planning-comments.json"))
+          ids=[
+              item["id"] for item in comments
+              if marker in str(item.get("body",""))
+          ]
+          if len(ids)>1:
+              raise SystemExit(
+                  "SAMUEL_ISSUE_PLANNING=HARD_STOP multiple audit comments"
+              )
+          json.dump(
+              {"body":body},
+              open("samuel-planning-comment-payload.json","w"),
+          )
+          open("samuel-planning-comment-id.txt","w").write(
+              "" if not ids else str(ids[0])
+          )
+          PY
+          comment_id="$(cat samuel-planning-comment-id.txt)"
           if [ -n "$comment_id" ]; then
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              --input samuel-planning-comment-payload.json >/dev/null
           else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" \
+              --input samuel-planning-comment-payload.json >/dev/null
           fi
 
       - name: Execute root-issued controller command
