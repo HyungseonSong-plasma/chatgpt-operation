@@ -35,8 +35,8 @@ class NativeBoundaryContractTests(unittest.TestCase):
         dispatch_native_plan(p,transport=object(),ref="main")
         kwargs=dispatch.call_args.kwargs
         self.assertEqual(kwargs["correlation_id"],p.idempotency_key)
-        self.assertEqual(kwargs["correlation_input"],"correlation_id")
-        self.assertEqual(kwargs["inputs"]["correlation_id"],p.idempotency_key)
+        self.assertIsNone(kwargs["correlation_input"])
+        self.assertEqual(kwargs["correlation_id"],p.idempotency_key)
 
     @patch("chatgpt_operation.github.native_orchestration.dispatch_and_wait")
     def test_no_match_fails_closed(self, dispatch):
