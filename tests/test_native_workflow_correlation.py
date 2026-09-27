@@ -17,3 +17,12 @@ def test_native_workflow_binds_provenance_before_artifact_upload():
     assert bind < upload
     assert '"workflow_run_id":int(os.environ["GITHUB_RUN_ID"])' in text
     assert '"action_id":action_id' in text
+
+
+def test_native_merge_workflow_has_contents_write_authority():
+    text=Path(".github/workflows/samuel-native-github.yml").read_text(
+        encoding="utf-8"
+    )
+    permissions=text.split("permissions:",1)[1].split("concurrency:",1)[0]
+    assert "contents: write" in permissions
+    assert "pull-requests: write" in permissions
