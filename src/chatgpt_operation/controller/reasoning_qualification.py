@@ -32,6 +32,8 @@ class ShadowResult:
     proposal: IssueReasoningProposal | None
     executed: bool = False
     provider_failure: dict[str, Any] | None = None
+    schema_error: str | None = None
+    raw_proposal: dict[str, Any] | None = None
 
 
 def evaluate_shadow(
@@ -60,9 +62,13 @@ def evaluate_shadow(
                 "retryable": exc.retryable,
             },
         )
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
         failures.append(QualificationFailure.SCHEMA_INVALID)
-        return ShadowResult(case.case_id, provider.name, False, tuple(failures), None)
+        safe_raw = raw if isinstance(locals().get("raw"), dict) else None
+        return ShadowResult(
+            case.case_id, provider.name, False, tuple(failures), None, False,
+            None, str(exc), safe_raw,
+        )
 
     if proposal.decision_id is not None and proposal.decision_id not in case.allowed_decision_ids:
         failures.append(QualificationFailure.DECISION_DRIFT)
