@@ -235,7 +235,13 @@ jobs:
               raise SystemExit("SAMUEL_REASONING=HARD_STOP multiple reasoning-required work items")
           state=load_state_comment(comments)
           if state is None:
-              raise SystemExit("SAMUEL_REASONING=HARD_STOP durable controller state missing")
+              from chatgpt_operation.controller.research import ResearchState
+              item=work[waiting[0]]
+              state=ResearchState(
+                  waiting[0],
+                  str(item.get("title") or item.get("body") or waiting[0]),
+              )
+              print("SAMUEL_REASONING=INITIALIZED durable controller state work_id="+waiting[0])
           registry=DecisionRegistry.load("automation/samuel/decisions.json")
           result=consume_reasoning_submission(
               comments,work,waiting[0],registry=registry,state=state
