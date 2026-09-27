@@ -181,7 +181,7 @@ jobs:
             python3 - <<'PY'
           import json
           from chatgpt_operation.controller.issue_ingestion import (
-              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger,
+              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger, transition_issue_status,
               transition_issue_status,
           )
           comments=json.load(open("lifecycle-comments.json"))
@@ -232,11 +232,19 @@ jobs:
               raise SystemExit(0)
           work=decode_admission_ledger(str(admission[0]["body"]))
           waiting=sorted(k for k,v in work.items() if v.get("status")=="reasoning_required")
+          planned=sorted(k for k,v in work.items() if v.get("status")=="planned")
+          state=load_state_comment(comments)
+          if planned and state is None:
+              if len(planned)!=1:
+                  raise SystemExit("SAMUEL_REASONING=HARD_STOP multiple planned work items without durable state")
+              # Recover only from the already durable typed submission; never invent a plan.
+              work=transition_issue_status(work,planned[0],"reasoning_required")
+              waiting=[planned[0]]
+              print("SAMUEL_REASONING=RECOVER_PARTIAL_COMMIT work_id="+planned[0])
           if not waiting:
               raise SystemExit(0)
           if len(waiting)>1:
               raise SystemExit("SAMUEL_REASONING=HARD_STOP multiple reasoning-required work items")
-          state=load_state_comment(comments)
           if state is None:
               from chatgpt_operation.controller.research import ResearchState
               item=work[waiting[0]]
