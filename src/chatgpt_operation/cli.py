@@ -370,7 +370,7 @@ def github_native_execute(args: argparse.Namespace) -> int:
             executor=plan.executor,
             status=ExecutionStatus.FAILED,
             observation="native execution kernel failed closed",
-            retryable=False,
+            retryable=True,
             details={
                 "provider":"repository-native",
                 "error_type":type(exc).__name__,
