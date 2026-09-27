@@ -12,6 +12,7 @@ from enum import Enum
 import copy
 from typing import Any, Callable
 
+from .action_lifecycle import ActionLifecycle, DispatchIntent
 from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
@@ -44,6 +45,8 @@ from .reasoning_consumption import (
 )
 from .reasoning_provider import ReasoningProviderRegistry
 from .research import ResearchState
+from chatgpt_operation.github.native_executor import NativeGitHubCommand
+from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
 
 
 class ControllerCompositionError(ValueError):
@@ -398,6 +401,10 @@ class SamuelController:
                 },
                 "merge_pr": {
                     "target_required": ["number", "expected_head_sha"],
+                    "preconditions": (
+                        "optional in proposal; deterministic executor always enforces "
+                        "exact head_sha, mergeable=true, and ci=success"
+                    ),
                     "desired_postcondition": {"merged": True},
                 },
                 "dispatch_workflow": {
@@ -423,6 +430,22 @@ class SamuelController:
                     raise ValueError(
                         "ActionPlan research_id must equal active work_id " + work_id
                     )
+                if candidate.executor is ExecutorKind.GITHUB_NATIVE:
+                    NativeGitHubCommand.from_plan(candidate)
+                elif candidate.executor is ExecutorKind.REPOSITORY_MUTATION:
+                    expected_repository = (
+                        str((repository_context or {}).get("repository") or "")
+                        or None
+                    )
+                    to_repository_manifest(
+                        candidate,
+                        expected_repository=expected_repository,
+                    )
+                else:
+                    raise ValueError(
+                        "production semantic provider emitted unsupported executor "
+                        + candidate.executor.value
+                    )
             return proposal
 
         proposal = StructuredReasoningNode(
@@ -446,6 +469,8 @@ class SamuelController:
         outcome, plan, reason = compile_guarded_action(
             proposal, planned.envelope
         )
+        repository_audit = context.get("repository_context") or {}
+        durable_audit = context.get("durable_state") or {}
         planning = {
             "schema_version": 1,
             "work_id": work_id,
@@ -466,7 +491,53 @@ class SamuelController:
                 "revision_requested": proposal.revision_requested,
             },
             "action_plan": proposal.action_plan,
-            "reasoning_context": context,
+            "reasoning_context": {
+                "goal": context.get("goal"),
+                "locked_decisions": context.get("locked_decisions", []),
+                "implementation_gaps": context.get("implementation_gaps", []),
+                "allowed_reasoning_operations": context.get(
+                    "allowed_reasoning_operations", []
+                ),
+                "escalation_constraints": context.get(
+                    "escalation_constraints", []
+                ),
+                "durable_state": {
+                    "research_id": durable_audit.get("research_id"),
+                    "revision": durable_audit.get("revision"),
+                    "stage": durable_audit.get("stage"),
+                    "action_statuses": {
+                        key: value.get("status")
+                        for key, value in (
+                            durable_audit.get("action_queue") or {}
+                        ).items()
+                        if isinstance(value, dict)
+                    },
+                },
+                "repository_context": {
+                    "repository": repository_audit.get("repository"),
+                    "observed_head_sha": repository_audit.get(
+                        "observed_head_sha"
+                    ),
+                    "open_issues": [
+                        {
+                            "number": item.get("number"),
+                            "title": item.get("title"),
+                            "state": item.get("state"),
+                            "labels": item.get("labels", []),
+                        }
+                        for item in repository_audit.get(
+                            "open_issues", []
+                        )
+                        if isinstance(item, dict)
+                    ],
+                    "open_pull_requests": repository_audit.get(
+                        "open_pull_requests", []
+                    ),
+                    "samuel_branches": repository_audit.get(
+                        "samuel_branches", []
+                    ),
+                },
+            },
         }
         if plan is None:
             if (
@@ -636,7 +707,7 @@ class SamuelController:
                 and current.get("status") == "planned"
                 and state.action_queue
                 and all(
-                    item.get("status") == "complete"
+                    item.get("status") in {"complete", "rejected"}
                     for item in state.action_queue.values()
                 )
                 and not any(
@@ -707,6 +778,63 @@ class SamuelController:
             admitted_work=admitted,
         )
         payload = _selected_payload(selected)
+        if payload["kind"] == "action_intent":
+            if state is None:
+                raise ControllerCompositionError(
+                    "action intent requires durable controller state"
+                )
+            action_id=payload.get("action_id")
+            if not isinstance(action_id,str) or not action_id:
+                raise ControllerCompositionError(
+                    "action intent has no action_id"
+                )
+            queued=state.action_queue.get(action_id)
+            if not isinstance(queued,dict):
+                raise ControllerCompositionError(
+                    "action intent has no durable queue entry"
+                )
+            intent=DispatchIntent.from_dict(queued.get("dispatch_intent"))
+            observed_ref=trigger.executor_ref.strip()
+            observed_head=trigger.executor_head_sha.strip()
+            if (
+                intent.expected_head_sha is not None
+                and observed_ref
+                and observed_head
+                and intent.ref == observed_ref
+                and intent.expected_head_sha != observed_head
+            ):
+                proposed=copy.deepcopy(state)
+                retired=proposed.action_queue[action_id]
+                retired.setdefault("dispatch_intent_history",[]).append({
+                    **intent.to_dict(),
+                    "retired_reason":"executor_source_advanced_before_dispatch",
+                    "observed_executor_head_sha":observed_head,
+                })
+                retired["status"]=ActionLifecycle.REJECTED.value
+                retired.pop("dispatch_intent",None)
+                retired.pop("dispatch_receipt",None)
+                proposed.revision += 1
+                admission_write=None
+                if state.research_id in admitted:
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"reasoning_required"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                return ControllerCycle(
+                    trigger,
+                    {
+                        "kind":"stale_action_intent",
+                        "action_id":action_id,
+                        "expected_head_sha":intent.expected_head_sha,
+                        "observed_head_sha":observed_head,
+                    },
+                    None,
+                    admission_write,
+                    state_write_request(comments,proposed),
+                    None,
+                )
         if payload["kind"] in {"action", "evidence", "diagnostic", "corrective"}:
             if state is None:
                 raise ControllerCompositionError(

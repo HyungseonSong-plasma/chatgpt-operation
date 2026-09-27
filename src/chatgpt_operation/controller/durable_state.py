@@ -268,6 +268,42 @@ def apply_action_completion(current: ResearchState, result) -> ResearchState:
     return proposed
 
 
+def apply_action_rejection(current: ResearchState, result) -> ResearchState:
+    """Record a verified precondition rejection as terminal planning evidence."""
+    from chatgpt_operation.controller.execution import (
+        ExecutionStatus, require_execution_provenance,
+    )
+    from chatgpt_operation.controller.action_lifecycle import DispatchIntent
+    import copy
+    if result.status is not ExecutionStatus.REJECTED:
+        raise DurableStateError(
+            "action rejection requires REJECTED execution evidence"
+        )
+    item = current.action_queue.get(result.action_id)
+    if item is None or item.get("status") != "dispatched":
+        raise DurableStateError("rejected action is not dispatched")
+    receipt = item.get("dispatch_receipt")
+    run_id = None if not isinstance(receipt, dict) else receipt.get(
+        "workflow_run_id"
+    )
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise DurableStateError(
+            "rejected action has no authoritative workflow_run_id"
+        )
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    require_execution_provenance(
+        result,
+        workflow_run_id=run_id,
+        head_sha=intent.expected_head_sha,
+    )
+    proposed = copy.deepcopy(current)
+    queued = proposed.action_queue[result.action_id]
+    queued["status"] = "rejected"
+    queued["completion_result"] = result.to_dict()
+    proposed.revision = current.revision + 1
+    return proposed
+
+
 def apply_action_failure(current: ResearchState, result) -> ResearchState:
     """Record typed failure; repeated identical retryable failure opens diagnosis."""
     from chatgpt_operation.controller.execution import (

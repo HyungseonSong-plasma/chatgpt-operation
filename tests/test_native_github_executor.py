@@ -14,8 +14,8 @@ def plan(action="merge_pr"):
         "payload": {
             "action": action,
             "repository": "HyungseonSong-plasma/chatgpt-operation",
-            "target": {"number": 42},
-            "preconditions": {"head_sha": "abc", "mergeable": True, "ci": "success"},
+            "target": {"number": 42, "expected_head_sha": "a"*40},
+            "preconditions": {"head_sha": "a"*40, "mergeable": True, "ci": "success"},
             "desired_postcondition": {"merged": True},
         },
         "expected_observation": "merged",
@@ -41,8 +41,8 @@ class NativeGitHubExecutorTests(unittest.TestCase):
 
     def test_mutation_requires_postcondition_readback(self):
         states = iter([
-            {"merged": False, "head_sha": "abc", "mergeable": True, "ci": "success"},
-            {"merged": True, "head_sha": "abc"},
+            {"merged": False, "head_sha": "a"*40, "mergeable": True, "ci": "success"},
+            {"merged": True, "head_sha": "a"*40},
         ])
         result = execute_native_github(
             plan(),
@@ -54,8 +54,8 @@ class NativeGitHubExecutorTests(unittest.TestCase):
 
     def test_failed_postcondition_is_retryable_failure(self):
         states = iter([
-            {"merged": False, "head_sha": "abc", "mergeable": True, "ci": "success"},
-            {"merged": False, "head_sha": "abc"},
+            {"merged": False, "head_sha": "a"*40, "mergeable": True, "ci": "success"},
+            {"merged": False, "head_sha": "a"*40},
         ])
         result = execute_native_github(
             plan(),
@@ -124,3 +124,70 @@ def test_create_pr_target_schema_is_closed_world():
         assert "head, base, title, and body" in str(exc)
     else:
         raise AssertionError("unexpected create_pr target field must fail closed")
+
+
+def test_merge_pr_derives_mandatory_safety_preconditions():
+    p=ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"samuel-44",
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"merge_pr",
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "target":{
+                "number":136,
+                "expected_head_sha":"c"*40,
+            },
+            "desired_postcondition":{"merged":True},
+        },
+        "expected_observation":"PR merged at exact verified head",
+    })
+    seen=[]
+    result=execute_native_github(
+        p,
+        read_state=lambda action,target: {
+            "merged":False,
+            "head_sha":"c"*40,
+            "mergeable":True,
+            "ci":"pending",
+        },
+        mutate=lambda action,target: seen.append(target) or {"merged":True},
+    )
+    assert result.status is ExecutionStatus.REJECTED
+    assert not seen
+    assert result.details["required"] == {
+        "head_sha":"c"*40,
+        "mergeable":True,
+        "ci":"success",
+    }
+
+
+def test_merge_pr_rejects_weaker_reasoning_precondition():
+    p=ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"samuel-44",
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"merge_pr",
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "target":{
+                "number":136,
+                "expected_head_sha":"c"*40,
+            },
+            "preconditions":{"ci":"pending"},
+            "desired_postcondition":{"merged":True},
+        },
+        "expected_observation":"PR merged",
+    })
+    try:
+        execute_native_github(
+            p,
+            read_state=lambda action,target: {},
+            mutate=lambda action,target: {},
+        )
+    except NativeGitHubError as exc:
+        assert "mandatory safety gate" in str(exc)
+    else:
+        raise AssertionError("reasoning may not weaken merge safety gates")

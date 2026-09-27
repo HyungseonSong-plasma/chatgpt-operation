@@ -414,6 +414,41 @@ class ControllerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.execution_command.state_revision,state.revision)
 
+    def test_stale_undispatched_action_intent_is_retired_for_replanning(self):
+        plan,state=queued_state()
+        from chatgpt_operation.controller.diagnostic import record_action_dispatch_intent
+        record_action_dispatch_intent(
+            state,plan.idempotency_key,
+            workflow="samuel-native-github.yml",ref="main",
+            requested_at="2026-09-27T20:00:00Z",
+            expected_head_sha="a"*40,
+        )
+        result=controller().run_cycle(
+            trigger(),
+            comments=[admitted_comment("planned"),state_comment(state)],
+            pending=[],
+        )
+        self.assertEqual(
+            result.selected_work["kind"],"stale_action_intent"
+        )
+        self.assertIsNone(result.execution_command)
+        self.assertIsNotNone(result.state_write)
+        proposed=decode_state(result.state_write["body"])
+        item=proposed.action_queue[plan.idempotency_key]
+        self.assertEqual(item["status"],"rejected")
+        self.assertNotIn("dispatch_intent",item)
+        history=item["dispatch_intent_history"]
+        self.assertEqual(
+            history[-1]["retired_reason"],
+            "executor_source_advanced_before_dispatch",
+        )
+        self.assertEqual(history[-1]["expected_head_sha"],"a"*40)
+        self.assertEqual(history[-1]["observed_executor_head_sha"],"b"*40)
+        admitted=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(
+            admitted["issue:44"]["status"],"reasoning_required"
+        )
+
     def test_dispatched_action_emits_observe_command(self):
         plan,state=queued_state()
         from chatgpt_operation.controller.diagnostic import (

@@ -74,11 +74,50 @@ class GitHubNativeTransport:
             pr=self._call("GET", f"/repos/{repo}/pulls/{number}")
             sha=pr["head"]["sha"]
             status=self._call("GET", f"/repos/{repo}/commits/{sha}/status")
+            trusted_states=[
+                str(item.get("state",""))
+                for item in status.get("statuses",[])
+                if item.get("context")=="samuel/trusted-validation"
+            ]
+            if trusted_states:
+                trusted=trusted_states[0]
+                ci=(
+                    "success" if trusted=="success"
+                    else "failure" if trusted in {"failure","error"}
+                    else "pending"
+                )
+            else:
+                checks=self._call(
+                    "GET",
+                    f"/repos/{repo}/commits/{sha}/check-runs"
+                    "?filter=latest&per_page=100",
+                )
+                runs=checks.get("check_runs",[])
+                if not isinstance(runs,list):
+                    raise NativeGitHubRuntimeError(
+                        "check-runs lookup returned invalid payload"
+                    )
+                if runs:
+                    if any(item.get("status")!="completed" for item in runs):
+                        ci="pending"
+                    else:
+                        conclusions={str(item.get("conclusion") or "") for item in runs}
+                        allowed={"success","neutral","skipped"}
+                        ci="success" if conclusions and conclusions <= allowed else "failure"
+                elif int(status.get("total_count") or 0)>0:
+                    combined=str(status.get("state") or "pending")
+                    ci=(
+                        "success" if combined=="success"
+                        else "failure" if combined in {"failure","error"}
+                        else "pending"
+                    )
+                else:
+                    ci="pending"
             return {
                 "merged": bool(pr.get("merged", False)),
                 "head_sha": sha,
                 "mergeable": pr.get("mergeable"),
-                "ci": status.get("state"),
+                "ci": ci,
             }
 
         if action is NativeGitHubAction.CREATE_PR:
