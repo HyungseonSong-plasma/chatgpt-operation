@@ -103,40 +103,77 @@ jobs:
             --ref "$GITHUB_REF" \
             --result samuel-controller-cycle.json \
             --selected-work-result samuel-selected-work.json \
-            --planning-result samuel-issue-planning.json
+            --planning-result samuel-issue-planning.json \
+            --admission-write-result samuel-cycle-admission-write.json \
+            --state-write-result samuel-cycle-state-write.json
 
-      - name: Persist guarded Issue planning evidence
-        if: ${{ hashFiles('samuel-selected-work.json') != '' }}
+      - name: Persist controller cycle writes
         env:
           PYTHONPATH: src
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ ! -f samuel-issue-planning.json ]; then exit 0; fi
+          if [ -f samuel-cycle-admission-write.json ]; then
+            comment_id="$(python3 -c 'import json; print(json.load(open("samuel-cycle-admission-write.json"))["comment_id"])')"
+            body="$(python3 -c 'import json; print(json.load(open("samuel-cycle-admission-write.json"))["body"])')"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          fi
+          if [ -f samuel-cycle-state-write.json ]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > cycle-state-prewrite-comments.json
+            python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          validate_state_write_precondition(
+              json.load(open("cycle-state-prewrite-comments.json")),
+              json.load(open("samuel-cycle-state-write.json")),
+          )
+          PY
+            method="$(python3 -c 'import json; print(json.load(open("samuel-cycle-state-write.json"))["method"])')"
+            comment_id="$(python3 -c 'import json; x=json.load(open("samuel-cycle-state-write.json"))["comment_id"]; print("" if x is None else x)')"
+            body="$(python3 -c 'import json; print(json.load(open("samuel-cycle-state-write.json"))["body"])')"
+            if [ "$method" = "PATCH" ]; then
+              test -n "$comment_id"
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+            else
+              gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > cycle-state-readback-comments.json
+            python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import decode_state, STATE_MARKER
+          request=json.load(open("samuel-cycle-state-write.json"))
+          comments=json.load(open("cycle-state-readback-comments.json"))
+          matches=[c for c in comments if STATE_MARKER in str(c.get("body",""))]
+          if len(matches)!=1:
+              raise SystemExit(
+                  "SAMUEL_STATE=HARD_STOP expected one durable state, found "
+                  +str(len(matches))
+              )
+          persisted=decode_state(str(matches[0]["body"]))
+          if (
+              persisted.research_id != request["research_id"]
+              or persisted.revision != request["expected_revision"]
+          ):
+              raise SystemExit(
+                  "SAMUEL_STATE=HARD_STOP readback mismatch "
+                  f"research_id={persisted.research_id} revision={persisted.revision}"
+              )
+          print(
+              f"SAMUEL_STATE=PERSISTED research_id={persisted.research_id} "
+              f"revision={persisted.revision}"
+          )
+          PY
+          fi
+
+      - name: Persist guarded Issue planning evidence
+        if: ${{ hashFiles('samuel-issue-planning.json') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
           outcome="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["outcome"])')"
           work_id="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["work_id"])')"
           echo "SAMUEL_ISSUE_PLANNING=${outcome^^} work_id=$work_id"
-          if [ "$outcome" = "reasoning_required" ]; then
-            printf '%s' "$work_id" > samuel-reasoning-required-work-id.txt
-            gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > lifecycle-comments.json
-            python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.issue_ingestion import (
-              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger,
-              transition_issue_status,
-          )
-          comments=json.load(open("lifecycle-comments.json"))
-          matches=[c for c in comments if ADMISSION_MARKER in str(c.get("body",""))]
-          if len(matches)!=1:
-              raise SystemExit("SAMUEL_REASONING=HARD_STOP admission ledger missing or ambiguous")
-          work=decode_admission_ledger(str(matches[0]["body"]))
-          work_id=open("samuel-reasoning-required-work-id.txt").read().strip()
-          updated=transition_issue_status(work,work_id,"reasoning_required")
-          open("samuel-admission-body.txt","w").write(encode_admission_ledger(updated))
-          open("samuel-admission-comment-id.txt","w").write(str(matches[0]["id"]))
-          PY
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$(cat samuel-admission-comment-id.txt)" -f body="$(cat samuel-admission-body.txt)" >/dev/null
-          fi
           marker='<!-- samuel-issue-planning -->'
           body="$marker
           ~~~json
@@ -148,99 +185,6 @@ jobs:
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
           else
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
-          fi
-
-      - name: Consume external reasoning submission
-        env:
-          PYTHONPATH: src
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > reasoning-comments.json
-          python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.decisions import DecisionRegistry
-          from chatgpt_operation.controller.durable_state import load_state_comment, state_write_request
-          from chatgpt_operation.controller.issue_ingestion import (
-              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger, transition_issue_status,
-          )
-          from chatgpt_operation.controller.reasoning_consumption import consume_reasoning_submission
-
-          comments=json.load(open("reasoning-comments.json"))
-          admission=[c for c in comments if ADMISSION_MARKER in str(c.get("body",""))]
-          if len(admission)!=1:
-              raise SystemExit(0)
-          work=decode_admission_ledger(str(admission[0]["body"]))
-          waiting=sorted(k for k,v in work.items() if v.get("status")=="reasoning_required")
-          planned=sorted(k for k,v in work.items() if v.get("status")=="planned")
-          state=load_state_comment(comments)
-          if planned and state is None:
-              if len(planned)!=1:
-                  raise SystemExit("SAMUEL_REASONING=HARD_STOP multiple planned work items without durable state")
-              # Recover only from the already durable typed submission; never invent a plan.
-              work=transition_issue_status(work,planned[0],"reasoning_required")
-              waiting=[planned[0]]
-              print("SAMUEL_REASONING=RECOVER_PARTIAL_COMMIT work_id="+planned[0])
-          if not waiting:
-              raise SystemExit(0)
-          if len(waiting)>1:
-              raise SystemExit("SAMUEL_REASONING=HARD_STOP multiple reasoning-required work items")
-          if state is None:
-              from chatgpt_operation.controller.research import ResearchState
-              item=work[waiting[0]]
-              state=ResearchState(
-                  waiting[0],
-                  str(item.get("title") or item.get("body") or waiting[0]),
-              )
-              print("SAMUEL_REASONING=INITIALIZED durable controller state work_id="+waiting[0])
-          registry=DecisionRegistry.load("automation/samuel/decisions.json")
-          result=consume_reasoning_submission(
-              comments,work,waiting[0],registry=registry,state=state
-          )
-          print("SAMUEL_REASONING="+result.outcome.upper()+" work_id="+waiting[0])
-          if result.outcome=="reasoning_required":
-              raise SystemExit(0)
-          open("samuel-admission-body.txt","w").write(encode_admission_ledger(result.work))
-          open("samuel-admission-comment-id.txt","w").write(str(admission[0]["id"]))
-          if result.action_id is not None:
-              request=state_write_request(comments,result.state)
-              open("samuel-controller-state-write.json","w").write(json.dumps(request,sort_keys=True,separators=(",",":")))
-          PY
-          if [ -f samuel-admission-body.txt ]; then
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$(cat samuel-admission-comment-id.txt)" -f body="$(cat samuel-admission-body.txt)" >/dev/null
-          fi
-          if [ -f samuel-controller-state-write.json ]; then
-            python3 - <<'PY'
-          import json, os, subprocess
-          from chatgpt_operation.controller.durable_state import decode_state, STATE_MARKER
-
-          request=json.load(open("samuel-controller-state-write.json"))
-          args=["gh","api","--method",request["method"]]
-          if request["method"]=="POST":
-              args.append(f"repos/{os.environ['GITHUB_REPOSITORY']}/issues/44/comments")
-          else:
-              if not isinstance(request["comment_id"],int):
-                  raise SystemExit("SAMUEL_STATE=HARD_STOP invalid PATCH comment id")
-              args.append(f"repos/{os.environ['GITHUB_REPOSITORY']}/issues/comments/{request['comment_id']}")
-          args.extend(["-f","body="+request["body"]])
-          subprocess.run(args,check=True,stdout=subprocess.DEVNULL)
-
-          raw=subprocess.check_output(
-              ["gh","api",f"repos/{os.environ['GITHUB_REPOSITORY']}/issues/44/comments?per_page=100"],
-              text=True,
-          )
-          comments=json.loads(raw)
-          matches=[c for c in comments if STATE_MARKER in str(c.get("body",""))]
-          if len(matches)!=1:
-              raise SystemExit(f"SAMUEL_STATE=HARD_STOP expected one durable state, found {len(matches)}")
-          persisted=decode_state(str(matches[0]["body"]))
-          if persisted.research_id != request["research_id"] or persisted.revision != request["expected_revision"]:
-              raise SystemExit(
-                  "SAMUEL_STATE=HARD_STOP readback mismatch "
-                  f"research_id={persisted.research_id} revision={persisted.revision}"
-              )
-          print(f"SAMUEL_STATE=PERSISTED research_id={persisted.research_id} revision={persisted.revision}")
-          PY
           fi
 
       - name: Persist durable action dispatch intent
