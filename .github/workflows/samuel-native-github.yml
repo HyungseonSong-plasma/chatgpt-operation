@@ -3,6 +3,10 @@ name: Samuel Native GitHub Executor
 on:
   workflow_dispatch:
     inputs:
+      correlation_id:
+        description: Samuel ActionPlan idempotency key
+        required: true
+        type: string
       plan_json:
         description: Typed Samuel ActionPlan JSON
         required: true
