@@ -12,6 +12,7 @@ from enum import Enum
 import copy
 from typing import Any, Callable
 
+from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
 from .decisions import DecisionRegistry
@@ -220,10 +221,22 @@ class SamuelController:
         proposed = copy.deepcopy(state)
         requested_at = self._requested_at()
         if kind == "action":
+            raw_plan = payload.get("plan")
+            if not isinstance(raw_plan, dict):
+                raise ControllerCompositionError("action work has no typed plan")
+            plan = ActionPlan.from_dict(raw_plan)
+            workflow = {
+                ExecutorKind.GITHUB_NATIVE: "samuel-native-github.yml",
+                ExecutorKind.REPOSITORY_MUTATION: "samuel-repository-mutation.yml",
+            }.get(plan.executor)
+            if workflow is None:
+                raise ControllerCompositionError(
+                    "production action executor is not supported: " + plan.executor.value
+                )
             record_action_dispatch_intent(
                 proposed,
                 action_id,
-                workflow="samuel-native-github.yml",
+                workflow=workflow,
                 ref=executor_ref,
                 requested_at=requested_at,
                 expected_head_sha=executor_head_sha,
