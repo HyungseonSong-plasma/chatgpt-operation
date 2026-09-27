@@ -127,3 +127,17 @@ def test_trusted_pr_validation_is_default_branch_workflow_run_gate():
     assert "startsWith(github.event.workflow_run.head_branch, 'samuel/')" in workflow
     assert "samuel/trusted-validation" in workflow
     assert "gh workflow run samuel-bootstrap.yml --ref main" in workflow
+
+
+def test_native_executor_has_only_bounded_merge_required_write_authority():
+    workflow=Path(".github/workflows/samuel-native-github.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "contents: write" in workflow
+    assert "checks: read" in workflow
+    assert "pull-requests: write" in workflow
+    source=Path(
+        "src/chatgpt_operation/github/native_executor.py"
+    ).read_text(encoding="utf-8")
+    assert "NativeGitHubAction" in source
+    assert "MERGE_PR" in source
