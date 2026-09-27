@@ -544,6 +544,75 @@ jobs:
               print("SAMUEL_BOOTSTRAP=PASS "+work.work_id)
           PY
 
+      - name: Persist durable action dispatch receipt
+        if: ${{ hashFiles('samuel-action-dispatch-receipt.json') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-receipt-comments.json
+          python3 - <<'PY'
+          import copy, json
+          from chatgpt_operation.controller.diagnostic import record_action_dispatch
+          from chatgpt_operation.controller.durable_state import load_state_comment, state_write_request
+
+          comments=json.load(open("action-receipt-comments.json"))
+          receipt=json.load(open("samuel-action-dispatch-receipt.json"))
+          current=load_state_comment(comments)
+          if current is None:
+              raise SystemExit("SAMUEL_ACTION_RECEIPT=HARD_STOP durable state missing")
+          action_id=receipt.get("correlation_id")
+          item=current.action_queue.get(action_id)
+          if not isinstance(item,dict):
+              raise SystemExit("SAMUEL_ACTION_RECEIPT=HARD_STOP action missing")
+          if item.get("status") == "dispatched":
+              if item.get("dispatch_receipt") != receipt:
+                  raise SystemExit("SAMUEL_ACTION_RECEIPT=HARD_STOP conflicting persisted receipt")
+              print("SAMUEL_ACTION_RECEIPT=NOOP action_id="+str(action_id))
+              raise SystemExit(0)
+          if item.get("status") != "dispatch_intent":
+              raise SystemExit("SAMUEL_ACTION_RECEIPT=HARD_STOP action is not awaiting receipt")
+          proposed=copy.deepcopy(current)
+          record_action_dispatch(proposed,action_id,receipt)
+          request=state_write_request(comments,proposed)
+          open("samuel-action-receipt-write.json","w").write(
+              json.dumps(request,sort_keys=True,separators=(",",":"))
+          )
+          PY
+          if [ ! -f samuel-action-receipt-write.json ]; then exit 0; fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-receipt-prewrite-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          validate_state_write_precondition(
+              json.load(open("action-receipt-prewrite-comments.json")),
+              json.load(open("samuel-action-receipt-write.json")),
+          )
+          PY
+          method="$(python3 -c 'import json; print(json.load(open("samuel-action-receipt-write.json"))["method"])')"
+          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-action-receipt-write.json"))["comment_id"]; print("" if x is None else x)')"
+          body="$(python3 -c 'import json; print(json.load(open("samuel-action-receipt-write.json"))["body"])')"
+          if [ "$method" = "PATCH" ]; then
+            test -n "$comment_id"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-receipt-readback-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import load_state_comment
+          request=json.load(open("samuel-action-receipt-write.json"))
+          receipt=json.load(open("samuel-action-dispatch-receipt.json"))
+          persisted=load_state_comment(json.load(open("action-receipt-readback-comments.json")))
+          if persisted is None or persisted.revision != request["expected_revision"]:
+              raise SystemExit("SAMUEL_ACTION_RECEIPT=HARD_STOP readback revision mismatch")
+          item=persisted.action_queue.get(receipt["correlation_id"],{})
+          if item.get("status") != "dispatched" or item.get("dispatch_receipt") != receipt:
+              raise SystemExit("SAMUEL_ACTION_RECEIPT=HARD_STOP receipt not durable")
+          print("SAMUEL_ACTION_RECEIPT=PERSISTED action_id="+receipt["correlation_id"])
+          PY
       - name: Persist acquired diagnostic evidence
         if: ${{ hashFiles('samuel-evidence-run-id.txt') != '' }}
         env:
