@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "repository": "HyungseonSong-plasma/chatgpt-operation",
+  "mutation": {
+    "allow": {
+      "file": ["create", "update", "delete"],
+      "branch": ["create"]
+    },
+    "file_paths": {
+      "allow": [
+        "src/**",
+        "tests/**",
+        "docs/**",
+        "schemas/**",
+        "skills/**",
+        "automation/**",
+        ".github/workflows/samuel-*.yml"
+      ],
+      "deny": [
+        "automation/samuel/decisions.json",
+        "automation/samuel/repository-mutation-policy.json",
+        "src/chatgpt_operation/controller/decisions.py",
+        "skills/capability-registry.json",
+        ".github/workflows/samuel-native-github.yml"
+      ]
+    },
+    "branch_names": {
+      "allow": ["samuel/*", "issue-*"],
+      "deny": ["main"]
+    }
+  },
+  "validation_gate": {
+    "mode": "named_workflows",
+    "workflows": ["CI"],
+    "ignore_current_run": true
+  }
+}
