@@ -103,6 +103,7 @@ def select_controller_work(
     if invalid:
         raise BootstrapError("durable action has unsupported lifecycle status: " + invalid[0])
 
+    recoveries = diagnostic_recoveries or {}
     in_flight = sorted(
         action_id for action_id, item in actions.items()
         if item.get("status") in {
@@ -110,8 +111,22 @@ def select_controller_work(
             ActionLifecycle.DISPATCHED.value,
         }
     )
-    if len(in_flight) > 1:
-        raise BootstrapError("multiple in-flight durable actions")
+    evidence_in_flight: list[tuple[str, str, dict[str, Any]]] = []
+    for action_id, recovery in recoveries.items():
+        if recovery.get("status") != "needs_evidence":
+            continue
+        dispatch = recovery.get("evidence_dispatch")
+        if dispatch is None:
+            continue
+        if not isinstance(dispatch, dict) or dispatch.get("status") not in {
+            ActionLifecycle.DISPATCH_INTENT.value,
+            ActionLifecycle.DISPATCHED.value,
+        }:
+            raise BootstrapError("evidence dispatch has unsupported lifecycle status")
+        evidence_in_flight.append((action_id, dispatch["status"], dispatch))
+
+    if len(in_flight) + len(evidence_in_flight) > 1:
+        raise BootstrapError("multiple in-flight durable workflows")
     if in_flight:
         action_id = in_flight[0]
         item = actions[action_id]
@@ -132,8 +147,22 @@ def select_controller_work(
             "plan": item["plan"],
             "dispatch_receipt": item["dispatch_receipt"],
         })
+    if evidence_in_flight:
+        action_id, status, dispatch = evidence_in_flight[0]
+        if not isinstance(dispatch.get("intent"), dict):
+            raise BootstrapError("evidence dispatch lifecycle has no typed intent")
+        if status == ActionLifecycle.DISPATCH_INTENT.value:
+            return ("evidence_intent", {
+                "action_id": action_id,
+                "recovery": recoveries[action_id],
+            })
+        if not isinstance(dispatch.get("receipt"), dict):
+            raise BootstrapError("dispatched evidence lifecycle has no typed receipt")
+        return ("evidence_observation", {
+            "action_id": action_id,
+            "recovery": recoveries[action_id],
+        })
 
-    recoveries = diagnostic_recoveries or {}
     open_ids = sorted(
         action_id
         for action_id, recovery in recoveries.items()
@@ -145,6 +174,7 @@ def select_controller_work(
     evidence_ids = sorted(
         action_id for action_id, recovery in recoveries.items()
         if recovery.get("status") == "needs_evidence"
+        and recovery.get("evidence_dispatch") is None
     )
     if evidence_ids:
         action_id = evidence_ids[0]
