@@ -556,7 +556,7 @@ class SamuelController:
                 admitted = decode_admission_ledger(admission["body"])
                 admission_comment_id = admission["comment_id"]
 
-        if state is not None:
+        if state is not None and self.reasoning.status().available:
             current = admitted.get(state.research_id)
             if (
                 isinstance(current, dict)
