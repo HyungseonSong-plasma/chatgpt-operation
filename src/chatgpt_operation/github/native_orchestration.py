@@ -7,7 +7,12 @@ from typing import Any
 
 from chatgpt_operation.controller.action_plan import ActionPlan, ExecutorKind
 from chatgpt_operation.controller.execution import ExecutionResult
-from chatgpt_operation.github.actions_runtime import (\n    GitHubActionsTransport, dispatch_and_wait, dispatch_workflow, observe_dispatch_once,\n)
+from chatgpt_operation.github.actions_runtime import (
+    GitHubActionsTransport,
+    dispatch_and_wait,
+    dispatch_workflow,
+    observe_dispatch_once,
+)
 
 
 class NativeOrchestrationError(RuntimeError):
