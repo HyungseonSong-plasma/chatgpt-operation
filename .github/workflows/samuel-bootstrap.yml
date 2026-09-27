@@ -115,7 +115,8 @@ jobs:
           if selected is None:
               payload={"kind":"idle"}
           elif selected[0] in {
-              "diagnostic", "action", "action_intent", "action_observation",
+              "diagnostic", "diagnostic_intent", "diagnostic_observation",
+              "action", "action_intent", "action_observation",
               "evidence", "evidence_intent", "evidence_observation", "issue",
           }:
               payload={"kind":selected[0], **selected[1]}
