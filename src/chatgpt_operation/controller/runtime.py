@@ -468,6 +468,8 @@ class SamuelController:
         outcome, plan, reason = compile_guarded_action(
             proposal, planned.envelope
         )
+        repository_audit = context.get("repository_context") or {}
+        durable_audit = context.get("durable_state") or {}
         planning = {
             "schema_version": 1,
             "work_id": work_id,
@@ -488,7 +490,53 @@ class SamuelController:
                 "revision_requested": proposal.revision_requested,
             },
             "action_plan": proposal.action_plan,
-            "reasoning_context": context,
+            "reasoning_context": {
+                "goal": context.get("goal"),
+                "locked_decisions": context.get("locked_decisions", []),
+                "implementation_gaps": context.get("implementation_gaps", []),
+                "allowed_reasoning_operations": context.get(
+                    "allowed_reasoning_operations", []
+                ),
+                "escalation_constraints": context.get(
+                    "escalation_constraints", []
+                ),
+                "durable_state": {
+                    "research_id": durable_audit.get("research_id"),
+                    "revision": durable_audit.get("revision"),
+                    "stage": durable_audit.get("stage"),
+                    "action_statuses": {
+                        key: value.get("status")
+                        for key, value in (
+                            durable_audit.get("action_queue") or {}
+                        ).items()
+                        if isinstance(value, dict)
+                    },
+                },
+                "repository_context": {
+                    "repository": repository_audit.get("repository"),
+                    "observed_head_sha": repository_audit.get(
+                        "observed_head_sha"
+                    ),
+                    "open_issues": [
+                        {
+                            "number": item.get("number"),
+                            "title": item.get("title"),
+                            "state": item.get("state"),
+                            "labels": item.get("labels", []),
+                        }
+                        for item in repository_audit.get(
+                            "open_issues", []
+                        )
+                        if isinstance(item, dict)
+                    ],
+                    "open_pull_requests": repository_audit.get(
+                        "open_pull_requests", []
+                    ),
+                    "samuel_branches": repository_audit.get(
+                        "samuel_branches", []
+                    ),
+                },
+            },
         }
         if plan is None:
             if (
