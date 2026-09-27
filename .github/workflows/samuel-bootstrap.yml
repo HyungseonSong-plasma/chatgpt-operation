@@ -116,6 +116,7 @@ jobs:
               payload={"kind":"idle"}
           elif selected[0] in {
               "diagnostic", "diagnostic_intent", "diagnostic_observation",
+              "corrective", "corrective_intent", "corrective_observation",
               "action", "action_intent", "action_observation",
               "evidence", "evidence_intent", "evidence_observation", "issue",
           }:
