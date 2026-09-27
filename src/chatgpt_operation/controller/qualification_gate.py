@@ -231,6 +231,16 @@ class QualificationGateReport:
         }
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def check_from_result(
     result: Any,
     *,
@@ -247,7 +257,7 @@ def check_from_result(
     if is_dataclass(result):
         raw = asdict(result)
         details = {
-            key: value.value if isinstance(value, Enum) else value
+            key: _json_safe(value)
             for key, value in raw.items()
             if key not in {"case_id", "passed"}
         }
