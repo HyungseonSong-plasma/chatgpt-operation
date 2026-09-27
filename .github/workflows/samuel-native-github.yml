@@ -28,7 +28,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   checks: read
   pull-requests: write
   issues: write
