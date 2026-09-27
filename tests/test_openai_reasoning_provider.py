@@ -43,11 +43,19 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         def opener(req, timeout):
             seen["authorization"] = req.headers["Authorization"]
             seen["url"] = req.full_url
+            seen["body"] = json.loads(req.data.decode())
             return Response({"output_text": json.dumps(raw)})
         p = OpenAIReasoningProvider("secret", opener=opener)
         self.assertEqual(p.reason(task="x", context={}, attempt=1, validation_error=None), raw)
         self.assertEqual(seen["authorization"], "Bearer secret")
         self.assertTrue(seen["url"].endswith("/responses"))
+        fmt = seen["body"]["text"]["format"]
+        self.assertEqual(fmt["type"], "json_schema")
+        self.assertTrue(fmt["strict"])
+        schema = fmt["schema"]
+        self.assertEqual(set(schema["required"]), set(schema["properties"]))
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(schema["properties"]["action_plan"]["type"], ["object", "null"])
 
     def test_non_json_fails_closed(self):
         p = OpenAIReasoningProvider(
