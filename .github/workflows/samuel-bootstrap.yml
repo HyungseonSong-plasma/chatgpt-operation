@@ -1203,6 +1203,68 @@ jobs:
                   raise SystemExit("SAMUEL_ACTION=HARD_STOP completion state mismatch")
               print("SAMUEL_ACTION=PERSISTED action_id="+raw["action_id"]+" status="+str(item.get("status")))
           PY
+      - name: Persist durable diagnostic dispatch receipt
+        if: ${{ hashFiles('samuel-diagnostic-dispatch-receipt.json') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-receipt-comments.json
+          python3 - <<'PY'
+          import copy, json
+          from chatgpt_operation.controller.diagnostic import record_diagnostic_dispatch
+          from chatgpt_operation.controller.durable_state import load_state_comment, state_write_request
+
+          comments=json.load(open("diagnostic-receipt-comments.json"))
+          current=load_state_comment(comments)
+          if current is None:
+              raise SystemExit("SAMUEL_DIAGNOSTIC_RECEIPT=HARD_STOP durable state missing")
+          selected=json.load(open("samuel-selected-work.json"))
+          action_id=selected["action_id"]
+          receipt=json.load(open("samuel-diagnostic-dispatch-receipt.json"))
+          proposed=copy.deepcopy(current)
+          record_diagnostic_dispatch(proposed,action_id,receipt)
+          request=state_write_request(comments,proposed)
+          open("samuel-diagnostic-receipt-write.json","w").write(
+              json.dumps(request,sort_keys=True,separators=(",",":"))
+          )
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-receipt-prewrite-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          validate_state_write_precondition(
+              json.load(open("diagnostic-receipt-prewrite-comments.json")),
+              json.load(open("samuel-diagnostic-receipt-write.json")),
+          )
+          PY
+          method="$(python3 -c 'import json; print(json.load(open("samuel-diagnostic-receipt-write.json"))["method"])')"
+          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-diagnostic-receipt-write.json"))["comment_id"]; print("" if x is None else x)')"
+          body="$(python3 -c 'import json; print(json.load(open("samuel-diagnostic-receipt-write.json"))["body"])')"
+          if [ "$method" = "PATCH" ]; then
+            test -n "$comment_id"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-receipt-readback-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import load_state_comment
+          request=json.load(open("samuel-diagnostic-receipt-write.json"))
+          selected=json.load(open("samuel-selected-work.json"))
+          receipt=json.load(open("samuel-diagnostic-dispatch-receipt.json"))
+          persisted=load_state_comment(json.load(open("diagnostic-receipt-readback-comments.json")))
+          if persisted is None or persisted.revision != request["expected_revision"]:
+              raise SystemExit("SAMUEL_DIAGNOSTIC_RECEIPT=HARD_STOP readback revision mismatch")
+          dispatch=(persisted.diagnostic_recoveries.get(selected["action_id"],{})
+                    .get("diagnostic_dispatch",{}))
+          if dispatch.get("status") != "dispatched" or dispatch.get("receipt") != receipt:
+              raise SystemExit("SAMUEL_DIAGNOSTIC_RECEIPT=HARD_STOP receipt not durable")
+          print("SAMUEL_DIAGNOSTIC_RECEIPT=PERSISTED action_id="+selected["action_id"])
+          PY
+
       - name: Persist diagnostic recovery state
         if: ${{ hashFiles('samuel-diagnostic-run-id.txt') != '' }}
         env:
