@@ -1,8 +1,14 @@
 name: Samuel Diagnostic Recovery
+run-name: Samuel Diagnostic Recovery dispatch:${{ inputs.samuel_dispatch_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      samuel_dispatch_id:
+        description: Durable Samuel diagnostic dispatch identity
+        required: false
+        default: ""
+        type: string
       recovery_json:
         description: Typed diagnostic recovery selection
         required: true
