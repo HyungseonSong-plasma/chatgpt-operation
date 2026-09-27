@@ -93,7 +93,7 @@ def result(p,status,run_id=99,verified=True):
     )
 
 
-def test_verified_corrective_success_resolves_and_resumes_source_action_atomically():
+def test_verified_corrective_success_resolves_and_completes_source_action_atomically():
     p,s,_=dispatched_state()
     before=s.revision
     proposed=apply_corrective_execution_result(
@@ -103,7 +103,9 @@ def test_verified_corrective_success_resolves_and_resumes_source_action_atomical
     recovery=proposed.diagnostic_recoveries[p.idempotency_key]
     assert recovery["status"]=="resolved"
     assert "corrective_dispatch" not in recovery
-    assert proposed.action_queue[p.idempotency_key]["status"]=="pending"
+    assert proposed.action_queue[p.idempotency_key]["status"]=="complete"
+    assert proposed.action_queue[p.idempotency_key]["completion_result"]["status"]=="pass"
+    assert proposed.execution_results[p.idempotency_key]["status"]=="pass"
     assert proposed.revision==before+1
 
 
