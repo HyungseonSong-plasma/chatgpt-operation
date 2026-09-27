@@ -823,6 +823,112 @@ jobs:
                   print("SAMUEL_BOOTSTRAP=ACTION_OBSERVE_WAIT status="+str(status))
                   raise SystemExit(0)
               raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP action observation "+str(observation))
+          if selected.get("kind") in {"corrective","corrective_intent","corrective_observation"}:
+              import json, subprocess
+              from chatgpt_operation.controller.diagnostic import (
+                  recovery_authorization_to_dict,
+                  resume_corrective_dispatch_intent,
+                  resume_dispatched_corrective,
+              )
+              from chatgpt_operation.controller.durable_state import encode_state, load_state_comment
+              from chatgpt_operation.github.native_orchestration import (
+                  dispatch_native_plan_async, observe_native_intent, observe_native_plan,
+              )
+
+              fresh=json.loads(subprocess.check_output([
+                  "gh","api",f"repos/{repo}/issues/44/comments?per_page=100"
+              ],text=True))
+              current=load_state_comment(fresh)
+              if current is None:
+                  raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP durable state disappeared")
+              action_id=selected["action_id"]
+
+              if selected["kind"] == "corrective":
+                  plan,auth,intent,correlation_id=resume_corrective_dispatch_intent(
+                      current,action_id
+                  )
+                  receipt=dispatch_native_plan_async(
+                      plan,transport=transport,ref=intent.ref,workflow=intent.workflow,
+                      recovery_state=encode_state(current),
+                      recovery_authorization=recovery_authorization_to_dict(auth),
+                      dispatch_id=correlation_id,
+                  )
+                  if isinstance(receipt.get("workflow_run_id"),int):
+                      open("samuel-corrective-dispatch-receipt.json","w").write(
+                          json.dumps(receipt,sort_keys=True,separators=(",",":"))
+                      )
+                      print("SAMUEL_CORRECTIVE=DISPATCH_BOUND action_id="+action_id)
+                  else:
+                      print("SAMUEL_CORRECTIVE=DISPATCH_UNBOUND action_id="+action_id)
+                  raise SystemExit(0)
+
+              if selected["kind"] == "corrective_intent":
+                  plan,auth,intent,correlation_id=resume_corrective_dispatch_intent(
+                      current,action_id
+                  )
+                  reconciled=observe_native_intent(
+                      plan,intent,transport=transport,
+                      expected_head_sha=intent.expected_head_sha,
+                      dispatch_id=correlation_id,
+                  )
+                  observation=reconciled["observation"]
+                  bound=reconciled.get("receipt")
+                  if bound is not None:
+                      open("samuel-corrective-dispatch-receipt.json","w").write(
+                          json.dumps(bound,sort_keys=True,separators=(",",":"))
+                      )
+                      print("SAMUEL_CORRECTIVE=RECONCILED action_id="+action_id)
+                      raise SystemExit(0)
+                  status=observation.get("status")
+                  if status in {"PENDING_VISIBILITY","OBSERVATION_INCOMPLETE"}:
+                      print("SAMUEL_CORRECTIVE=INTENT_WAIT status="+str(status))
+                      raise SystemExit(0)
+                  if status=="NO_MATCH":
+                      receipt=dispatch_native_plan_async(
+                          plan,transport=transport,ref=intent.ref,workflow=intent.workflow,
+                          recovery_state=encode_state(current),
+                          recovery_authorization=recovery_authorization_to_dict(auth),
+                          dispatch_id=correlation_id,
+                      )
+                      if isinstance(receipt.get("workflow_run_id"),int):
+                          open("samuel-corrective-dispatch-receipt.json","w").write(
+                              json.dumps(receipt,sort_keys=True,separators=(",",":"))
+                          )
+                          print("SAMUEL_CORRECTIVE=RECOVERY_DISPATCH_BOUND action_id="+action_id)
+                      else:
+                          print("SAMUEL_CORRECTIVE=RECOVERY_DISPATCH_UNBOUND action_id="+action_id)
+                      raise SystemExit(0)
+                  raise SystemExit(
+                      "SAMUEL_CORRECTIVE=HARD_STOP intent observation "+str(observation)
+                  )
+
+              plan,auth,intent,correlation_id,receipt=resume_dispatched_corrective(
+                  current,action_id
+              )
+              observation=observe_native_plan(
+                  plan,receipt,transport=transport,
+                  expected_head_sha=intent.expected_head_sha,
+                  dispatch_id=correlation_id,
+              )
+              status=observation.get("status")
+              if status=="MATCHED_TERMINAL":
+                  run_id=receipt.get("workflow_run_id")
+                  if not isinstance(run_id,int):
+                      raise SystemExit(
+                          "SAMUEL_CORRECTIVE=HARD_STOP dispatched correction lost run identity"
+                      )
+                  open("samuel-corrective-run-id.txt","w").write(str(run_id)+"\n")
+                  print("SAMUEL_CORRECTIVE=TERMINAL action_id="+action_id)
+                  raise SystemExit(0)
+              if status in {
+                  "MATCHED_ACTIVE","PENDING_VISIBILITY","NO_MATCH",
+                  "OBSERVATION_INCOMPLETE",
+              }:
+                  print("SAMUEL_CORRECTIVE=OBSERVE_WAIT status="+str(status))
+                  raise SystemExit(0)
+              raise SystemExit(
+                  "SAMUEL_CORRECTIVE=HARD_STOP observation "+str(observation)
+              )
           if selected.get("kind") in {"diagnostic","diagnostic_intent","diagnostic_observation"}:
               import json, subprocess
               from chatgpt_operation.controller.diagnostic import (
