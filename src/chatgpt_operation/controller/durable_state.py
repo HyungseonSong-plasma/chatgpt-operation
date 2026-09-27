@@ -222,6 +222,38 @@ def apply_diagnostic_patch(
     return proposed
 
 
+def apply_dispatch_receipt(
+    current: ResearchState,
+    *,
+    surface: str,
+    action_id: str,
+    receipt: dict[str, Any],
+) -> ResearchState:
+    """Bind one verified external workflow receipt as exactly one durable revision."""
+    from chatgpt_operation.controller.diagnostic import (
+        record_action_dispatch,
+        record_diagnostic_dispatch,
+        record_evidence_dispatch,
+    )
+    import copy
+
+    handlers = {
+        "action": record_action_dispatch,
+        "evidence": record_evidence_dispatch,
+        "diagnostic": record_diagnostic_dispatch,
+    }
+    try:
+        handler = handlers[surface]
+    except KeyError as exc:
+        raise DurableStateError("unsupported dispatch receipt surface") from exc
+    proposed = copy.deepcopy(current)
+    before = proposed.revision
+    handler(proposed, action_id, receipt)
+    if proposed.revision != before + 1:
+        raise DurableStateError("dispatch receipt must advance exactly one revision")
+    return proposed
+
+
 def apply_action_completion(current: ResearchState, result) -> ResearchState:
     """Apply one verified queued-action completion as a single durable revision."""
     from chatgpt_operation.controller.diagnostic import complete_queued_action
