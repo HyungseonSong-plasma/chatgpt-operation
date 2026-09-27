@@ -39,16 +39,10 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os
-          from chatgpt_operation.controller.durable_state import decode_state, encode_state
+          from chatgpt_operation.controller.durable_state import decode_state
           from chatgpt_operation.controller.diagnostic import (
-              advance_diagnostic, corrective_plan_from_recovery,
-              recovery_authorization, recovery_authorization_to_dict,
-              resolve_from_execution_receipt, record_diagnostic_wait,
+              advance_diagnostic, record_diagnostic_wait,
           )
-          from chatgpt_operation.github.actions_runtime import GitHubActionsTransport, execution_result_artifact_metadata
-          from chatgpt_operation.controller.execution import ExecutionResult
-          import io, urllib.request, zipfile
-          from chatgpt_operation.github.native_orchestration import dispatch_native_plan
           recovery=json.loads(os.environ["RECOVERY_JSON"])
           if recovery.get("kind") != "diagnostic" or not recovery.get("action_id"):
               raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP invalid recovery selection")
@@ -58,43 +52,6 @@ jobs:
               raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP recovery is not open in authoritative state")
           result=advance_diagnostic(state, action_id)
           execution_run_id=None
-          if result.phase == "apply_corrective_action" and result.advanced:
-              plan=corrective_plan_from_recovery(state, action_id)
-              auth=recovery_authorization(state, action_id)
-              transport=GitHubActionsTransport(os.environ["GITHUB_REPOSITORY"],os.environ["GITHUB_TOKEN"])
-              outcome=dispatch_native_plan(
-                  plan, transport=transport, ref="main",
-                  expected_head_sha=os.environ["GITHUB_SHA"],
-                  recovery_state=encode_state(state),
-                  recovery_authorization=recovery_authorization_to_dict(auth),
-                  timeout_seconds=600, poll_interval_seconds=5,
-              )
-              obs=outcome["observation"]
-              ids=obs.get("matched_run_ids") or ([obs.get("workflow_run_id")] if obs.get("workflow_run_id") else [])
-              if len(ids)!=1:
-                  raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP ambiguous corrective run")
-              execution_run_id=ids[0]
-              meta=execution_result_artifact_metadata(transport, execution_run_id)
-              request=urllib.request.Request(
-                  "https://api.github.com/repos/"+os.environ["GITHUB_REPOSITORY"]+
-                  "/actions/artifacts/"+str(meta["id"])+"/zip",
-                  headers={
-                      "Authorization":"Bearer "+os.environ["GITHUB_TOKEN"],
-                      "Accept":"application/vnd.github+json",
-                      "X-GitHub-Api-Version":"2026-03-10",
-                  },
-              )
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  archive=response.read()
-              with zipfile.ZipFile(io.BytesIO(archive)) as zf:
-                  names=[n for n in zf.namelist() if n.endswith("samuel-execution-result.json")]
-                  if len(names)!=1:
-                      raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP invalid corrective result artifact")
-                  corrective_result=ExecutionResult.from_dict(json.loads(zf.read(names[0])))
-              resolution=resolve_from_execution_receipt(
-                  state, action_id, corrective_result=corrective_result
-              )
-              result=resolution
           if not result.advanced:
               status=record_diagnostic_wait(
                   state, action_id, phase=result.phase, evidence=result.evidence
