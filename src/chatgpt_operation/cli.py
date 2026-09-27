@@ -41,6 +41,10 @@ from chatgpt_operation.controller.terminal_ingestion import (
     TerminalSurface,
     ingest_terminal_artifact,
 )
+from chatgpt_operation.controller.state_persistence import (
+    StatePersistenceError,
+    persist_state_write,
+)
 from chatgpt_operation.controller.qualification_gate import (
     QualificationCheck,
     QualificationGateError,
@@ -530,6 +534,43 @@ def controller_execute_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def controller_persist_state(args: argparse.Namespace) -> int:
+    token=os.environ.get(args.token_env)
+    if not token:
+        print(f"{args.token_env} is required",file=sys.stderr)
+        return 2
+    try:
+        request_payload=json.loads(Path(args.request).read_text(encoding="utf-8"))
+        transport=GitHubActionsTransport(
+            args.repository,
+            token,
+            api_url=args.api_url,
+            api_version=args.api_version,
+        )
+        result=persist_state_write(
+            transport,
+            issue_number=int(args.issue_number),
+            request=request_payload,
+        ).to_dict()
+    except (
+        OSError,json.JSONDecodeError,ValueError,
+        StatePersistenceError,ActionsRuntimeError,
+    ) as exc:
+        print(f"CONTROLLER_STATE_PERSIST=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_STATE_PERSIST=PASS")
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(
+            f"CONTROLLER_STATE_PERSIST=HARD_STOP result persistence: {exc}",
+            file=sys.stderr,
+        )
+        return 3
+    return 0
+
+
 def controller_ingest_terminal(args: argparse.Namespace) -> int:
     try:
         comments=json.loads(Path(args.comments).read_text(encoding="utf-8"))
@@ -840,6 +881,16 @@ def parser() -> argparse.ArgumentParser:
     cec.add_argument("--diagnostic-run-id-result")
     cec.add_argument("--action-terminal-observation-result")
     cec.set_defaults(func=controller_execute_command)
+
+    cps=ctls.add_parser("persist-state")
+    cps.add_argument("--request",required=True)
+    cps.add_argument("--repository",required=True)
+    cps.add_argument("--issue-number",type=int,default=44)
+    cps.add_argument("--token-env",default="GITHUB_TOKEN")
+    cps.add_argument("--api-url",default="https://api.github.com")
+    cps.add_argument("--api-version",default=DEFAULT_API_VERSION)
+    cps.add_argument("--result")
+    cps.set_defaults(func=controller_persist_state)
 
     cit=ctls.add_parser("ingest-terminal")
     cit.add_argument("--surface",required=True,choices=[x.value for x in TerminalSurface])
