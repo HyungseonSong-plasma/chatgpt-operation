@@ -338,9 +338,10 @@ jobs:
           executor_ref=os.environ["SAMUEL_EXECUTOR_REF"]
           if not executor_ref:
               raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP executor ref missing")
+          executor_sha=os.environ["SAMUEL_EXECUTOR_SHA"]
           record_action_dispatch_intent(
               proposed,action_id,workflow="samuel-native-github.yml",ref=executor_ref,
-              requested_at=requested_at,
+              requested_at=requested_at,expected_head_sha=executor_sha,
           )
           request=state_write_request(comments,proposed)
           open("samuel-action-intent-write.json","w").write(
@@ -422,6 +423,7 @@ jobs:
               raise SystemExit(0)
           if selected.get("kind") in {"action","action_intent","action_observation"}:
               import json, subprocess
+              from chatgpt_operation.controller.action_lifecycle import DispatchIntent
               from chatgpt_operation.controller.diagnostic import (
                   resume_dispatch_intent, resume_dispatched_action,
               )
@@ -437,9 +439,6 @@ jobs:
               if current is None:
                   raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP durable state disappeared")
               action_id=selected["action_id"]
-              executor_ref=os.environ.get("SAMUEL_EXECUTOR_REF","")
-              executor_sha=os.environ.get("SAMUEL_EXECUTOR_SHA","")
-
               if selected["kind"] == "action":
                   plan,intent=resume_dispatch_intent(current,action_id)
                   receipt=dispatch_native_plan_async(
@@ -456,7 +455,7 @@ jobs:
 
               if selected["kind"] == "action_intent":
                   plan,intent=resume_dispatch_intent(current,action_id)
-                  expected_head=executor_sha if executor_ref and intent.ref == executor_ref else None
+                  expected_head=intent.expected_head_sha
                   reconciled=observe_native_intent(
                       plan,intent,transport=transport,expected_head_sha=expected_head,
                   )
@@ -487,7 +486,10 @@ jobs:
                   raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP action intent observation "+str(observation))
 
               plan,receipt=resume_dispatched_action(current,action_id)
-              expected_head=executor_sha if executor_ref and receipt.get("ref") == executor_ref else None
+              persisted_intent=DispatchIntent.from_dict(
+                  current.action_queue[action_id].get("dispatch_intent")
+              )
+              expected_head=persisted_intent.expected_head_sha
               observation=observe_native_plan(
                   plan,receipt,transport=transport,expected_head_sha=expected_head,
               )
