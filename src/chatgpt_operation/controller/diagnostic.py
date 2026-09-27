@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from .action_plan import ActionPlan
+from .action_lifecycle import ActionLifecycle, DispatchIntent
 
 from .execution import (
     ExecutionStatus,
@@ -233,56 +234,149 @@ def recovery_authorization_to_dict(auth: RecoveryAuthorization) -> dict[str, str
     }
 
 
+def _serialized_plan(plan: ActionPlan) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "research_id": plan.research_id,
+        "stage": plan.stage.value,
+        "executor": plan.executor.value,
+        "payload": dict(plan.payload),
+        "expected_observation": plan.expected_observation,
+        "decision_risk": None if plan.decision_risk is None else {
+            "impact": plan.decision_risk.impact,
+            "uncertainty": plan.decision_risk.uncertainty,
+            "irreversibility": plan.decision_risk.irreversibility,
+        },
+    }
+
+
 def enqueue_suspended_action(state: ResearchState, plan: ActionPlan) -> None:
-    """Persist ownership of an action before it can enter diagnostic suspension."""
+    """Persist ownership of an action without allowing identity overwrite."""
     if plan.research_id != state.research_id:
         raise ValueError("queued plan belongs to a different research state")
-    state.action_queue[plan.idempotency_key] = {
-        "status": "pending",
-        "plan": {
-            "schema_version": 1,
-            "research_id": plan.research_id,
-            "stage": plan.stage.value,
-            "executor": plan.executor.value,
-            "payload": dict(plan.payload),
-            "expected_observation": plan.expected_observation,
-            "decision_risk": None if plan.decision_risk is None else {
-                "impact": plan.decision_risk.impact,
-                "uncertainty": plan.decision_risk.uncertainty,
-                "irreversibility": plan.decision_risk.irreversibility,
-            },
-        },
+    action_id = plan.idempotency_key
+    serialized = _serialized_plan(plan)
+    existing = state.action_queue.get(action_id)
+    if existing is not None:
+        if existing.get("plan") == serialized:
+            return
+        raise ValueError("action id already owns a different plan")
+    state.action_queue[action_id] = {
+        "status": ActionLifecycle.PENDING.value,
+        "plan": serialized,
     }
     state.revision += 1
 
 
-def record_action_dispatch(state: ResearchState, action_id: str, receipt: dict[str, Any]) -> None:
-    """Persist one causal dispatch receipt before asynchronous observation."""
+def record_action_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow: str,
+    ref: str,
+) -> DispatchIntent:
+    """Durably reserve one logical dispatch before the external side effect."""
+    if not isinstance(workflow, str) or not workflow.strip():
+        raise ValueError("workflow must be a non-empty string")
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError("ref must be a non-empty string")
     item = state.action_queue.get(action_id)
-    if item is None or item.get("status") != "pending":
+    if item is None:
+        raise ValueError("action is not owned by durable queue")
+    plan = ActionPlan.from_dict(item.get("plan"))
+    if plan.idempotency_key != action_id or plan.research_id != state.research_id:
+        raise ValueError("queued action identity changed")
+
+    if item.get("status") == ActionLifecycle.DISPATCH_INTENT.value:
+        intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+        if intent.workflow != workflow or intent.ref != ref:
+            raise ValueError("existing dispatch intent conflicts with requested dispatch")
+        return intent
+    if item.get("status") != ActionLifecycle.PENDING.value:
         raise ValueError("action is not pending")
+
+    intent = DispatchIntent(
+        action_id=action_id,
+        research_id=state.research_id,
+        workflow=workflow,
+        ref=ref,
+        state_revision=state.revision + 1,
+    )
+    item["dispatch_intent"] = intent.to_dict()
+    item["status"] = ActionLifecycle.DISPATCH_INTENT.value
+    state.revision += 1
+    return intent
+
+
+def resume_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, DispatchIntent]:
+    """Resume only the exact pre-dispatch transaction already persisted."""
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("action is not awaiting dispatch")
+    plan = ActionPlan.from_dict(item.get("plan"))
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+    ):
+        raise ValueError("dispatch intent identity changed")
+    return plan, intent
+
+
+def record_action_dispatch(
+    state: ResearchState,
+    action_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    """Bind one external dispatch receipt to a previously persisted intent."""
+    item = state.action_queue.get(action_id)
+    if item is None:
+        raise ValueError("action is not owned by durable queue")
+    if item.get("status") == ActionLifecycle.DISPATCHED.value:
+        existing = item.get("dispatch_receipt")
+        if existing == receipt:
+            return
+        raise ValueError("action already has a different dispatch receipt")
+    if item.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("action has no durable dispatch intent")
+
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
     if not isinstance(receipt, dict) or receipt.get("correlation_id") != action_id:
         raise ValueError("dispatch receipt does not match queued action")
-    existing = item.get("dispatch_receipt")
-    if existing is not None:
-        if existing != receipt:
-            raise ValueError("action already has a different dispatch receipt")
-        return
+    if receipt.get("ref") != intent.ref:
+        raise ValueError("dispatch receipt ref does not match intent")
+    workflow_path = receipt.get("workflow_path")
+    if workflow_path is not None and str(workflow_path).rsplit("/", 1)[-1] != intent.workflow:
+        raise ValueError("dispatch receipt workflow does not match intent")
+
     item["dispatch_receipt"] = dict(receipt)
-    item["status"] = "dispatched"
+    item["status"] = ActionLifecycle.DISPATCHED.value
     state.revision += 1
 
 
-def resume_dispatched_action(state: ResearchState, action_id: str) -> tuple[ActionPlan, dict[str, Any]]:
+def resume_dispatched_action(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, dict[str, Any]]:
     """Return the exact plan and receipt for a previously dispatched action."""
     item = state.action_queue.get(action_id)
-    if item is None or item.get("status") != "dispatched":
+    if item is None or item.get("status") != ActionLifecycle.DISPATCHED.value:
         raise ValueError("action is not awaiting observation")
-    plan = ActionPlan.from_dict(item["plan"])
+    plan = ActionPlan.from_dict(item.get("plan"))
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
     receipt = item.get("dispatch_receipt")
-    if plan.idempotency_key != action_id or not isinstance(receipt, dict):
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or not isinstance(receipt, dict)
+    ):
         raise ValueError("dispatched action identity changed")
-    if receipt.get("correlation_id") != action_id:
+    if receipt.get("correlation_id") != action_id or receipt.get("ref") != intent.ref:
         raise ValueError("dispatch receipt correlation changed")
     return plan, dict(receipt)
 
