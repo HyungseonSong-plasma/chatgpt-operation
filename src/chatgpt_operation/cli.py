@@ -433,6 +433,10 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
         persist(args.selected_work_result,cycle.selected_work)
         if cycle.issue_planning is not None:
             persist(args.planning_result,cycle.issue_planning)
+        if cycle.admission_write is not None:
+            persist(args.admission_write_result,cycle.admission_write)
+        if cycle.state_write is not None:
+            persist(args.state_write_result,cycle.state_write)
     except OSError as exc:
         print(f"CONTROLLER_CYCLE=HARD_STOP result persistence: {exc}",file=sys.stderr)
         return 3
@@ -686,6 +690,8 @@ def parser() -> argparse.ArgumentParser:
     crc.add_argument("--result")
     crc.add_argument("--selected-work-result")
     crc.add_argument("--planning-result")
+    crc.add_argument("--admission-write-result")
+    crc.add_argument("--state-write-result")
     crc.set_defaults(func=controller_run_cycle)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
     ce.set_defaults(func=controller_evaluate)

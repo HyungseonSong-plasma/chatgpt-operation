@@ -15,6 +15,8 @@ def test_controller_run_cycle_cli_emits_selected_and_planning_artifacts():
         result=root/"cycle.json"
         selected=root/"selected.json"
         planning=root/"planning.json"
+        admission_write=root/"admission-write.json"
+        state_write=root/"state-write.json"
         work={
             "issue:44":{
                 "work_id":"issue:44",
@@ -43,15 +45,21 @@ def test_controller_run_cycle_cli_emits_selected_and_planning_artifacts():
             result=str(result),
             selected_work_result=str(selected),
             planning_result=str(planning),
+            admission_write_result=str(admission_write),
+            state_write_result=str(state_write),
         ))
         assert code==0
         cycle=json.loads(result.read_text(encoding="utf-8"))
         selected_payload=json.loads(selected.read_text(encoding="utf-8"))
         planning_payload=json.loads(planning.read_text(encoding="utf-8"))
         assert cycle["selected_work"]==selected_payload
-        assert selected_payload["kind"]=="issue"
+        assert selected_payload["kind"]=="reasoning_required"
         assert planning_payload["outcome"]=="reasoning_required"
         assert planning_payload["action_plan"] is None
+        admission_payload=json.loads(admission_write.read_text(encoding="utf-8"))
+        assert admission_payload["comment_id"]==7
+        assert cycle["admission_write"]==admission_payload
+        assert not state_write.exists()
 
 
 def test_controller_run_cycle_cli_fails_closed_on_bad_comments():
@@ -75,5 +83,7 @@ def test_controller_run_cycle_cli_fails_closed_on_bad_comments():
             result=None,
             selected_work_result=None,
             planning_result=None,
+            admission_write_result=None,
+            state_write_result=None,
         ))
         assert code==2
