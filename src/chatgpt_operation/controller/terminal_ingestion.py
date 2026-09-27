@@ -124,7 +124,11 @@ def ingest_terminal_artifact(
                 action_id,
                 workflow_run_id=run_id,
                 conclusion=conclusion,
-                failure_kind="invalid_execution_result_json",
+                failure_kind=(
+                    "missing_execution_result_artifact"
+                    if not artifact_text.strip()
+                    else "invalid_execution_result_json"
+                ),
             )
             return TerminalIngestionResult(
                 surface,
