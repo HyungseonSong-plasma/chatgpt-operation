@@ -23,6 +23,9 @@ def test_bootstrap_routes_selection_and_planning_through_composition_root():
         "resume_dispatched_evidence",
         "resume_diagnostic_dispatch_intent",
         "resume_dispatched_diagnostic",
+        "record_action_dispatch(",
+        "record_evidence_dispatch(",
+        "record_diagnostic_dispatch(",
     ):
         assert forbidden not in workflow
     assert workflow.count("controller execute-command")==1
@@ -55,3 +58,13 @@ def test_execution_gateway_owns_privileged_actions_runtime_calls():
     assert "dispatch_native_plan_async(" in source
     assert "observe_native_intent(" in source
     assert "observe_native_plan(" in source
+
+
+def test_state_kernel_owns_dispatch_receipt_binding():
+    source=Path("src/chatgpt_operation/controller/durable_state.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def apply_dispatch_receipt(" in source
+    assert "record_action_dispatch" in source
+    assert "record_evidence_dispatch" in source
+    assert "record_diagnostic_dispatch" in source
