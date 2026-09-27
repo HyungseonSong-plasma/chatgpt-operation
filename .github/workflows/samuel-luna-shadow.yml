@@ -55,6 +55,8 @@ jobs:
               "failures":[x.value for x in result.failures],
               "executed":result.executed,
               "provider_failure":result.provider_failure,
+              "schema_error":result.schema_error,
+              "raw_proposal":result.raw_proposal,
           }
           assert artifact["executed"] is False
           open("samuel-luna-shadow.json","w").write(
