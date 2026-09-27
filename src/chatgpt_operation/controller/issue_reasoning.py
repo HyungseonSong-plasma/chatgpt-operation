@@ -59,6 +59,8 @@ def compile_guarded_action(
     if guard.outcome not in {GuardOutcome.CONTINUE,GuardOutcome.IMPLEMENT_GAP}:
         return guard.outcome,None,guard.reason
     if proposal.action_plan is None:
+        if guard.outcome is GuardOutcome.CONTINUE and proposal.operation == "analyze":
+            return GuardOutcome.CONTINUE,None,"analysis accepted; executable ActionPlan not yet produced"
         return GuardOutcome.BLOCKED,None,"typed reasoning produced no executable ActionPlan"
     plan=ActionPlan.from_dict(proposal.action_plan)
     if plan.requires_escalation():
