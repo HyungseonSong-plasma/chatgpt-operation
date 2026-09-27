@@ -100,6 +100,8 @@ def resolve_from_execution_receipt(
         raise ValueError("diagnostic correction has not been planned")
     if corrective_result.research_id != state.research_id:
         raise ValueError("corrective result belongs to a different research state")
+    if corrective_result.action_id != action_id:
+        raise ValueError("corrective result does not match recovery action")
     if corrective_result.status not in {ExecutionStatus.PASS, ExecutionStatus.NOOP}:
         return DiagnosticAdvance(
             action_id, "verify_resolution", False,
@@ -516,6 +518,162 @@ def record_diagnostic_wait(
         }
     state.revision += 1
     return recovery["status"]
+
+
+def corrective_dispatch_correlation_id(
+    state: ResearchState,
+    action_id: str,
+) -> str:
+    """Return one physical dispatch identity for an authorized corrective replay."""
+    authorization = recovery_authorization(state, action_id)
+    semantic = {
+        "kind": "corrective",
+        "research_id": state.research_id,
+        "action_id": action_id,
+        "authorization_token": authorization.token,
+    }
+    return "corrective-" + hashlib.sha256(json.dumps(
+        semantic, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+
+
+def record_corrective_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+    *,
+    workflow: str,
+    ref: str,
+    requested_at: str,
+    expected_head_sha: str,
+) -> tuple[DispatchIntent, str]:
+    """Persist corrective execution ownership before the native side effect."""
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    if recovery.get("resolution_evidence"):
+        raise ValueError("resolved diagnostic cannot dispatch corrective execution")
+    # This validates source plan, root cause, corrective action and provider binding.
+    recovery_authorization(state, action_id)
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    existing = recovery.get("corrective_dispatch")
+    if existing is not None:
+        if not isinstance(existing, dict) or existing.get("status") not in {
+            ActionLifecycle.DISPATCH_INTENT.value,
+            ActionLifecycle.DISPATCHED.value,
+        }:
+            raise ValueError("invalid corrective dispatch lifecycle")
+        intent = DispatchIntent.from_dict(existing.get("intent"))
+        if (
+            existing.get("correlation_id") != correlation_id
+            or intent.workflow != workflow
+            or intent.ref != ref
+            or intent.expected_head_sha != expected_head_sha
+        ):
+            raise ValueError("existing corrective dispatch conflicts with requested dispatch")
+        return intent, correlation_id
+
+    intent = DispatchIntent.from_dict({
+        "schema_version": 2,
+        "action_id": action_id,
+        "research_id": state.research_id,
+        "workflow": workflow,
+        "ref": ref,
+        "requested_at": requested_at,
+        "state_revision": state.revision + 1,
+        "expected_head_sha": expected_head_sha,
+    })
+    recovery["corrective_dispatch"] = {
+        "status": ActionLifecycle.DISPATCH_INTENT.value,
+        "correlation_id": correlation_id,
+        "intent": intent.to_dict(),
+    }
+    state.revision += 1
+    return intent, correlation_id
+
+
+def resume_corrective_dispatch_intent(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, RecoveryAuthorization, DispatchIntent, str]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("corrective_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("corrective execution is not awaiting dispatch")
+    plan = corrective_plan_from_recovery(state, action_id)
+    authorization = recovery_authorization(state, action_id)
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("corrective dispatch intent identity changed")
+    return plan, authorization, intent, correlation_id
+
+
+def record_corrective_dispatch(
+    state: ResearchState,
+    action_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("corrective_dispatch")
+    if not isinstance(dispatch, dict):
+        raise ValueError("corrective execution has no durable dispatch intent")
+    if dispatch.get("status") == ActionLifecycle.DISPATCHED.value:
+        if dispatch.get("receipt") == receipt:
+            return
+        raise ValueError("corrective execution already has a different receipt")
+    if dispatch.get("status") != ActionLifecycle.DISPATCH_INTENT.value:
+        raise ValueError("corrective execution is not awaiting dispatch")
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    if not isinstance(receipt, dict) or receipt.get("correlation_id") != correlation_id:
+        raise ValueError("corrective dispatch receipt correlation mismatch")
+    run_id = receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("corrective dispatch receipt has no authoritative workflow_run_id")
+    if receipt.get("ref") != intent.ref:
+        raise ValueError("corrective dispatch receipt ref mismatch")
+    workflow_path = receipt.get("workflow_path")
+    if workflow_path is not None and str(workflow_path).rsplit("/", 1)[-1] != intent.workflow:
+        raise ValueError("corrective dispatch receipt workflow mismatch")
+    dispatch["receipt"] = dict(receipt)
+    dispatch["status"] = ActionLifecycle.DISPATCHED.value
+    state.revision += 1
+
+
+def resume_dispatched_corrective(
+    state: ResearchState,
+    action_id: str,
+) -> tuple[ActionPlan, RecoveryAuthorization, DispatchIntent, str, dict[str, Any]]:
+    recovery = state.diagnostic_recoveries.get(action_id)
+    if recovery is None or recovery.get("status") != "open":
+        raise ValueError("diagnostic recovery is not open")
+    dispatch = recovery.get("corrective_dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("corrective execution is not dispatched")
+    plan = corrective_plan_from_recovery(state, action_id)
+    authorization = recovery_authorization(state, action_id)
+    intent = DispatchIntent.from_dict(dispatch.get("intent"))
+    receipt = dispatch.get("receipt")
+    correlation_id = corrective_dispatch_correlation_id(state, action_id)
+    if (
+        plan.idempotency_key != action_id
+        or intent.action_id != action_id
+        or intent.research_id != state.research_id
+        or dispatch.get("correlation_id") != correlation_id
+        or not isinstance(receipt, dict)
+        or receipt.get("correlation_id") != correlation_id
+    ):
+        raise ValueError("corrective dispatch identity changed")
+    return plan, authorization, intent, correlation_id, dict(receipt)
 
 
 def diagnostic_dispatch_correlation_id(
