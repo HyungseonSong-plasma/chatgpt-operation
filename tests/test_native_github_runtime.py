@@ -20,6 +20,70 @@ class FakeTransport(GitHubNativeTransport):
         return self.responses.pop(0)
 
 
+class NativeGitHubRuntimeMergeTests(unittest.TestCase):
+    def target(self):
+        return {
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "number":136,
+            "expected_head_sha":"a"*40,
+        }
+
+    def test_check_runs_supply_ci_success_without_classic_statuses(self):
+        transport=FakeTransport([
+            {
+                "merged":False,
+                "mergeable":True,
+                "head":{"sha":"a"*40},
+            },
+            {"state":"pending","total_count":0,"statuses":[]},
+            {
+                "check_runs":[
+                    {"status":"completed","conclusion":"success"},
+                    {"status":"completed","conclusion":"success"},
+                ]
+            },
+        ])
+        state=transport.read_state(NativeGitHubAction.MERGE_PR,self.target())
+        self.assertEqual(state["ci"],"success")
+        self.assertEqual(len(transport.calls),3)
+        self.assertIn("/check-runs?filter=latest&per_page=100",transport.calls[2][1])
+
+    def test_trusted_validation_status_is_authoritative_for_bot_pr(self):
+        transport=FakeTransport([
+            {
+                "merged":False,
+                "mergeable":True,
+                "head":{"sha":"b"*40},
+            },
+            {
+                "state":"success",
+                "total_count":1,
+                "statuses":[
+                    {
+                        "context":"samuel/trusted-validation",
+                        "state":"success",
+                    }
+                ],
+            },
+        ])
+        state=transport.read_state(NativeGitHubAction.MERGE_PR,self.target())
+        self.assertEqual(state["ci"],"success")
+        self.assertEqual(len(transport.calls),2)
+
+    def test_incomplete_check_run_keeps_merge_pending(self):
+        transport=FakeTransport([
+            {
+                "merged":False,
+                "mergeable":True,
+                "head":{"sha":"c"*40},
+            },
+            {"state":"pending","total_count":0,"statuses":[]},
+            {"check_runs":[{"status":"in_progress","conclusion":None}]},
+        ])
+        state=transport.read_state(NativeGitHubAction.MERGE_PR,self.target())
+        self.assertEqual(state["ci"],"pending")
+
+
 class NativeGitHubRuntimeCreatePrTests(unittest.TestCase):
     def target(self):
         return {
