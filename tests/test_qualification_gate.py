@@ -35,12 +35,25 @@ def metrics(cycles=0, **overrides):
     return QualificationMetrics.from_dict(raw)
 
 
-def passed_check(check_id="baseline"):
+def passed_check(check_id="baseline", domain=QualificationDomain.ARCHITECTURE):
     return QualificationCheck(
         check_id=check_id,
-        domain=QualificationDomain.ARCHITECTURE,
+        domain=domain,
         passed=True,
     )
+
+
+def complete_checks():
+    return [
+        passed_check("reasoning", QualificationDomain.REASONING),
+        passed_check("execution", QualificationDomain.EXECUTION),
+        passed_check("observation", QualificationDomain.OBSERVATION),
+        passed_check("science", QualificationDomain.SCIENCE),
+        passed_check("state", QualificationDomain.STATE),
+        passed_check("provenance", QualificationDomain.PROVENANCE),
+        passed_check("liveness", QualificationDomain.LIVENESS),
+        passed_check("architecture", QualificationDomain.ARCHITECTURE),
+    ]
 
 
 class QualificationGateTests(unittest.TestCase):
@@ -56,20 +69,38 @@ class QualificationGateTests(unittest.TestCase):
     def test_duplicate_check_ids_fail_closed(self):
         with self.assertRaisesRegex(QualificationGateError, "duplicate check_id"):
             evaluate_qualification_gate(
-                checks=[passed_check("same"), passed_check("same")],
+                checks=complete_checks()+[
+                    passed_check("same", QualificationDomain.ARCHITECTURE),
+                    passed_check("same", QualificationDomain.STATE),
+                ],
                 metrics=metrics(),
                 policy=self.policy,
             )
 
+    def test_missing_required_domain_blocks_even_shadow(self):
+        checks=[
+            item for item in complete_checks()
+            if item.domain is not QualificationDomain.PROVENANCE
+        ]
+        report=evaluate_qualification_gate(
+            checks=checks,metrics=metrics(100),policy=self.policy
+        )
+        self.assertFalse(report.passed)
+        self.assertIn(
+            "required domain missing: provenance",
+            report.blocked_reasons["shadow"],
+        )
+
     def test_mandatory_failure_blocks_even_shadow(self):
-        failed = QualificationCheck(
+        checks=complete_checks()
+        checks[0]=QualificationCheck(
             "decision-drift",
             QualificationDomain.REASONING,
             False,
             True,
         )
         report = evaluate_qualification_gate(
-            checks=[failed], metrics=metrics(100), policy=self.policy
+            checks=checks, metrics=metrics(100), policy=self.policy
         )
         self.assertFalse(report.passed)
         self.assertIsNone(report.highest_mode)
@@ -78,14 +109,14 @@ class QualificationGateTests(unittest.TestCase):
 
     def test_clean_but_unqualified_cycles_stays_shadow(self):
         report = evaluate_qualification_gate(
-            checks=[passed_check()], metrics=metrics(49), policy=self.policy
+            checks=complete_checks(), metrics=metrics(49), policy=self.policy
         )
         self.assertEqual(report.highest_mode, AutonomyMode.SHADOW)
         self.assertEqual(report.eligible_modes, (AutonomyMode.SHADOW,))
 
     def test_fifty_clean_cycles_reaches_auto_with_audit(self):
         report = evaluate_qualification_gate(
-            checks=[passed_check()], metrics=metrics(50), policy=self.policy
+            checks=complete_checks(), metrics=metrics(50), policy=self.policy
         )
         self.assertEqual(report.highest_mode, AutonomyMode.AUTO_WITH_AUDIT)
         self.assertEqual(
@@ -95,7 +126,7 @@ class QualificationGateTests(unittest.TestCase):
 
     def test_one_hundred_clean_cycles_reaches_auto(self):
         report = evaluate_qualification_gate(
-            checks=[passed_check()], metrics=metrics(100), policy=self.policy
+            checks=complete_checks(), metrics=metrics(100), policy=self.policy
         )
         self.assertEqual(report.highest_mode, AutonomyMode.AUTO)
 
@@ -114,6 +145,7 @@ class QualificationGateTests(unittest.TestCase):
     def test_auto_policy_must_not_be_weaker_than_audit(self):
         raw = {
             "schema_version": 1,
+            "required_domains": [domain.value for domain in QualificationDomain],
             "auto_with_audit": {
                 "minimum_cycles": 50,
                 "max_unsafe_action_proposals": 0,
