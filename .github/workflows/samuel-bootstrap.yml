@@ -5,6 +5,8 @@ on:
     types: [opened, reopened, labeled]
   pull_request:
     types: [opened, reopened, synchronize, closed]
+  issue_comment:
+    types: [created]
   schedule:
     - cron: '55 * * * *'
   workflow_dispatch:
@@ -20,6 +22,7 @@ concurrency:
 
 jobs:
   wake:
+    if: ${{ github.event_name != 'issue_comment' || contains(github.event.comment.body, '<!-- samuel-reasoning-submission -->') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
