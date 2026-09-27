@@ -16,7 +16,13 @@ from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
 from chatgpt_operation.github.native_executor import NativeGitHubError
 from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_runtime_provider
 from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
-from chatgpt_operation.controller.durable_state import decode_state
+from chatgpt_operation.controller.durable_state import decode_state, load_state_comment
+from chatgpt_operation.controller.command import ControllerCommand, ControllerCommandError
+from chatgpt_operation.controller.execution_gateway import (
+    ExecutionGateway,
+    ExecutionGatewayError,
+    GatewayStatus,
+)
 from chatgpt_operation.controller.research import ResearchState
 from chatgpt_operation.controller.bootstrap import load_pending
 from chatgpt_operation.controller.decisions import DecisionRegistry
@@ -439,8 +445,72 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             persist(args.admission_write_result,cycle.admission_write)
         if cycle.state_write is not None:
             persist(args.state_write_result,cycle.state_write)
+        if cycle.execution_command is not None:
+            persist(args.execution_command_result,cycle.execution_command.to_dict())
     except OSError as exc:
         print(f"CONTROLLER_CYCLE=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
+def controller_execute_command(args: argparse.Namespace) -> int:
+    token=os.environ.get(args.token_env)
+    if not token:
+        print(f"{args.token_env} is required",file=sys.stderr)
+        return 2
+    try:
+        command=ControllerCommand.from_dict(
+            json.loads(Path(args.command).read_text(encoding="utf-8"))
+        )
+        comments=json.loads(Path(args.comments).read_text(encoding="utf-8"))
+        if not isinstance(comments,list):
+            raise ValueError("controller comments must be a list")
+        state=load_state_comment(comments)
+        if state is None:
+            raise ValueError("durable controller state is required")
+        transport=GitHubActionsTransport(
+            args.repository,
+            token,
+            api_url=args.api_url,
+            api_version=args.api_version,
+        )
+        result=ExecutionGateway(transport).execute(command,state=state)
+        encoded=result.to_dict()
+    except (
+        OSError,json.JSONDecodeError,ValueError,ControllerCommandError,
+        ExecutionGatewayError,ActionsRuntimeError,NativeOrchestrationError,
+    ) as exc:
+        print(f"CONTROLLER_COMMAND=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+
+    print("CONTROLLER_COMMAND="+result.status.value.upper())
+    print(json.dumps(encoded,sort_keys=True))
+    try:
+        persist(args.result,encoded)
+        receipt_paths={
+            "action":args.action_receipt_result,
+            "evidence":args.evidence_receipt_result,
+            "diagnostic":args.diagnostic_receipt_result,
+        }
+        run_id_paths={
+            "action":args.action_run_id_result,
+            "evidence":args.evidence_run_id_result,
+            "diagnostic":args.diagnostic_run_id_result,
+        }
+        if result.receipt is not None:
+            persist(receipt_paths[result.surface],result.receipt)
+        if result.terminal_run_id is not None:
+            target=run_id_paths[result.surface]
+            if target:
+                Path(target).write_text(str(result.terminal_run_id)+"\n",encoding="utf-8")
+        if (
+            result.surface=="action"
+            and result.status is GatewayStatus.TERMINAL
+            and result.observation is not None
+        ):
+            persist(args.action_terminal_observation_result,result.observation)
+    except OSError as exc:
+        print(f"CONTROLLER_COMMAND=HARD_STOP output persistence: {exc}",file=sys.stderr)
         return 3
     return 0
 
@@ -696,7 +766,25 @@ def parser() -> argparse.ArgumentParser:
     crc.add_argument("--planning-result")
     crc.add_argument("--admission-write-result")
     crc.add_argument("--state-write-result")
+    crc.add_argument("--execution-command-result")
     crc.set_defaults(func=controller_run_cycle)
+
+    cec=ctls.add_parser("execute-command")
+    cec.add_argument("--command",required=True)
+    cec.add_argument("--comments",required=True)
+    cec.add_argument("--repository",required=True)
+    cec.add_argument("--token-env",default="GITHUB_TOKEN")
+    cec.add_argument("--api-url",default="https://api.github.com")
+    cec.add_argument("--api-version",default=DEFAULT_API_VERSION)
+    cec.add_argument("--result")
+    cec.add_argument("--action-receipt-result")
+    cec.add_argument("--evidence-receipt-result")
+    cec.add_argument("--diagnostic-receipt-result")
+    cec.add_argument("--action-run-id-result")
+    cec.add_argument("--evidence-run-id-result")
+    cec.add_argument("--diagnostic-run-id-result")
+    cec.add_argument("--action-terminal-observation-result")
+    cec.set_defaults(func=controller_execute_command)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
     ce.set_defaults(func=controller_evaluate)
     cq=ctls.add_parser("qualify")
