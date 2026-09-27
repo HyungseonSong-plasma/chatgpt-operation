@@ -13,12 +13,21 @@ def workflow_run_scripts(text: str) -> list[str]:
     while index < len(lines):
         line = lines[index]
         stripped = line.lstrip()
-        if stripped != "run: |":
+        if stripped not in {"run: |", "- run: |"}:
             index += 1
             continue
         run_indent = len(line) - len(stripped)
-        body_indent = run_indent + 2
         index += 1
+        probe = index
+        while probe < len(lines) and not lines[probe].strip():
+            probe += 1
+        if probe >= len(lines):
+            scripts.append("")
+            continue
+        body_indent = len(lines[probe]) - len(lines[probe].lstrip())
+        if body_indent <= run_indent:
+            scripts.append("")
+            continue
         body: list[str] = []
         while index < len(lines):
             current = lines[index]
