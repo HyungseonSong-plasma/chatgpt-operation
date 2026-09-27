@@ -1274,43 +1274,70 @@ jobs:
           set -euo pipefail
           run_id="$(cat samuel-diagnostic-run-id.txt)"
           artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
-          artifact_id="$(python3 -c 'import json,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"]=="samuel-diagnostic-result"]; assert len(xs)==1; print(xs[0]["id"])' <<<"$artifact_json")"
+          artifact_id="$(python3 -c 'import json,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"]=="samuel-diagnostic-result" and not x.get("expired")]; assert len(xs)==1; print(xs[0]["id"])' <<<"$artifact_json")"
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o diagnostic.zip
           rm -rf diagnostic-result && mkdir diagnostic-result
           unzip -q diagnostic.zip -d diagnostic-result
-          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > current-comments.json
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-completion-comments.json
           python3 - <<'PY'
           import json
           from chatgpt_operation.controller.durable_state import (
-              apply_diagnostic_patch,
-              load_state_comment,
-              prepare_state_write,
+              apply_diagnostic_patch, load_state_comment, state_write_request,
           )
-          comments=json.load(open("current-comments.json"))
+
+          comments=json.load(open("diagnostic-completion-comments.json"))
           current=load_state_comment(comments)
           if current is None:
               raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP durable state disappeared")
           artifact=json.load(open("diagnostic-result/samuel-diagnostic-result.json"))
+          run_id=int(open("samuel-diagnostic-run-id.txt").read().strip())
+          provenance=artifact.get("provenance") or {}
+          if provenance.get("workflow_run_id") != run_id:
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP artifact run identity mismatch")
           if artifact.get("advanced") is not True:
-              print("SAMUEL_DIAGNOSTIC=WAIT "+str(artifact.get("evidence","")))
-              raise SystemExit(0)
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP non-advancing artifact")
           proposed=apply_diagnostic_patch(current,artifact)
-          write=prepare_state_write(comments,proposed)
-          open("samuel-controller-state-body.txt","w").write(write["body"])
-          open("samuel-controller-state-comment-id.txt","w").write(
-              "" if write["comment_id"] is None else str(write["comment_id"])
+          request=state_write_request(comments,proposed)
+          open("samuel-diagnostic-completion-write.json","w").write(
+              json.dumps(request,sort_keys=True,separators=(",",":"))
           )
           PY
-          if [ -f samuel-controller-state-body.txt ]; then
-            body="$(cat samuel-controller-state-body.txt)"
-            comment_id="$(cat samuel-controller-state-comment-id.txt)"
-            if [ -n "$comment_id" ]; then
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
-            else
-              gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
-            fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-completion-prewrite-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          validate_state_write_precondition(
+              json.load(open("diagnostic-completion-prewrite-comments.json")),
+              json.load(open("samuel-diagnostic-completion-write.json")),
+          )
+          PY
+          method="$(python3 -c 'import json; print(json.load(open("samuel-diagnostic-completion-write.json"))["method"])')"
+          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-diagnostic-completion-write.json"))["comment_id"]; print("" if x is None else x)')"
+          body="$(python3 -c 'import json; print(json.load(open("samuel-diagnostic-completion-write.json"))["body"])')"
+          if [ "$method" = "PATCH" ]; then
+            test -n "$comment_id"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
           fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > diagnostic-completion-readback-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import load_state_comment
+          request=json.load(open("samuel-diagnostic-completion-write.json"))
+          artifact=json.load(open("diagnostic-result/samuel-diagnostic-result.json"))
+          persisted=load_state_comment(json.load(open("diagnostic-completion-readback-comments.json")))
+          if persisted is None or persisted.revision != request["expected_revision"]:
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP readback revision mismatch")
+          recovery=persisted.diagnostic_recoveries.get(artifact["action_id"],{})
+          if recovery.get("diagnostic_dispatch") is not None:
+              raise SystemExit("SAMUEL_DIAGNOSTIC=HARD_STOP dispatch lifecycle not retired")
+          print(
+              "SAMUEL_DIAGNOSTIC=PERSISTED action_id="+artifact["action_id"]
+              +" status="+str(recovery.get("status"))
+          )
+          PY
 
       - name: Verify qualification artifact and persist durable ledger
         if: ${{ hashFiles('samuel-qualified-run-id.txt') != '' }}
