@@ -4,6 +4,7 @@ from chatgpt_operation.controller.diagnostic import (
     mark_action_suspended, resume_resolved_action,
     record_action_dispatch_intent, resume_dispatch_intent,
     record_action_dispatch, resume_dispatched_action,
+    record_native_dispatch_evidence_failure,
 )
 from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
@@ -210,3 +211,52 @@ def test_dispatch_intent_rejects_invalid_head_sha():
         assert "expected_head_sha" in str(exc)
     else:
         raise AssertionError("dispatch intent without immutable source SHA must fail closed")
+
+
+def test_invalid_native_execution_evidence_retires_physical_attempt_for_safe_retry():
+    p=plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
+    enqueue_suspended_action(s,p)
+    record_action_dispatch_intent(
+        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",
+        requested_at="2026-09-27T12:00:00Z",expected_head_sha=HEAD_SHA,
+    )
+    record_action_dispatch(s,p.idempotency_key,{
+        "workflow_path":".github/workflows/samuel-native-github.yml",
+        "ref":"main","correlation_id":p.idempotency_key,"workflow_run_id":99,
+    })
+    before=s.revision
+    record_native_dispatch_evidence_failure(
+        s,p.idempotency_key,workflow_run_id=99,
+        conclusion="failure",failure_kind="invalid_execution_result_json",
+    )
+    item=s.action_queue[p.idempotency_key]
+    assert item["status"]=="pending"
+    assert "dispatch_intent" not in item
+    assert "dispatch_receipt" not in item
+    assert s.revision==before+1
+    attempt=item["dispatch_attempt_history"][-1]
+    assert attempt["workflow_run_id"]==99
+    assert attempt["failure_kind"]=="invalid_execution_result_json"
+    assert attempt["dispatch_receipt"]["workflow_run_id"]==99
+
+
+def test_invalid_execution_evidence_cannot_retire_foreign_run():
+    p=plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
+    enqueue_suspended_action(s,p)
+    record_action_dispatch_intent(
+        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",
+        requested_at="2026-09-27T12:00:00Z",expected_head_sha=HEAD_SHA,
+    )
+    record_action_dispatch(s,p.idempotency_key,{
+        "workflow_path":".github/workflows/samuel-native-github.yml",
+        "ref":"main","correlation_id":p.idempotency_key,"workflow_run_id":99,
+    })
+    try:
+        record_native_dispatch_evidence_failure(
+            s,p.idempotency_key,workflow_run_id=100,
+            conclusion="failure",failure_kind="invalid_execution_result_json",
+        )
+    except ValueError as exc:
+        assert "does not match" in str(exc)
+    else:
+        raise AssertionError("foreign terminal run must not reset durable action")
