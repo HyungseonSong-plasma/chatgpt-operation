@@ -79,9 +79,22 @@ class AsyncNativeOrchestrationTests(unittest.TestCase):
         self.assertEqual(dispatch_native_plan_async(p,transport=object(),ref="main"),receipt)
         self.assertEqual(dispatch.call_count,1)
         self.assertEqual(dispatch.call_args.kwargs["correlation_id"],p.idempotency_key)
-        self.assertEqual(dispatch.call_args.kwargs["correlation_input"],"samuel_action_id")
-        self.assertEqual(dispatch.call_args.kwargs["correlation_run_name_prefix"],"Samuel Native GitHub Executor action:")
+        self.assertEqual(dispatch.call_args.kwargs["correlation_input"],"samuel_dispatch_id")
+        self.assertEqual(dispatch.call_args.kwargs["correlation_run_name_prefix"],"Samuel Native GitHub Executor dispatch:")
         self.assertEqual(dispatch.call_args.kwargs["inputs"]["samuel_action_id"],p.idempotency_key)
+        self.assertEqual(dispatch.call_args.kwargs["inputs"]["samuel_dispatch_id"],p.idempotency_key)
+
+    @patch("chatgpt_operation.github.native_orchestration.dispatch_workflow")
+    def test_corrective_dispatch_can_use_distinct_physical_identity(self, dispatch):
+        p=plan()
+        dispatch.return_value={"workflow_id":1,"ref":"main","correlation_id":"corrective-1",
+                               "requested_at":"2026-09-27T12:00:00Z","workflow_run_id":99}
+        dispatch_native_plan_async(
+            p,transport=object(),ref="main",dispatch_id="corrective-1"
+        )
+        self.assertEqual(dispatch.call_args.kwargs["correlation_id"],"corrective-1")
+        self.assertEqual(dispatch.call_args.kwargs["inputs"]["samuel_action_id"],p.idempotency_key)
+        self.assertEqual(dispatch.call_args.kwargs["inputs"]["samuel_dispatch_id"],"corrective-1")
 
     @patch("chatgpt_operation.github.native_orchestration.observe_dispatch_once")
     def test_async_observation_never_redispatches(self, observe):
@@ -113,8 +126,8 @@ class IntentRecoveryTests(unittest.TestCase):
         )
         base={"workflow_id":1,"workflow_path":".github/workflows/samuel-native-github.yml",
               "ref":"main","correlation_id":p.idempotency_key,
-              "correlation_input":"samuel_action_id",
-              "correlation_run_name_prefix":"Samuel Native GitHub Executor action:",
+              "correlation_input":"samuel_dispatch_id",
+              "correlation_run_name_prefix":"Samuel Native GitHub Executor dispatch:",
               "requested_at":intent.requested_at,"workflow_run_id":None}
         build_receipt.return_value=base
         observe.return_value={"status":"MATCHED_ACTIVE","matched_run_ids":[99]}
