@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 
 from .action_lifecycle import DispatchIntent
+from .action_plan import ExecutorKind
 from .command import ControllerCommand, ControllerCommandKind
 from .diagnostic import (
     recovery_authorization_to_dict,
@@ -106,28 +107,108 @@ class ExecutionGateway:
             raise ExecutionGatewayError("unsupported controller command") from exc
         return handler(state, command.action_id)
 
+    @staticmethod
+    def _action_prefix(plan) -> str:
+        if plan.executor is ExecutorKind.GITHUB_NATIVE:
+            return "Samuel Native GitHub Executor dispatch:"
+        if plan.executor is ExecutorKind.REPOSITORY_MUTATION:
+            return "Samuel Repository Mutation dispatch:"
+        raise ExecutionGatewayError(
+            "unsupported production action executor: " + plan.executor.value
+        )
+
+    def _dispatch_action_plan(
+        self,
+        plan,
+        intent: DispatchIntent,
+    ) -> dict[str, Any]:
+        if plan.executor is ExecutorKind.GITHUB_NATIVE:
+            return dispatch_native_plan_async(
+                plan,
+                transport=self.transport,
+                ref=intent.ref,
+                workflow=intent.workflow,
+            )
+        if plan.executor is ExecutorKind.REPOSITORY_MUTATION:
+            payload={
+                "schema_version":1,
+                "research_id":plan.research_id,
+                "stage":plan.stage.value,
+                "executor":plan.executor.value,
+                "payload":plan.payload,
+                "expected_observation":plan.expected_observation,
+                "decision_risk":None if plan.decision_risk is None else {
+                    "impact":plan.decision_risk.impact,
+                    "uncertainty":plan.decision_risk.uncertainty,
+                    "irreversibility":plan.decision_risk.irreversibility,
+                },
+            }
+            return dispatch_workflow(
+                self.transport,
+                workflow=intent.workflow,
+                ref=intent.ref,
+                inputs={
+                    "samuel_action_id":plan.idempotency_key,
+                    "samuel_dispatch_id":plan.idempotency_key,
+                    "plan_json":__import__("json").dumps(
+                        payload,sort_keys=True,separators=(",",":")
+                    ),
+                },
+                correlation_id=plan.idempotency_key,
+                correlation_input="samuel_dispatch_id",
+                correlation_run_name_prefix=self._action_prefix(plan),
+            )
+        raise ExecutionGatewayError(
+            "unsupported production action executor: " + plan.executor.value
+        )
+
     def _dispatch_action(self, state: ResearchState, action_id: str) -> GatewayResult:
         plan, intent = resume_dispatch_intent(state, action_id)
-        receipt = dispatch_native_plan_async(
-            plan,
-            transport=self.transport,
-            ref=intent.ref,
-            workflow=intent.workflow,
-        )
+        receipt = self._dispatch_action_plan(plan, intent)
         if isinstance(receipt.get("workflow_run_id"), int):
             return GatewayResult("action", action_id, GatewayStatus.RECEIPT, receipt=receipt)
         return GatewayResult("action", action_id, GatewayStatus.WAIT)
 
     def _reconcile_action(self, state: ResearchState, action_id: str) -> GatewayResult:
         plan, intent = resume_dispatch_intent(state, action_id)
-        reconciled = observe_native_intent(
-            plan,
-            intent,
-            transport=self.transport,
-            expected_head_sha=intent.expected_head_sha,
-        )
-        observation = reconciled["observation"]
-        bound = reconciled.get("receipt")
+        if plan.executor is ExecutorKind.GITHUB_NATIVE:
+            reconciled = observe_native_intent(
+                plan,
+                intent,
+                transport=self.transport,
+                expected_head_sha=intent.expected_head_sha,
+            )
+            observation = reconciled["observation"]
+            bound = reconciled.get("receipt")
+        elif plan.executor is ExecutorKind.REPOSITORY_MUTATION:
+            receipt = observation_receipt_from_identity(
+                self.transport,
+                workflow=intent.workflow,
+                ref=intent.ref,
+                correlation_id=plan.idempotency_key,
+                requested_at=intent.requested_at,
+                correlation_input="samuel_dispatch_id",
+                correlation_run_name_prefix=self._action_prefix(plan),
+            )
+            observation = observe_dispatch_once(
+                self.transport,
+                receipt,
+                expected_head_sha=intent.expected_head_sha,
+            )
+            matched=observation.get("matched_run_ids") or []
+            bound=None
+            if observation.get("status") in {"MATCHED_ACTIVE","MATCHED_TERMINAL"}:
+                if len(matched)!=1:
+                    raise ExecutionGatewayError(
+                        "matched repository mutation dispatch is not unique"
+                    )
+                bound=dict(receipt)
+                bound["workflow_run_id"]=int(matched[0])
+                bound["recovered_from_intent"]=True
+        else:
+            raise ExecutionGatewayError(
+                "unsupported production action executor: " + plan.executor.value
+            )
         if bound is not None:
             return GatewayResult(
                 "action", action_id, GatewayStatus.RECEIPT,
@@ -139,12 +220,7 @@ class ExecutionGateway:
                 "action", action_id, GatewayStatus.WAIT, observation=observation
             )
         if status == "NO_MATCH":
-            receipt = dispatch_native_plan_async(
-                plan,
-                transport=self.transport,
-                ref=intent.ref,
-                workflow=intent.workflow,
-            )
+            receipt = self._dispatch_action_plan(plan, intent)
             if isinstance(receipt.get("workflow_run_id"), int):
                 return GatewayResult(
                     "action", action_id, GatewayStatus.RECEIPT,
