@@ -15,7 +15,11 @@ from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, Action
 from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
 from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus
 from chatgpt_operation.github.native_executor import NativeGitHubError
-from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_runtime_provider
+from chatgpt_operation.github.execution_kernel import (
+    ExecutionKernel,
+    ExecutionKernelError,
+    native_runtime_provider,
+)
 from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
 from chatgpt_operation.controller.durable_state import (
     apply_dispatch_receipt,
@@ -356,6 +360,24 @@ def github_native_execute(args: argparse.Namespace) -> int:
             state=state,
         ).execute(plan, recovery_authorization=auth)
         result = receipt.result
+    except ExecutionKernelError as exc:
+        if "plan" not in locals():
+            print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
+            return 2
+        result = ExecutionResult(
+            research_id=plan.research_id,
+            action_id=plan.idempotency_key,
+            executor=plan.executor,
+            status=ExecutionStatus.FAILED,
+            observation="native execution kernel failed closed",
+            retryable=False,
+            details={
+                "provider":"repository-native",
+                "error_type":type(exc).__name__,
+                "error":str(exc),
+                "available_providers":[],
+            },
+        )
     except (OSError, json.JSONDecodeError, ActionPlanError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
         print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
         return 2
