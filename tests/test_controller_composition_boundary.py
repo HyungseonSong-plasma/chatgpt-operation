@@ -8,6 +8,9 @@ def test_bootstrap_routes_selection_and_planning_through_composition_root():
     assert "plan_admitted_issue" not in workflow
     assert "consume_reasoning_submission" not in workflow
     assert "transition_issue_status" not in workflow
+    assert "record_action_dispatch_intent" not in workflow
+    assert "record_evidence_dispatch_intent" not in workflow
+    assert "record_diagnostic_dispatch_intent" not in workflow
     assert "ReasoningProviderRegistry()" not in workflow
 
 
@@ -23,3 +26,6 @@ def test_composition_root_owns_internal_selection_and_preflight_calls():
     assert "plan_admitted_issue(" in source
     assert "consume_reasoning_submission(" in source
     assert "transition_issue_status(" in source
+    assert "record_action_dispatch_intent(" in source
+    assert "record_evidence_dispatch_intent(" in source
+    assert "record_diagnostic_dispatch_intent(" in source
