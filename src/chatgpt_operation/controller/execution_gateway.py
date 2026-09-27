@@ -266,6 +266,15 @@ class ExecutionGateway:
                 raise ExecutionGatewayError(
                     f"ambiguous recovered {surface} workflow run"
                 )
+            if (
+                surface == "evidence"
+                and status == "MATCHED_TERMINAL"
+                and observation.get("conclusion") != "success"
+            ):
+                raise ExecutionGatewayError(
+                    "evidence acquisition workflow failed: "
+                    + str(observation.get("conclusion"))
+                )
             receipt = dict(receipt)
             receipt["workflow_run_id"] = int(matched[0])
             receipt["recovered_from_intent"] = True
