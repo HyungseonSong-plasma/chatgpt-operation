@@ -17,7 +17,7 @@ from chatgpt_operation.github.actions_runtime import (
 )
 
 
-NATIVE_RUN_NAME_PREFIX = "Samuel Native GitHub Executor action:"
+NATIVE_RUN_NAME_PREFIX = "Samuel Native GitHub Executor dispatch:"
 
 
 class NativeOrchestrationError(RuntimeError):
@@ -33,14 +33,19 @@ def dispatch_native_plan_async(
     ref: str,
     recovery_state: str | None = None,
     recovery_authorization: dict[str, Any] | None = None,
+    dispatch_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch once and return a durable receipt without waiting for completion."""
     if plan.executor is not ExecutorKind.GITHUB_NATIVE:
         raise NativeOrchestrationError("only github_native plans may be dispatched")
     if plan.requires_escalation():
         raise NativeOrchestrationError("plan requires escalation before dispatch")
+    correlation_id = dispatch_id or plan.idempotency_key
+    if not isinstance(correlation_id, str) or not correlation_id.strip():
+        raise NativeOrchestrationError("dispatch_id must be a non-empty string")
     inputs = {
         "samuel_action_id": plan.idempotency_key,
+        "samuel_dispatch_id": correlation_id,
         "plan_json": json.dumps({
             "schema_version": 1,
             "research_id": plan.research_id,
@@ -65,8 +70,8 @@ def dispatch_native_plan_async(
         workflow=workflow,
         ref=ref,
         inputs=inputs,
-        correlation_id=plan.idempotency_key,
-        correlation_input="samuel_action_id",
+        correlation_id=correlation_id,
+        correlation_input="samuel_dispatch_id",
         correlation_run_name_prefix=NATIVE_RUN_NAME_PREFIX,
     )
 
@@ -77,6 +82,7 @@ def observe_native_intent(
     *,
     transport: GitHubActionsTransport,
     expected_head_sha: str | None = None,
+    dispatch_id: str | None = None,
 ) -> dict[str, Any]:
     """Reconcile a pre-dispatch intent without issuing another dispatch."""
     if (
@@ -84,13 +90,14 @@ def observe_native_intent(
         or plan.research_id != intent.research_id
     ):
         raise NativeOrchestrationError("dispatch intent does not match ActionPlan")
+    correlation_id = dispatch_id or intent.action_id
     receipt = observation_receipt_from_identity(
         transport,
         workflow=intent.workflow,
         ref=intent.ref,
-        correlation_id=intent.action_id,
+        correlation_id=correlation_id,
         requested_at=intent.requested_at,
-        correlation_input="samuel_action_id",
+        correlation_input="samuel_dispatch_id",
         correlation_run_name_prefix=NATIVE_RUN_NAME_PREFIX,
     )
     observation = observe_dispatch_once(
@@ -113,10 +120,12 @@ def observe_native_plan(
     *,
     transport: GitHubActionsTransport,
     expected_head_sha: str | None = None,
+    dispatch_id: str | None = None,
 ) -> dict[str, Any]:
     """Observe a persisted dispatch once; never redispatch it."""
-    if receipt.get("correlation_id") != plan.idempotency_key:
-        raise NativeOrchestrationError("dispatch receipt does not match ActionPlan")
+    expected_dispatch_id = dispatch_id or plan.idempotency_key
+    if receipt.get("correlation_id") != expected_dispatch_id:
+        raise NativeOrchestrationError("dispatch receipt does not match expected execution identity")
     return observe_dispatch_once(
         transport,
         receipt,
