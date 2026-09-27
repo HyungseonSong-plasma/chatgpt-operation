@@ -29,7 +29,10 @@ class IssueReasoningTests(unittest.TestCase):
             "compatible_with_locked_decisions":True,
             "revision_requested":False,"action_plan":None,
         })
-        outcome,plan,_=compile_guarded_action(proposal,self.envelope())
+        envelope=self.envelope()
+        from dataclasses import replace
+        envelope=replace(envelope,implementation_gaps=("missing:test-capability",))
+        outcome,plan,_=compile_guarded_action(proposal,envelope)
         self.assertEqual(outcome,GuardOutcome.BLOCKED)
         self.assertIsNone(plan)
 
