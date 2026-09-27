@@ -24,6 +24,14 @@ class SamuelBootstrapTests(unittest.TestCase):
         self.assertNotIn("plan_json", text)
 
 
+    def test_evidence_path_never_uses_blocking_dispatch_wait(self):
+        text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
+        start=text.index('if selected.get("kind") in {"evidence","evidence_intent","evidence_observation"}:')
+        end=text.index('if selected.get("kind") in {"action","action_intent","action_observation"}:',start)
+        self.assertNotIn("dispatch_and_wait",text[start:end])
+        self.assertIn("dispatch_workflow(",text[start:end])
+        self.assertIn("observe_dispatch_once(",text[start:end])
+
     def test_pending_work_resolves_repository_provider_from_registry(self):
         work=load_pending("automation/samuel/bootstrap.json")[0]
         provider=resolve_bootstrap_provider(work)
