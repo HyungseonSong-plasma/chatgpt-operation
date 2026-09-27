@@ -1,10 +1,12 @@
 from pathlib import Path
 
 
-def test_native_workflow_exposes_action_id_in_run_name():
+def test_native_workflow_separates_action_and_dispatch_identity():
     text=Path(".github/workflows/samuel-native-github.yml").read_text(encoding="utf-8")
     assert "samuel_action_id:" in text
-    assert "run-name: Samuel Native GitHub Executor action:" in text
+    assert "samuel_dispatch_id:" in text
+    assert "run-name: Samuel Native GitHub Executor dispatch:" in text
+    assert "inputs.samuel_dispatch_id" in text
     assert "inputs.samuel_action_id" in text
 
 
