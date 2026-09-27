@@ -33,6 +33,29 @@ def merge_plan():
     })
 
 
+
+def create_pr_plan():
+    return ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"samuel-55",
+        "stage":"implement",
+        "executor":"github_native",
+        "payload":{
+            "action":"create_pr",
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "target":{
+                "head":"samuel/issues-24-43",
+                "base":"main",
+                "title":"Telemetry maintenance",
+                "body":"Implements #24 and #43",
+            },
+            "preconditions":{"pr_present":False},
+            "desired_postcondition":{"pr_present":True},
+        },
+        "expected_observation":"reviewable PR exists",
+    })
+
+
 class ExecutionKernelTests(unittest.TestCase):
     def test_merge_provider_executes_and_verifies_postcondition(self):
         states = iter([
@@ -51,6 +74,31 @@ class ExecutionKernelTests(unittest.TestCase):
         self.assertTrue(receipt.attempted)
         self.assertTrue(receipt.complete)
         self.assertEqual(len(mutations), 1)
+
+
+    def test_create_pr_capability_executes_through_kernel(self):
+        states=iter([
+            {"pr_present":False},
+            {"pr_present":True,"pr_number":134},
+        ])
+        calls=[]
+        provider=ExecutionProvider(
+            name="repository-native",
+            capabilities=frozenset({GitHubCapability.CREATE_PR}),
+            read_state=lambda action,target: next(states),
+            mutate=lambda action,target: calls.append((action,target)) or {
+                "number":134
+            },
+        )
+        receipt=ExecutionKernel(
+            [provider],
+            state=ResearchState(
+                "samuel-55","kernel test",stage=ResearchStage.IMPLEMENT
+            ),
+        ).execute(create_pr_plan())
+        self.assertEqual(receipt.result.status,ExecutionStatus.PASS)
+        self.assertEqual(receipt.capability,GitHubCapability.CREATE_PR)
+        self.assertEqual(len(calls),1)
 
     def test_missing_provider_fails_closed_without_invented_authority_reason(self):
         with self.assertRaisesRegex(
