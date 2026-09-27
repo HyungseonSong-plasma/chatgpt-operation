@@ -55,7 +55,7 @@ def test_dispatch_receipt_is_durable_and_reentrant_without_redispatch():
         "ref":"main",
         "correlation_id":p.idempotency_key,
         "requested_at":"2026-09-27T12:00:00Z",
-        "workflow_run_id":None,
+        "workflow_run_id":99,
     }
     before=s.revision
     intent=record_action_dispatch_intent(
@@ -75,6 +75,27 @@ def test_dispatch_receipt_is_durable_and_reentrant_without_redispatch():
     assert persisted==receipt
     record_action_dispatch(s,p.idempotency_key,receipt)
     assert s.revision==before+2
+
+
+def test_dispatch_receipt_requires_authoritative_workflow_run_id():
+    p=plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
+    enqueue_suspended_action(s,p)
+    record_action_dispatch_intent(
+        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",
+        requested_at="2026-09-27T12:00:00Z"
+    )
+    try:
+        record_action_dispatch(
+            s,p.idempotency_key,{
+                "correlation_id":p.idempotency_key,
+                "ref":"main",
+                "workflow_run_id":None,
+            },
+        )
+    except ValueError as exc:
+        assert "authoritative workflow_run_id" in str(exc)
+    else:
+        raise AssertionError("receipt without workflow run identity must fail closed")
 
 
 def test_dispatch_receipt_rejects_wrong_action_identity():
