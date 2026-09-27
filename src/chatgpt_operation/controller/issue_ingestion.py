@@ -45,7 +45,7 @@ def decode_admission_ledger(body: str) -> dict[str, dict[str, Any]]:
     if ADMISSION_MARKER not in body:
         raise AdmissionError("admission marker missing")
     start=body.find("~~~json")
-    end=body.find("~~~",start+7)
+    end=body.rfind("~~~")
     if start < 0 or end < 0:
         raise AdmissionError("admission ledger JSON fence missing")
     raw=json.loads(body[start+7:end].strip())
