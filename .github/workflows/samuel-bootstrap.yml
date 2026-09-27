@@ -300,6 +300,79 @@ jobs:
           PY
           fi
 
+      - name: Persist durable action dispatch intent
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          selected_kind="$(python3 -c 'import json; print(json.load(open("samuel-selected-work.json")).get("kind",""))')"
+          if [ "$selected_kind" != "action" ]; then exit 0; fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-intent-comments.json
+          python3 - <<'PY'
+          import copy, json
+          from datetime import datetime, timezone
+          from chatgpt_operation.controller.diagnostic import record_action_dispatch_intent
+          from chatgpt_operation.controller.durable_state import load_state_comment, state_write_request
+
+          selected=json.load(open("samuel-selected-work.json"))
+          comments=json.load(open("action-intent-comments.json"))
+          current=load_state_comment(comments)
+          if current is None:
+              raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP durable state missing")
+          action_id=selected["action_id"]
+          item=current.action_queue.get(action_id)
+          if not isinstance(item,dict):
+              raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP action missing from durable queue")
+          status=item.get("status")
+          if status in {"dispatch_intent","dispatched","complete"}:
+              print("SAMUEL_ACTION_INTENT=NOOP status="+str(status)+" action_id="+action_id)
+              raise SystemExit(0)
+          if status != "pending":
+              raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP unexpected status "+str(status))
+          proposed=copy.deepcopy(current)
+          requested_at=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
+          record_action_dispatch_intent(
+              proposed,action_id,workflow="samuel-native-github.yml",ref="main",
+              requested_at=requested_at,
+          )
+          request=state_write_request(comments,proposed)
+          open("samuel-action-intent-write.json","w").write(
+              json.dumps(request,sort_keys=True,separators=(",",":"))
+          )
+          PY
+          if [ ! -f samuel-action-intent-write.json ]; then exit 0; fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-intent-prewrite-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          comments=json.load(open("action-intent-prewrite-comments.json"))
+          request=json.load(open("samuel-action-intent-write.json"))
+          validate_state_write_precondition(comments,request)
+          PY
+          method="$(python3 -c 'import json; print(json.load(open("samuel-action-intent-write.json"))["method"])')"
+          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-action-intent-write.json"))["comment_id"]; print("" if x is None else x)')"
+          body="$(python3 -c 'import json; print(json.load(open("samuel-action-intent-write.json"))["body"])')"
+          if [ "$method" = "PATCH" ]; then
+            test -n "$comment_id"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-intent-readback-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import load_state_comment
+          request=json.load(open("samuel-action-intent-write.json"))
+          selected=json.load(open("samuel-selected-work.json"))
+          persisted=load_state_comment(json.load(open("action-intent-readback-comments.json")))
+          if persisted is None or persisted.revision != request["expected_revision"]:
+              raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP readback revision mismatch")
+          item=persisted.action_queue.get(selected["action_id"],{})
+          if item.get("status") != "dispatch_intent":
+              raise SystemExit("SAMUEL_ACTION_INTENT=HARD_STOP intent not durable")
+          print("SAMUEL_ACTION_INTENT=PERSISTED action_id="+selected["action_id"])
+          PY
       - name: Wake pending Samuel work
         env:
           PYTHONPATH: src
