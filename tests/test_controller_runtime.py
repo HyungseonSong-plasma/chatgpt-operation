@@ -29,9 +29,17 @@ class Provider:
     name = "fixture"
     def __init__(self):
         self.calls = 0
+        self.context = None
     def reason(self, **kwargs):
         self.calls += 1
-        raise AssertionError("composition preflight must not invoke semantic provider")
+        self.context = kwargs["context"]
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":native_action_plan(),
+        }
 
 
 def controller(reasoning=None, now=None):
@@ -198,15 +206,28 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(persisted["issue:44"]["status"],"reasoning_required")
         self.assertIsNone(result.state_write)
 
-    def test_available_provider_is_observed_but_not_invoked_in_preflight(self):
+    def test_available_provider_is_invoked_and_guarded_in_root_cycle(self):
         provider=Provider()
         result=controller(ReasoningProviderRegistry(provider)).run_cycle(
-            trigger(),comments=[admitted_comment()],pending=[]
+            trigger(),
+            comments=[admitted_comment()],
+            pending=[],
+            repository_context={"open_issues":[{"number":43}]},
         )
-        self.assertEqual(provider.calls,0)
+        self.assertEqual(provider.calls,1)
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertIsNotNone(result.execution_command)
         self.assertTrue(result.issue_planning["semantic_provider"]["available"])
         self.assertEqual(result.issue_planning["semantic_provider"]["provider"],"fixture")
-        self.assertEqual(result.issue_planning["outcome"],"reasoning_required")
+        self.assertEqual(
+            result.issue_planning["semantic_provider"]["mode"],
+            "AUTO_WITH_AUDIT",
+        )
+        self.assertEqual(result.issue_planning["outcome"],"continue")
+        self.assertEqual(
+            provider.context["repository_context"]["open_issues"][0]["number"],
+            43,
+        )
 
     def test_existing_submission_is_consumed_in_same_root_cycle(self):
         result=controller().run_cycle(
