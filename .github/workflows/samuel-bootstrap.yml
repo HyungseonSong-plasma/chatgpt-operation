@@ -279,22 +279,31 @@ jobs:
             exit 2
           fi
           run_id="$(cat "$run_file")"
-          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" > terminal-artifacts.json
           export SAMUEL_TERMINAL_SURFACE="$surface"
-          artifact_id="$(python3 -c '
-          import json,os,sys
+          artifact_id="$(
+          python3 - <<'PY'
+          import json, os
           surface=os.environ["SAMUEL_TERMINAL_SURFACE"]
-          items=json.load(sys.stdin)["artifacts"]
+          items=json.load(open("terminal-artifacts.json"))["artifacts"]
           def match(item):
-              if item.get("expired"): return False
+              if item.get("expired"):
+                  return False
               name=str(item.get("name",""))
-              if surface=="action": return name.startswith("samuel-execution-result-")
-              if surface=="evidence": return name=="samuel-evidence-result"
+              if surface=="action":
+                  return name.startswith("samuel-execution-result-")
+              if surface=="evidence":
+                  return name=="samuel-evidence-result"
               return name=="samuel-diagnostic-result"
-          matches=[x for x in items if match(x)]
-          assert len(matches)==1, f"expected one {surface} artifact, found {len(matches)}"
+          matches=[item for item in items if match(item)]
+          if len(matches)!=1:
+              raise SystemExit(
+                  f"SAMUEL_TERMINAL=HARD_STOP expected one {surface} artifact, "
+                  f"found {len(matches)}"
+              )
           print(matches[0]["id"])
-          ' <<<"$artifact_json")"
+          PY
+          )"
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o terminal.zip
           rm -rf terminal-result && mkdir terminal-result
