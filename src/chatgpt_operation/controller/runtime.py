@@ -425,6 +425,10 @@ class SamuelController:
                 state=state,
                 payload=payload,
             )
+        if payload["kind"] == "pending":
+            raise ControllerCompositionError(
+                "legacy static workflow work is not supported by production controller"
+            )
         if payload["kind"] != "issue":
             command = None if state is None else self._command_for_in_flight(
                 payload, state
