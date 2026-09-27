@@ -187,6 +187,37 @@ class ActionsRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "MATCHED_TERMINAL")
 
+    def test_wait_retries_legacy_no_match_until_run_becomes_visible(self):
+        t = FakeTransport(dispatch=(204, None), runs=[])
+        calls = {"n": 0}
+        original_get = t.get
+        def delayed_get(path, *, query=None):
+            if path.startswith("/actions/workflows/") and path.endswith("/runs"):
+                calls["n"] += 1
+                if calls["n"] >= 2:
+                    t.runs = [run()]
+            return original_get(path, query=query)
+        t.get = delayed_get
+        receipt = dispatch_workflow(
+            t,
+            workflow="issue-26-observation-e2e.yml",
+            ref="issue-26-actions-observation",
+            correlation_input=None,
+            now=lambda: dt(),
+        )
+        ticks = iter([0.0, 0.0, 1.0, 1.0])
+        result = wait_for_dispatch(
+            t,
+            receipt,
+            timeout_seconds=10,
+            poll_interval_seconds=0,
+            now=lambda: dt(61),
+            monotonic=lambda: next(ticks),
+            sleep=lambda _: None,
+        )
+        self.assertEqual(result["status"], "MATCHED_TERMINAL")
+        self.assertEqual(result["matched_run_ids"], [9001])
+
     def test_conflicting_correlation_input_is_rejected_before_dispatch(self):
         t = FakeTransport(dispatch=(200, {"workflow_run_id": 9001}))
         with self.assertRaises(ActionsRuntimeError):
