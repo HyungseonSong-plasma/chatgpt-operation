@@ -12,6 +12,7 @@ from enum import Enum
 import copy
 from typing import Any, Callable
 
+from .action_lifecycle import ActionLifecycle, DispatchIntent
 from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
@@ -777,6 +778,63 @@ class SamuelController:
             admitted_work=admitted,
         )
         payload = _selected_payload(selected)
+        if payload["kind"] == "action_intent":
+            if state is None:
+                raise ControllerCompositionError(
+                    "action intent requires durable controller state"
+                )
+            action_id=payload.get("action_id")
+            if not isinstance(action_id,str) or not action_id:
+                raise ControllerCompositionError(
+                    "action intent has no action_id"
+                )
+            queued=state.action_queue.get(action_id)
+            if not isinstance(queued,dict):
+                raise ControllerCompositionError(
+                    "action intent has no durable queue entry"
+                )
+            intent=DispatchIntent.from_dict(queued.get("dispatch_intent"))
+            observed_ref=trigger.executor_ref.strip()
+            observed_head=trigger.executor_head_sha.strip()
+            if (
+                intent.expected_head_sha is not None
+                and observed_ref
+                and observed_head
+                and intent.ref == observed_ref
+                and intent.expected_head_sha != observed_head
+            ):
+                proposed=copy.deepcopy(state)
+                retired=proposed.action_queue[action_id]
+                retired.setdefault("dispatch_intent_history",[]).append({
+                    **intent.to_dict(),
+                    "retired_reason":"executor_source_advanced_before_dispatch",
+                    "observed_executor_head_sha":observed_head,
+                })
+                retired["status"]=ActionLifecycle.REJECTED.value
+                retired.pop("dispatch_intent",None)
+                retired.pop("dispatch_receipt",None)
+                proposed.revision += 1
+                admission_write=None
+                if state.research_id in admitted:
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"reasoning_required"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                return ControllerCycle(
+                    trigger,
+                    {
+                        "kind":"stale_action_intent",
+                        "action_id":action_id,
+                        "expected_head_sha":intent.expected_head_sha,
+                        "observed_head_sha":observed_head,
+                    },
+                    None,
+                    admission_write,
+                    state_write_request(comments,proposed),
+                    None,
+                )
         if payload["kind"] in {"action", "evidence", "diagnostic", "corrective"}:
             if state is None:
                 raise ControllerCompositionError(
