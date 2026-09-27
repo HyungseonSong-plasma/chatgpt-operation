@@ -104,3 +104,26 @@ def test_terminal_ingestion_module_owns_terminal_state_semantics():
     assert "apply_evidence_patch(" in source
     assert "apply_diagnostic_patch(" in source
     assert "record_native_dispatch_evidence_failure(" in source
+
+
+def test_bootstrap_runs_only_from_trusted_default_branch_event_surfaces():
+    workflow=Path(".github/workflows/samuel-bootstrap.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "\n  pull_request:" not in workflow
+    assert "SAMUEL_REASONING_MODE: AUTO_WITH_AUDIT" in workflow
+    assert "samuel-planning-comment-payload.json" in workflow
+    assert "--input samuel-planning-comment-payload.json" in workflow
+
+
+def test_trusted_pr_validation_is_default_branch_workflow_run_gate():
+    workflow=Path(
+        ".github/workflows/samuel-trusted-pr-validation.yml"
+    ).read_text(encoding="utf-8")
+    assert "workflow_run:" in workflow
+    assert 'workflows: ["CI"]' in workflow
+    assert "conclusion == 'action_required'" in workflow
+    assert "actor.login == 'github-actions[bot]'" in workflow
+    assert "startsWith(github.event.workflow_run.head_branch, 'samuel/')" in workflow
+    assert "samuel/trusted-validation" in workflow
+    assert "gh workflow run samuel-bootstrap.yml --ref main" in workflow
