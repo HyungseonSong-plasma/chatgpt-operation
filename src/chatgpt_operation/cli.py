@@ -13,6 +13,7 @@ from chatgpt_operation.github.actions_observation import evaluate as evaluate_ac
 from chatgpt_operation.github.actions_execution import ActionsExecutionError, evaluate as evaluate_actions_execution, self_test as actions_execution_self_test
 from chatgpt_operation.github.actions_runtime import DEFAULT_API_VERSION, ActionsRuntimeError, GitHubActionsTransport, dispatch_workflow, wait_for_dispatch
 from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
+from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus
 from chatgpt_operation.github.native_executor import NativeGitHubError
 from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_runtime_provider
 from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
@@ -54,7 +55,15 @@ from chatgpt_operation.controller.qualification_gate import (
 )
 from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 from chatgpt_operation.github.native_orchestration import NativeOrchestrationError, dispatch_native_plan
-from chatgpt_operation.repository.mutation import MutationError, execute_from_files
+from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
+from chatgpt_operation.repository.mutation import (
+    Engine as RepositoryMutationEngine,
+    GitHubTransport as RepositoryGitHubTransport,
+    MutationError,
+    execute_from_files,
+    load_json as load_repository_json,
+    parse_policy as parse_repository_policy,
+)
 from chatgpt_operation.source import SourceVerificationError, verify_git_source
 from chatgpt_operation.skills.contracts import SkillContractError, validate_catalog
 from chatgpt_operation.skills.capability_registry import CapabilityRegistryError, validate_registry
@@ -106,6 +115,91 @@ def mutate(args: argparse.Namespace) -> int:
         print(json.dumps(failure,sort_keys=True),file=sys.stderr)
         return 3
     return 0
+
+def repository_execute_plan(args: argparse.Namespace) -> int:
+    token=os.environ.get(args.token_env)
+    if not token:
+        print(f"{args.token_env} is required",file=sys.stderr)
+        return 2
+    plan=None
+    try:
+        raw=json.loads(Path(args.input).read_text(encoding="utf-8"))
+        plan=ActionPlan.from_dict(raw)
+        manifest=to_repository_manifest(
+            plan,expected_repository=args.repository
+        )
+        policy=parse_repository_policy(load_repository_json(args.policy))
+        transport=RepositoryGitHubTransport(
+            args.repository,token,api_url=args.api_url
+        )
+        mutation=RepositoryMutationEngine(
+            transport,
+            repository=args.repository,
+            policy=policy,
+            current_run_id=args.current_run_id,
+        ).execute(manifest)
+        status=(
+            ExecutionStatus.NOOP
+            if mutation["status"]=="NO_MUTATION_NEEDED"
+            else ExecutionStatus.PASS
+        )
+        result=ExecutionResult(
+            research_id=plan.research_id,
+            action_id=plan.idempotency_key,
+            executor=plan.executor,
+            status=status,
+            observation=(
+                "desired repository postcondition already holds"
+                if status is ExecutionStatus.NOOP
+                else "repository mutation verified by postcondition readback"
+            ),
+            retryable=False,
+            details={"mutation":mutation,"after":mutation},
+        )
+        rc=0
+    except (
+        MutationError,
+    ) as exc:
+        if plan is None:
+            print(
+                f"REPOSITORY_PLAN_EXECUTION=HARD_STOP {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        result=ExecutionResult(
+            research_id=plan.research_id,
+            action_id=plan.idempotency_key,
+            executor=plan.executor,
+            status=ExecutionStatus.FAILED,
+            observation="repository mutation failed closed",
+            retryable=False,
+            details={
+                "provider":"repository-native",
+                "error_type":type(exc).__name__,
+                "error":str(exc),
+                "available_providers":[],
+            },
+        )
+        rc=2
+    except (OSError,json.JSONDecodeError,ActionPlanError,ValueError) as exc:
+        print(
+            f"REPOSITORY_PLAN_EXECUTION=HARD_STOP {exc}",
+            file=sys.stderr,
+        )
+        return 2
+    encoded=result.to_dict()
+    try:
+        persist(args.result,encoded)
+    except OSError as exc:
+        print(
+            f"REPOSITORY_PLAN_EXECUTION=HARD_STOP result persistence: {exc}",
+            file=sys.stderr,
+        )
+        return 3
+    print("REPOSITORY_PLAN_EXECUTION="+result.status.value.upper())
+    print(json.dumps(encoded,sort_keys=True))
+    return rc
+
 
 def source_verify(args: argparse.Namespace) -> int:
     try:
@@ -748,6 +842,23 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("--token-env",default="GITHUB_TOKEN"); m.add_argument("--current-run-id",default=os.environ.get("GITHUB_RUN_ID"))
     m.add_argument("--api-url",default=os.environ.get("GITHUB_API_URL","https://api.github.com")); m.add_argument("--result")
     m.set_defaults(func=mutate)
+    ep=rs.add_parser("execute-plan")
+    ep.add_argument("--input",required=True)
+    ep.add_argument(
+        "--policy",
+        default="automation/samuel/repository-mutation-policy.json",
+    )
+    ep.add_argument("--repository",default=os.environ.get("GITHUB_REPOSITORY"))
+    ep.add_argument("--token-env",default="GITHUB_TOKEN")
+    ep.add_argument(
+        "--current-run-id",default=os.environ.get("GITHUB_RUN_ID")
+    )
+    ep.add_argument(
+        "--api-url",
+        default=os.environ.get("GITHUB_API_URL","https://api.github.com"),
+    )
+    ep.add_argument("--result")
+    ep.set_defaults(func=repository_execute_plan)
 
     w=sub.add_parser("work"); ws=w.add_subparsers(dest="command",required=True)
     wn=ws.add_parser("new")
