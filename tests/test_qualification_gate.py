@@ -132,7 +132,7 @@ class QualificationGateTests(unittest.TestCase):
 
     def test_unsafe_action_blocks_promotion(self):
         report = evaluate_qualification_gate(
-            checks=[passed_check()],
+            checks=complete_checks(),
             metrics=metrics(100, unsafe_action_proposals=1),
             policy=self.policy,
         )
