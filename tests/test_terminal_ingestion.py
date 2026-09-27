@@ -139,6 +139,51 @@ def test_missing_action_artifact_retires_physical_attempt_for_safe_retry():
     assert attempt["failure_kind"]=="missing_execution_result_artifact"
 
 
+def test_bound_executor_identity_mismatch_retires_attempt_for_safe_retry():
+    p,state=dispatched_action()
+    result=ExecutionResult(
+        research_id="r",
+        action_id=p.idempotency_key,
+        executor=ExecutorKind.GITHUB_NATIVE,
+        status=ExecutionStatus.PASS,
+        observation="side effect happened under a newer executor source",
+        retryable=False,
+        details={
+            "after":{"comment_present":True},
+            "provenance":{
+                "schema_version":1,
+                "workflow_run_id":99,
+                "run_attempt":1,
+                "head_sha":"c"*40,
+                "action_id":p.idempotency_key,
+            },
+        },
+    )
+    gateway_result=gateway("action",p.idempotency_key,99)
+    gateway_result["observation"]={
+        "status":"BOUND_RUN_IDENTITY_MISMATCH",
+        "run_status":"completed",
+        "conclusion":"success",
+        "identity_mismatches":{
+            "head_sha":{"expected":HEAD,"observed":"c"*40}
+        },
+    }
+    ingestion=ingest_terminal_artifact(
+        state,
+        surface=TerminalSurface.ACTION,
+        run_id=99,
+        artifact_text=json.dumps(result.to_dict()),
+        gateway_result=gateway_result,
+    )
+    assert ingestion.outcome is TerminalIngestionOutcome.RECOVERED_INVALID_EVIDENCE
+    item=ingestion.proposed_state.action_queue[p.idempotency_key]
+    assert item["status"]=="pending"
+    attempt=item["dispatch_attempt_history"][-1]
+    assert attempt["workflow_run_id"]==99
+    assert attempt["conclusion"]=="success"
+    assert attempt["failure_kind"]=="bound_executor_identity_mismatch"
+
+
 def test_rejected_action_becomes_terminal_reasoning_evidence():
     p,state=dispatched_action()
     result=ExecutionResult(
