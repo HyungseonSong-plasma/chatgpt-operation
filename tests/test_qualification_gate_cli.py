@@ -16,16 +16,20 @@ def test_controller_qualify_writes_shadow_report_without_execution():
         checks=root/"checks.json"
         metrics=root/"metrics.json"
         result=root/"result.json"
+        domains=[
+            "reasoning","execution","observation","science",
+            "state","provenance","liveness","architecture",
+        ]
         write(checks,{
             "schema_version":1,
             "checks":[{
                 "schema_version":1,
-                "check_id":"baseline",
-                "domain":"architecture",
+                "check_id":domain,
+                "domain":domain,
                 "passed":True,
                 "mandatory":True,
                 "details":{"source":"deterministic-test"},
-            }],
+            } for domain in domains],
         })
         write(metrics,{
             "schema_version":1,
