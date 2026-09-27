@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from chatgpt_operation.controller.action_lifecycle import ActionLifecycle
 from chatgpt_operation.skills.capability_registry import (
     RegisteredProvider,
     resolve_providers,
@@ -87,6 +88,51 @@ def select_controller_work(
     admitted_work: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, Any] | None:
     """Prioritize unresolved recovery work over ordinary pending work."""
+    actions = action_queue or {}
+    valid_action_statuses = {
+        ActionLifecycle.PENDING.value,
+        ActionLifecycle.DISPATCH_INTENT.value,
+        ActionLifecycle.DISPATCHED.value,
+        ActionLifecycle.SUSPENDED.value,
+        ActionLifecycle.COMPLETE.value,
+    }
+    invalid = sorted(
+        action_id for action_id, item in actions.items()
+        if item.get("status") not in valid_action_statuses
+    )
+    if invalid:
+        raise BootstrapError("durable action has unsupported lifecycle status: " + invalid[0])
+
+    in_flight = sorted(
+        action_id for action_id, item in actions.items()
+        if item.get("status") in {
+            ActionLifecycle.DISPATCH_INTENT.value,
+            ActionLifecycle.DISPATCHED.value,
+        }
+    )
+    if len(in_flight) > 1:
+        raise BootstrapError("multiple in-flight durable actions")
+    if in_flight:
+        action_id = in_flight[0]
+        item = actions[action_id]
+        if not isinstance(item.get("plan"), dict):
+            raise BootstrapError("in-flight durable action has no typed plan")
+        if item.get("status") == ActionLifecycle.DISPATCH_INTENT.value:
+            if not isinstance(item.get("dispatch_intent"), dict):
+                raise BootstrapError("dispatch intent lifecycle has no typed intent")
+            return ("action_intent", {
+                "action_id": action_id,
+                "plan": item["plan"],
+                "dispatch_intent": item["dispatch_intent"],
+            })
+        if not isinstance(item.get("dispatch_receipt"), dict):
+            raise BootstrapError("dispatched lifecycle has no typed receipt")
+        return ("action_observation", {
+            "action_id": action_id,
+            "plan": item["plan"],
+            "dispatch_receipt": item["dispatch_receipt"],
+        })
+
     recoveries = diagnostic_recoveries or {}
     open_ids = sorted(
         action_id
@@ -103,7 +149,6 @@ def select_controller_work(
     if evidence_ids:
         action_id = evidence_ids[0]
         return ("evidence", {"action_id": action_id, "recovery": recoveries[action_id]})
-    actions = action_queue or {}
     pending_actions = sorted(
         action_id for action_id, item in actions.items()
         if item.get("status") == "pending"
