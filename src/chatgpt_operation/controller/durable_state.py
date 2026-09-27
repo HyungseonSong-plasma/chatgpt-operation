@@ -349,12 +349,21 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
         prior = previous.get("details", {}).get("failure_fingerprint")
         repeated = prior == fingerprint
     proposed.execution_results[result.action_id]["details"]["failure_fingerprint"] = fingerprint
-    if repeated and result.retryable:
+    provider_infrastructure_failure = (
+        result.details.get("error_type") == "ExecutionKernelError"
+        and isinstance(result.details.get("provider"), str)
+        and bool(result.details.get("provider"))
+    )
+    effective_retryable = result.retryable or provider_infrastructure_failure
+    proposed.execution_results[result.action_id]["details"][
+        "governance_retryable"
+    ] = effective_retryable
+    if repeated and effective_retryable:
         open_diagnostic_recovery(proposed, result, fingerprint=(fingerprint,))
         plan = ActionPlan.from_dict(proposed.action_queue[result.action_id]["plan"])
         attach_source_plan(proposed, result.action_id, plan)
         mark_action_suspended(proposed, result.action_id)
-    elif result.retryable:
+    elif effective_retryable:
         queued = proposed.action_queue[result.action_id]
         queued["status"] = "pending"
         queued.pop("dispatch_intent", None)
