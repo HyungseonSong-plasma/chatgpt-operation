@@ -70,3 +70,70 @@ def test_unknown_action_lifecycle_is_not_silently_ignored():
         assert "unsupported lifecycle" in str(exc)
     else:
         raise AssertionError("unknown lifecycle status must fail closed")
+
+def test_evidence_dispatch_intent_preempts_open_diagnostic_and_pending_action():
+    actions={"pending":{"status":"pending","plan":{"schema_version":1}}}
+    recoveries={
+        "e":{
+            "status":"needs_evidence",
+            "evidence_dispatch":{
+                "status":"dispatch_intent",
+                "intent":{"schema_version":2},
+                "correlation_id":"evidence-x",
+            },
+        },
+        "d":{"status":"open"},
+    }
+    selected=select_controller_work(
+        [],diagnostic_recoveries=recoveries,action_queue=actions
+    )
+    assert selected[0]=="evidence_intent"
+    assert selected[1]["action_id"]=="e"
+
+
+def test_dispatched_evidence_preempts_new_work():
+    recoveries={
+        "e":{
+            "status":"needs_evidence",
+            "evidence_dispatch":{
+                "status":"dispatched",
+                "intent":{"schema_version":2},
+                "correlation_id":"evidence-x",
+                "receipt":{"workflow_run_id":99},
+            },
+        },
+    }
+    selected=select_controller_work(
+        [],diagnostic_recoveries=recoveries,
+        action_queue={"p":{"status":"pending","plan":{"schema_version":1}}},
+    )
+    assert selected[0]=="evidence_observation"
+
+
+def test_action_and_evidence_cannot_be_in_flight_together():
+    actions={
+        "a":{
+            "status":"dispatched",
+            "plan":{"schema_version":1},
+            "dispatch_receipt":{"workflow_run_id":1},
+        }
+    }
+    recoveries={
+        "e":{
+            "status":"needs_evidence",
+            "evidence_dispatch":{
+                "status":"dispatch_intent",
+                "intent":{"schema_version":2},
+                "correlation_id":"evidence-x",
+            },
+        },
+    }
+    try:
+        select_controller_work(
+            [],diagnostic_recoveries=recoveries,action_queue=actions
+        )
+    except Exception as exc:
+        assert "multiple in-flight durable workflows" in str(exc)
+    else:
+        raise AssertionError("parallel external controller work must fail closed")
+
