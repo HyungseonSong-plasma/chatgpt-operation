@@ -332,17 +332,14 @@ class ControllerRuntimeTests(unittest.TestCase):
                 missing,comments=[state_comment(state)],pending=[]
             )
 
-    def test_pending_work_is_serialized_by_root(self):
+    def test_retired_legacy_pending_work_fails_closed_in_root(self):
         work=BootstrapWork(
             "legacy",BootstrapKind.WORKFLOW,"qualification.yml",ref="main"
         )
-        result=controller().run_cycle(trigger(),comments=[],pending=[work])
-        self.assertEqual(result.selected_work,{
-            "kind":"pending",
-            "work_id":"legacy",
-            "workflow":"qualification.yml",
-            "ref":"main",
-        })
+        with self.assertRaisesRegex(
+            ControllerCompositionError,"legacy static workflow work"
+        ):
+            controller().run_cycle(trigger(),comments=[],pending=[work])
 
     def test_partial_planned_commit_without_state_recovers_to_reasoning_required(self):
         result=controller().run_cycle(
