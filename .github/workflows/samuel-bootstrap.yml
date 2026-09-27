@@ -499,6 +499,9 @@ jobs:
                   if not isinstance(run_id,int):
                       raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP dispatched action lost run identity")
                   open("samuel-action-run-id.txt","w").write(str(run_id)+"\n")
+                  open("samuel-action-terminal-observation.json","w").write(
+                      json.dumps(observation,sort_keys=True,separators=(",",":"))
+                  )
                   print("SAMUEL_BOOTSTRAP=ACTION_TERMINAL action_id="+action_id)
                   raise SystemExit(0)
               if status in {"MATCHED_ACTIVE","PENDING_VISIBILITY","NO_MATCH","OBSERVATION_INCOMPLETE"}:
@@ -692,7 +695,28 @@ jobs:
           current=load_state_comment(comments)
           if current is None:
               raise SystemExit("SAMUEL_ACTION=HARD_STOP durable state disappeared")
-          raw=json.load(open("action-result/samuel-execution-result.json"))
+          selected=json.load(open("samuel-selected-work.json"))
+          terminal=json.load(open("samuel-action-terminal-observation.json"))
+          try:
+              raw=json.load(open("action-result/samuel-execution-result.json"))
+          except json.JSONDecodeError:
+              import copy
+              from chatgpt_operation.controller.diagnostic import record_native_dispatch_evidence_failure
+              action_id=selected["action_id"]
+              run_id=int(open("samuel-action-run-id.txt").read().strip())
+              proposed=copy.deepcopy(current)
+              record_native_dispatch_evidence_failure(
+                  proposed,action_id,workflow_run_id=run_id,
+                  conclusion=str(terminal.get("conclusion") or "unknown"),
+                  failure_kind="invalid_execution_result_json",
+              )
+              request=state_write_request(comments,proposed)
+              open("samuel-action-completion-write.json","w").write(
+                  json.dumps(request,sort_keys=True,separators=(",",":"))
+              )
+              open("samuel-action-evidence-recovery.txt","w").write(action_id)
+              print("SAMUEL_ACTION=RECOVER_INVALID_EVIDENCE action_id="+action_id)
+              raise SystemExit(0)
           result=ExecutionResult.from_dict(raw)
           item=current.action_queue.get(result.action_id)
           if isinstance(item,dict) and item.get("status") == "complete":
@@ -700,9 +724,9 @@ jobs:
                   raise SystemExit("SAMUEL_ACTION=HARD_STOP conflicting completion replay")
               print("SAMUEL_ACTION=NOOP action_id="+result.action_id)
               raise SystemExit(0)
-          if result.status.value in {"PASS","NOOP"}:
+          if result.status.value in {"pass","noop"}:
               proposed=apply_action_completion(current,result)
-          elif result.status.value == "FAILED":
+          elif result.status.value == "failed":
               proposed=apply_action_failure(current,result)
           else:
               raise SystemExit("SAMUEL_ACTION=HARD_STOP unsupported terminal result "+result.status.value)
@@ -740,11 +764,19 @@ jobs:
           persisted=load_state_comment(json.load(open("action-completion-readback-comments.json")))
           if persisted is None or persisted.revision != request["expected_revision"]:
               raise SystemExit("SAMUEL_ACTION=HARD_STOP completion readback revision mismatch")
-          item=persisted.action_queue.get(raw["action_id"],{})
-          expected="complete" if raw["status"] in {"PASS","NOOP"} else None
-          if expected is not None and item.get("status") != expected:
-              raise SystemExit("SAMUEL_ACTION=HARD_STOP completion state mismatch")
-          print("SAMUEL_ACTION=PERSISTED action_id="+raw["action_id"]+" status="+str(item.get("status")))
+          if __import__("pathlib").Path("samuel-action-evidence-recovery.txt").exists():
+              action_id=open("samuel-action-evidence-recovery.txt").read().strip()
+              item=persisted.action_queue.get(action_id,{})
+              if item.get("status") != "pending":
+                  raise SystemExit("SAMUEL_ACTION=HARD_STOP evidence recovery state mismatch")
+              print("SAMUEL_ACTION=RECOVERED action_id="+action_id+" status=pending")
+          else:
+              raw=json.load(open("action-result/samuel-execution-result.json"))
+              item=persisted.action_queue.get(raw["action_id"],{})
+              expected="complete" if raw["status"] in {"pass","noop"} else None
+              if expected is not None and item.get("status") != expected:
+                  raise SystemExit("SAMUEL_ACTION=HARD_STOP completion state mismatch")
+              print("SAMUEL_ACTION=PERSISTED action_id="+raw["action_id"]+" status="+str(item.get("status")))
           PY
       - name: Persist diagnostic recovery state
         if: ${{ hashFiles('samuel-diagnostic-run-id.txt') != '' }}
