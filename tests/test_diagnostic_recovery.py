@@ -46,7 +46,8 @@ def test_corrective_action_requires_typed_alternative_provider():
     s = state({
         "provider": "connector",
         "error_type": "RuntimeError",
-        "provider_failures": [{"provider": "repository-native"}],
+        "available_providers": ["repository-native"],
+        "provider_failures": [{"provider": "connector"}],
     })
     assert advance_diagnostic(s, ACTION).advanced
     result = advance_diagnostic(s, ACTION)
