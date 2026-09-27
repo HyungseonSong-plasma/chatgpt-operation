@@ -18,6 +18,13 @@ from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_ru
 from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
 from chatgpt_operation.controller.durable_state import decode_state
 from chatgpt_operation.controller.research import ResearchState
+from chatgpt_operation.controller.bootstrap import load_pending
+from chatgpt_operation.controller.decisions import DecisionRegistry
+from chatgpt_operation.controller.runtime import (
+    ControllerTrigger,
+    SamuelController,
+    TriggerKind,
+)
 from chatgpt_operation.controller.qualification_gate import (
     QualificationCheck,
     QualificationGateError,
@@ -398,6 +405,40 @@ def skills_validate_capabilities(args: argparse.Namespace) -> int:
     return 0
 
 
+def controller_run_cycle(args: argparse.Namespace) -> int:
+    try:
+        comments=json.loads(Path(args.comments).read_text(encoding="utf-8"))
+        trigger=ControllerTrigger(
+            kind=TriggerKind(args.event_name),
+            action=args.event_action or "",
+            head_sha=args.head_sha or "",
+            ref=args.ref or "",
+        )
+        controller=SamuelController(
+            decisions=DecisionRegistry.load(args.decisions),
+        )
+        cycle=controller.run_cycle(
+            trigger,
+            comments=comments,
+            pending=load_pending(args.pending),
+        )
+        result=cycle.to_dict()
+    except (OSError,json.JSONDecodeError,ValueError) as exc:
+        print(f"CONTROLLER_CYCLE=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_CYCLE="+cycle.selected_work["kind"].upper())
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+        persist(args.selected_work_result,cycle.selected_work)
+        if cycle.issue_planning is not None:
+            persist(args.planning_result,cycle.issue_planning)
+    except OSError as exc:
+        print(f"CONTROLLER_CYCLE=HARD_STOP result persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
 def controller_evaluate(args: argparse.Namespace) -> int:
     try:
         snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -631,6 +672,21 @@ def parser() -> argparse.ArgumentParser:
     sc.set_defaults(func=skills_validate_capabilities)
 
     ctl=sub.add_parser("controller"); ctls=ctl.add_subparsers(dest="command",required=True)
+    crc=ctls.add_parser("run-cycle")
+    crc.add_argument("--comments",required=True)
+    crc.add_argument("--pending",default="automation/samuel/bootstrap.json")
+    crc.add_argument("--decisions",default="automation/samuel/decisions.json")
+    crc.add_argument(
+        "--event-name",required=True,
+        choices=[item.value for item in TriggerKind],
+    )
+    crc.add_argument("--event-action",default="")
+    crc.add_argument("--head-sha",default="")
+    crc.add_argument("--ref",default="")
+    crc.add_argument("--result")
+    crc.add_argument("--selected-work-result")
+    crc.add_argument("--planning-result")
+    crc.set_defaults(func=controller_run_cycle)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
     ce.set_defaults(func=controller_evaluate)
     cq=ctls.add_parser("qualify")
