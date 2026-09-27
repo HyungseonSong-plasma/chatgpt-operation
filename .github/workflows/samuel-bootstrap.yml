@@ -181,7 +181,7 @@ jobs:
             python3 - <<'PY'
           import json
           from chatgpt_operation.controller.issue_ingestion import (
-              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger, transition_issue_status,
+              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger,
               transition_issue_status,
           )
           comments=json.load(open("lifecycle-comments.json"))
@@ -222,7 +222,7 @@ jobs:
           from chatgpt_operation.controller.decisions import DecisionRegistry
           from chatgpt_operation.controller.durable_state import load_state_comment, state_write_request
           from chatgpt_operation.controller.issue_ingestion import (
-              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger,
+              ADMISSION_MARKER, decode_admission_ledger, encode_admission_ledger, transition_issue_status,
           )
           from chatgpt_operation.controller.reasoning_consumption import consume_reasoning_submission
 
