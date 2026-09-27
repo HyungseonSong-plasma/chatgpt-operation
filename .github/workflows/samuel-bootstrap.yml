@@ -93,46 +93,17 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-issue-comments.json
-          python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.bootstrap import load_pending, select_controller_work
-          from chatgpt_operation.controller.durable_state import load_state_comment
-          from chatgpt_operation.controller.issue_ingestion import ADMISSION_MARKER, decode_admission_ledger
-
-          comments=json.load(open("samuel-issue-comments.json"))
-          state=load_state_comment(comments)
-          pending=load_pending("automation/samuel/bootstrap.json")
-          admission=[c for c in comments if ADMISSION_MARKER in str(c.get("body",""))]
-          if len(admission)>1:
-              raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP multiple admission ledgers")
-          admitted={} if not admission else decode_admission_ledger(str(admission[0]["body"]))
-          selected=select_controller_work(
-              pending,
-              diagnostic_recoveries={} if state is None else state.diagnostic_recoveries,
-              action_queue={} if state is None else state.action_queue,
-              admitted_work=admitted,
-          )
-          if selected is None:
-              payload={"kind":"idle"}
-          elif selected[0] in {
-              "diagnostic", "diagnostic_intent", "diagnostic_observation",
-              "action", "action_intent", "action_observation",
-              "evidence", "evidence_intent", "evidence_observation", "issue",
-          }:
-              payload={"kind":selected[0], **selected[1]}
-          else:
-              work=selected[1]
-              payload={
-                  "kind":"pending",
-                  "work_id":work.work_id,
-                  "workflow":work.workflow,
-                  "ref":work.ref,
-              }
-          open("samuel-selected-work.json","w").write(
-              json.dumps(payload,sort_keys=True,separators=(",",":"))
-          )
-          print("SAMUEL_SELECTED_WORK="+payload["kind"])
-          PY
+          python3 -m chatgpt_operation.cli controller run-cycle \
+            --comments samuel-issue-comments.json \
+            --pending automation/samuel/bootstrap.json \
+            --decisions automation/samuel/decisions.json \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --event-action "${GITHUB_EVENT_ACTION:-}" \
+            --head-sha "$GITHUB_SHA" \
+            --ref "$GITHUB_REF" \
+            --result samuel-controller-cycle.json \
+            --selected-work-result samuel-selected-work.json \
+            --planning-result samuel-issue-planning.json
 
       - name: Persist guarded Issue planning evidence
         if: ${{ hashFiles('samuel-selected-work.json') != '' }}
@@ -141,40 +112,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.decisions import DecisionRegistry
-          from chatgpt_operation.controller.issue_planning import plan_admitted_issue
-          from chatgpt_operation.controller.reasoning_provider import ReasoningProviderRegistry
-
-          selected=json.load(open("samuel-selected-work.json"))
-          if selected.get("kind") != "issue":
-              raise SystemExit(0)
-          registry=DecisionRegistry.load("automation/samuel/decisions.json")
-          result=plan_admitted_issue(selected,registry=registry)
-          provider=ReasoningProviderRegistry()
-          provider_status=provider.status()
-          payload={
-              "schema_version":1,
-              "work_id":result.work_id,
-              "outcome":"reasoning_required" if not provider_status.available else result.outcome.value,
-              "reason":"external semantic reasoning worker required" if not provider_status.available else result.reason,
-              "blocker":None,
-              "semantic_provider":{
-                  "available":provider_status.available,
-                  "provider":provider_status.provider,
-              },
-              "action_plan":result.action_plan,
-              "reasoning_context":result.envelope.as_reasoning_context(),
-          }
-          open("samuel-issue-planning.json","w").write(
-              json.dumps(payload,sort_keys=True,separators=(",",":"))
-          )
-          if payload["outcome"] == "reasoning_required":
-              open("samuel-reasoning-required-work-id.txt","w").write(result.work_id)
-          print("SAMUEL_ISSUE_PLANNING="+payload["outcome"].upper()+" work_id="+result.work_id)
-          PY
-          if [ -f samuel-reasoning-required-work-id.txt ]; then
+          if [ ! -f samuel-issue-planning.json ]; then exit 0; fi
+          outcome="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["outcome"])')"
+          work_id="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["work_id"])')"
+          echo "SAMUEL_ISSUE_PLANNING=${outcome^^} work_id=$work_id"
+          if [ "$outcome" = "reasoning_required" ]; then
+            printf '%s' "$work_id" > samuel-reasoning-required-work-id.txt
             gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > lifecycle-comments.json
             python3 - <<'PY'
           import json
@@ -194,7 +137,6 @@ jobs:
           PY
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$(cat samuel-admission-comment-id.txt)" -f body="$(cat samuel-admission-body.txt)" >/dev/null
           fi
-          if [ ! -f samuel-issue-planning.json ]; then exit 0; fi
           marker='<!-- samuel-issue-planning -->'
           body="$marker
           ~~~json
