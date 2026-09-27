@@ -11,6 +11,7 @@ from .diagnostic import record_native_dispatch_evidence_failure
 from .durable_state import (
     apply_action_completion,
     apply_action_failure,
+    apply_action_rejection,
     apply_corrective_execution_result,
     apply_diagnostic_patch,
     apply_evidence_patch,
@@ -159,6 +160,8 @@ def ingest_terminal_artifact(
             proposed = apply_action_completion(current, result)
         elif result.status is ExecutionStatus.FAILED:
             proposed = apply_action_failure(current, result)
+        elif result.status is ExecutionStatus.REJECTED:
+            proposed = apply_action_rejection(current, result)
         else:
             raise TerminalIngestionError(
                 "unsupported terminal execution status " + result.status.value
