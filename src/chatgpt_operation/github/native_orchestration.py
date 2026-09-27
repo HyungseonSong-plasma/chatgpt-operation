@@ -37,6 +37,7 @@ def dispatch_native_plan(
         workflow=workflow,
         ref=ref,
         inputs={
+            "correlation_id": correlation_id,
             "plan_json": json.dumps({
             "schema_version": 1,
             "research_id": plan.research_id,
@@ -62,7 +63,7 @@ def dispatch_native_plan(
             ),
         },
         correlation_id=correlation_id,
-        correlation_input=None,
+        correlation_input="correlation_id",
         expected_head_sha=expected_head_sha,
         timeout_seconds=timeout_seconds,
         poll_interval_seconds=poll_interval_seconds,
