@@ -25,8 +25,32 @@ jobs:
           git -c http.extraheader="AUTHORIZATION: basic $auth" fetch --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Compile package
-        run: python3 -m compileall -q src
+      - name: Compile Python surfaces
+        run: |
+          python3 -m compileall -q src tests
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          import re
+
+          failures = []
+          for path in Path(".github/workflows").glob("*.yml"):
+              text = path.read_text(encoding="utf-8")
+              if "\\\\n" in text:
+                  failures.append(f"{path}: contains literal \\\\n escape")
+              blocks = re.findall(r"python3 - <<'PY'\\n((?:[ ]{10}.*\\n)+)[ ]{10}PY", text)
+              for index, block in enumerate(blocks, 1):
+                  source = "\\n".join(
+                      line[10:] if line.startswith(" " * 10) else line
+                      for line in block.splitlines()
+                  )
+                  try:
+                      ast.parse(source, filename=f"{path}:embedded-python-{index}")
+                  except SyntaxError as exc:
+                      failures.append(str(exc))
+          if failures:
+              raise SystemExit("\\n".join(failures))
+          PY
       - name: Run tests
         env:
           PYTHONPATH: src
