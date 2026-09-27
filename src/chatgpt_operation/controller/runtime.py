@@ -188,10 +188,12 @@ class SamuelController:
         *,
         decisions: DecisionRegistry,
         reasoning: ReasoningProviderRegistry | None = None,
+        reasoning_enabled: bool = True,
         now: Callable[[], datetime] | None = None,
     ):
         self.decisions = decisions
         self.reasoning = reasoning or ReasoningProviderRegistry()
+        self.reasoning_enabled = reasoning_enabled
         self.now = now or (lambda: datetime.now(timezone.utc))
 
     def _requested_at(self) -> str:
@@ -530,6 +532,14 @@ class SamuelController:
         if item is None:
             raise ControllerCompositionError("reasoning work is missing from admission ledger")
         working_state = state or _initial_state(work_id, item)
+        if not self.reasoning_enabled:
+            return ControllerCycle(
+                trigger,
+                {"kind": "reasoning_required", "work_id": work_id},
+                planning,
+                prior_admission_write,
+                None,
+            )
         if self.reasoning.status().available:
             result, provider_planning = self._consume_provider_reasoning(
                 work=work,
