@@ -95,6 +95,7 @@ def select_controller_work(
         ActionLifecycle.DISPATCHED.value,
         ActionLifecycle.SUSPENDED.value,
         ActionLifecycle.COMPLETE.value,
+        ActionLifecycle.RETIRED.value,
     }
     invalid = sorted(
         action_id for action_id, item in actions.items()
