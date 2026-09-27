@@ -12,6 +12,7 @@ from .action_lifecycle import ActionLifecycle, DispatchIntent
 from .execution import (
     ExecutionStatus,
     diagnostic_next_action,
+    require_execution_provenance,
     record_diagnostic_corrective_action,
     record_diagnostic_resolution,
     record_diagnostic_root_cause,
@@ -409,13 +410,18 @@ def resume_resolved_action(state: ResearchState, action_id: str) -> ActionPlan:
 
 def complete_queued_action(state: ResearchState, action_id: str, result) -> None:
     item = state.action_queue.get(action_id)
-    if item is None or item.get("status") != "pending":
-        raise ValueError("action is not pending")
+    if item is None or item.get("status") != ActionLifecycle.DISPATCHED.value:
+        raise ValueError("action is not dispatched")
     if result.action_id != action_id or result.research_id != state.research_id:
         raise ValueError("execution result does not match queued action")
     if result.status not in {ExecutionStatus.PASS, ExecutionStatus.NOOP}:
         raise ValueError("queued action requires PASS/NOOP completion evidence")
-    item["status"] = "complete"
+    receipt = item.get("dispatch_receipt")
+    run_id = None if not isinstance(receipt, dict) else receipt.get("workflow_run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ValueError("dispatched action has no authoritative workflow_run_id")
+    require_execution_provenance(result, workflow_run_id=run_id)
+    item["status"] = ActionLifecycle.COMPLETE.value
     item["completion_result"] = result.to_dict()
     state.revision += 1
 
