@@ -7,6 +7,9 @@ from chatgpt_operation.controller.execution import ExecutionResult, ExecutionSta
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 
 
+HEAD_SHA="b"*40
+
+
 def plan():
     return ActionPlan.from_dict({
         "schema_version":1,"research_id":"r","stage":"execute","executor":"github_native",
@@ -21,7 +24,7 @@ def dispatched_state():
     enqueue_suspended_action(s,p)
     record_action_dispatch_intent(
         s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",
-        requested_at="2026-09-27T12:00:00Z",
+        requested_at="2026-09-27T12:00:00Z",expected_head_sha=HEAD_SHA,
     )
     record_action_dispatch(s,p.idempotency_key,{
         "workflow_path":".github/workflows/samuel-native-github.yml",
@@ -38,7 +41,7 @@ def result(p,status,run_id=99):
         details={
             "after":{"ok":True},
             "provenance":{"schema_version":1,"workflow_run_id":run_id,"run_attempt":1,
-                          "head_sha":"b"*40,"action_id":p.idempotency_key},
+                          "head_sha":HEAD_SHA,"action_id":p.idempotency_key},
         },
     )
 
