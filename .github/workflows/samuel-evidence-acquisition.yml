@@ -1,7 +1,12 @@
 name: Samuel Evidence Acquisition
+run-name: Samuel Evidence Acquisition dispatch:${{ inputs.samuel_dispatch_id }}
 on:
   workflow_dispatch:
     inputs:
+      samuel_dispatch_id:
+        description: Durable evidence acquisition correlation identity
+        required: true
+        type: string
       recovery_json:
         required: true
         type: string
