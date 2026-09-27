@@ -150,6 +150,8 @@ def validate_state_write_precondition(
             raise DurableStateError("durable state create request is inconsistent")
         return
 
+    if expected_previous is None:
+        raise DurableStateError("stale durable state create precondition")
     if request["method"] != "PATCH" or request["comment_id"] != int(comment["id"]):
         raise DurableStateError("durable state update target changed")
     if current.research_id != proposed.research_id:
