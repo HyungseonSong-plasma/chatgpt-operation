@@ -31,6 +31,14 @@ def test_bootstrap_routes_selection_and_planning_through_composition_root():
     ):
         assert forbidden not in workflow
     assert workflow.count("controller execute-command")==1
+    assert workflow.count("controller persist-state")==3
+    for forbidden_state_write in (
+        "validate_state_write_precondition",
+        "load_state_comment",
+        "decode_state",
+        "STATE_MARKER",
+    ):
+        assert forbidden_state_write not in workflow
     assert "ReasoningProviderRegistry()" not in workflow
 
 
