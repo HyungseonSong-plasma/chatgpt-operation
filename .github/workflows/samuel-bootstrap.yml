@@ -1489,8 +1489,8 @@ jobs:
               raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP dispatch lifecycle not retired")
           if recovery.get("status")=="resolved":
               item=persisted.action_queue.get(action_id,{})
-              if item.get("status")!="pending":
-                  raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP resolved action not resumed")
+              if item.get("status")!="complete":
+                  raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP resolved action not complete")
           print(
               "SAMUEL_CORRECTIVE=PERSISTED action_id="+action_id
               +" status="+str(recovery.get("status"))
