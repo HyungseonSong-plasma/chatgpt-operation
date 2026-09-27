@@ -15,7 +15,10 @@ from chatgpt_operation.controller.execution_gateway import (
     ExecutionGateway,
     GatewayStatus,
 )
-from chatgpt_operation.controller.issue_ingestion import (\n    decode_admission_ledger,\n    encode_admission_ledger,\n)
+from chatgpt_operation.controller.issue_ingestion import (
+    decode_admission_ledger,
+    encode_admission_ledger,
+)
 from chatgpt_operation.controller.issue_reasoning import IssueReasoningProposal
 from chatgpt_operation.controller.reasoning_submission import (
     ReasoningSubmission,
