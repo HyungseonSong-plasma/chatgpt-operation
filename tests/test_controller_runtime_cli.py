@@ -49,6 +49,7 @@ def test_controller_run_cycle_cli_emits_selected_and_planning_artifacts():
             planning_result=str(planning),
             admission_write_result=str(admission_write),
             state_write_result=str(state_write),
+            execution_command_result=None,
         ))
         assert code==0
         cycle=json.loads(result.read_text(encoding="utf-8"))
@@ -89,5 +90,6 @@ def test_controller_run_cycle_cli_fails_closed_on_bad_comments():
             planning_result=None,
             admission_write_result=None,
             state_write_result=None,
+            execution_command_result=None,
         ))
         assert code==2
