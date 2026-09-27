@@ -53,6 +53,16 @@ def trigger():
     )
 
 
+def issue_payload(number=44, labels=("samuel",)):
+    return {
+        "number":number,
+        "title":"Samuel OS",
+        "body":"finish controller composition",
+        "html_url":f"https://github.com/o/r/issues/{number}",
+        "labels":[{"name":name} for name in labels],
+    }
+
+
 def admitted_comment(status="admitted"):
     work={
         "issue:44":{
@@ -122,8 +132,53 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertIsNone(result.issue_planning)
         self.assertIsNone(result.admission_write)
         self.assertIsNone(result.state_write)
-        self.assertEqual(result.to_dict()["schema_version"],3)
+        self.assertEqual(result.to_dict()["schema_version"],4)
         self.assertIsNone(result.execution_command)
+
+    def test_issue_trigger_admission_is_owned_by_root(self):
+        issue_trigger=ControllerTrigger(
+            TriggerKind.ISSUES,
+            action="labeled",
+            head_sha="a"*40,
+            ref="refs/heads/main",
+            executor_ref="main",
+            executor_head_sha="b"*40,
+        )
+        result=controller().run_cycle(
+            issue_trigger,comments=[],pending=[],issue=issue_payload()
+        )
+        self.assertEqual(result.selected_work,{
+            "kind":"reasoning_required","work_id":"issue:44"
+        })
+        self.assertIsNotNone(result.admission_write)
+        self.assertEqual(result.admission_write["method"],"POST")
+        self.assertIsNone(result.admission_write["comment_id"])
+        persisted=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(persisted["issue:44"]["status"],"reasoning_required")
+
+    def test_issue_payload_on_non_issue_trigger_fails_closed(self):
+        with self.assertRaisesRegex(
+            ControllerCompositionError,"only valid for an issues trigger"
+        ):
+            controller().run_cycle(
+                trigger(),comments=[],pending=[],issue=issue_payload()
+            )
+
+    def test_unlabeled_issue_trigger_does_not_admit_work(self):
+        issue_trigger=ControllerTrigger(
+            TriggerKind.ISSUES,
+            action="opened",
+            head_sha="a"*40,
+            ref="refs/heads/main",
+            executor_ref="main",
+            executor_head_sha="b"*40,
+        )
+        result=controller().run_cycle(
+            issue_trigger,comments=[],pending=[],
+            issue=issue_payload(labels=("bug",)),
+        )
+        self.assertEqual(result.selected_work,{"kind":"idle"})
+        self.assertIsNone(result.admission_write)
 
     def test_admitted_issue_builds_reasoning_preflight_and_transition(self):
         result=controller().run_cycle(
