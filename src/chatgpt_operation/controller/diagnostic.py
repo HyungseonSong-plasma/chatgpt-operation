@@ -276,6 +276,7 @@ def record_action_dispatch_intent(
     workflow: str,
     ref: str,
     requested_at: str,
+    expected_head_sha: str,
 ) -> DispatchIntent:
     """Durably reserve one logical dispatch before the external side effect."""
     if not isinstance(workflow, str) or not workflow.strip():
@@ -291,20 +292,25 @@ def record_action_dispatch_intent(
 
     if item.get("status") == ActionLifecycle.DISPATCH_INTENT.value:
         intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
-        if intent.workflow != workflow or intent.ref != ref:
+        if (
+            intent.workflow != workflow
+            or intent.ref != ref
+            or intent.expected_head_sha != expected_head_sha
+        ):
             raise ValueError("existing dispatch intent conflicts with requested dispatch")
         return intent
     if item.get("status") != ActionLifecycle.PENDING.value:
         raise ValueError("action is not pending")
 
     intent = DispatchIntent.from_dict({
-        "schema_version": 1,
+        "schema_version": 2,
         "action_id": action_id,
         "research_id": state.research_id,
         "workflow": workflow,
         "ref": ref,
         "requested_at": requested_at,
         "state_revision": state.revision + 1,
+        "expected_head_sha": expected_head_sha,
     })
     item["dispatch_intent"] = intent.to_dict()
     item["status"] = ActionLifecycle.DISPATCH_INTENT.value
