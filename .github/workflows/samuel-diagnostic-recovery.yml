@@ -34,6 +34,7 @@ jobs:
           PYTHONPATH: src
           RECOVERY_JSON: ${{ inputs.recovery_json }}
           CONTROLLER_STATE: ${{ inputs.controller_state }}
+          SAMUEL_DISPATCH_ID: ${{ inputs.samuel_dispatch_id }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
@@ -102,12 +103,22 @@ jobs:
                   result.action_id, result.phase, True,
                   result.evidence+"; recovery_status="+status,
               )
+          dispatch_id=os.environ.get("SAMUEL_DISPATCH_ID","").strip()
           output={
+              "schema_version":1,
               "action_id":result.action_id, "phase":result.phase,
               "advanced":result.advanced, "evidence":result.evidence,
               "recovery":state.diagnostic_recoveries[action_id],
               "revision_delta":state.revision-int(json.loads(os.environ["RECOVERY_JSON"]).get("recovery",{}).get("_revision",0)),
               "execution_run_id":execution_run_id,
+              "provenance":{
+                  "schema_version":1,
+                  "workflow_run_id":int(os.environ["GITHUB_RUN_ID"]),
+                  "run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "head_sha":os.environ["GITHUB_SHA"],
+                  "action_id":action_id,
+                  "dispatch_id":dispatch_id,
+              },
           }
           # One diagnostic phase is one durable revision; bootstrap validates this.
           output["revision_delta"]=1 if result.advanced else 0
