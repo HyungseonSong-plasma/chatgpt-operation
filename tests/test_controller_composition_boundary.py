@@ -68,3 +68,29 @@ def test_state_kernel_owns_dispatch_receipt_binding():
     assert "record_action_dispatch" in source
     assert "record_evidence_dispatch" in source
     assert "record_diagnostic_dispatch" in source
+
+
+def test_terminal_semantics_are_not_implemented_in_bootstrap_workflow():
+    workflow=Path(".github/workflows/samuel-bootstrap.yml").read_text(
+        encoding="utf-8"
+    )
+    for forbidden in (
+        "apply_action_completion",
+        "apply_action_failure",
+        "apply_evidence_patch",
+        "apply_diagnostic_patch",
+        "record_native_dispatch_evidence_failure",
+    ):
+        assert forbidden not in workflow
+    assert workflow.count("controller ingest-terminal")==1
+
+
+def test_terminal_ingestion_module_owns_terminal_state_semantics():
+    source=Path(
+        "src/chatgpt_operation/controller/terminal_ingestion.py"
+    ).read_text(encoding="utf-8")
+    assert "apply_action_completion(" in source
+    assert "apply_action_failure(" in source
+    assert "apply_evidence_patch(" in source
+    assert "apply_diagnostic_patch(" in source
+    assert "record_native_dispatch_evidence_failure(" in source
