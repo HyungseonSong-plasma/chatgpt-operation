@@ -305,10 +305,10 @@ def apply_corrective_execution_result(
     from chatgpt_operation.controller.diagnostic import (
         resume_dispatched_corrective,
         resolve_from_execution_receipt,
-        resume_resolved_action,
     )
     from chatgpt_operation.controller.execution import (
         ExecutionStatus,
+        record_execution_result,
         require_execution_provenance,
     )
     import copy
@@ -348,7 +348,12 @@ def apply_corrective_execution_result(
     recovery = proposed.diagnostic_recoveries[action_id]
     if resolution.advanced:
         recovery.pop("corrective_dispatch", None)
-        resume_resolved_action(proposed, action_id)
+        item = proposed.action_queue.get(action_id)
+        if item is None or item.get("status") != "suspended":
+            raise DurableStateError("resolved corrective action is not suspended")
+        record_execution_result(proposed, result)
+        item["status"] = "complete"
+        item["completion_result"] = result.to_dict()
         proposed.revision = before + 1
         return proposed
 
