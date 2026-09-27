@@ -256,6 +256,37 @@ def enqueue_suspended_action(state: ResearchState, plan: ActionPlan) -> None:
     state.revision += 1
 
 
+def record_action_dispatch(state: ResearchState, action_id: str, receipt: dict[str, Any]) -> None:
+    """Persist one causal dispatch receipt before asynchronous observation."""
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != "pending":
+        raise ValueError("action is not pending")
+    if not isinstance(receipt, dict) or receipt.get("correlation_id") != action_id:
+        raise ValueError("dispatch receipt does not match queued action")
+    existing = item.get("dispatch_receipt")
+    if existing is not None:
+        if existing != receipt:
+            raise ValueError("action already has a different dispatch receipt")
+        return
+    item["dispatch_receipt"] = dict(receipt)
+    item["status"] = "dispatched"
+    state.revision += 1
+
+
+def resume_dispatched_action(state: ResearchState, action_id: str) -> tuple[ActionPlan, dict[str, Any]]:
+    """Return the exact plan and receipt for a previously dispatched action."""
+    item = state.action_queue.get(action_id)
+    if item is None or item.get("status") != "dispatched":
+        raise ValueError("action is not awaiting observation")
+    plan = ActionPlan.from_dict(item["plan"])
+    receipt = item.get("dispatch_receipt")
+    if plan.idempotency_key != action_id or not isinstance(receipt, dict):
+        raise ValueError("dispatched action identity changed")
+    if receipt.get("correlation_id") != action_id:
+        raise ValueError("dispatch receipt correlation changed")
+    return plan, dict(receipt)
+
+
 def mark_action_suspended(state: ResearchState, action_id: str) -> None:
     item = state.action_queue.get(action_id)
     if item is None:
