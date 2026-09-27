@@ -356,7 +356,7 @@ jobs:
               result=receipt.result
               if result.action_id != plan.idempotency_key or result.research_id != plan.research_id:
                   raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP native result identity mismatch")
-              open("samuel-action-result.json","w").write(json.dumps(result.to_dict(),sort_keys=True,separators=(",",":"))+"\\n")
+              open("samuel-action-result.json","w").write(json.dumps(result.to_dict(),sort_keys=True,separators=(",",":"))+"\n")
               print("SAMUEL_BOOTSTRAP=ACTION_EXECUTED action_id="+selected["action_id"]+" status="+result.status.value.upper())
               raise SystemExit(0)
           if selected.get("kind") == "diagnostic":
