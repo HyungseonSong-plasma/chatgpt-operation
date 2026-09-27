@@ -57,10 +57,52 @@ jobs:
           else
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
           fi
+      - name: Build bounded semantic repository context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" > samuel-open-issues.json
+          python3 - <<'PY'
+          import json, os, subprocess
+          issues=[
+              {
+                  "number":item["number"],
+                  "title":item["title"],
+                  "body":item.get("body") or "",
+                  "state":item["state"],
+                  "labels":[x["name"] for x in item.get("labels",[])],
+              }
+              for item in json.load(open("samuel-open-issues.json"))
+              if "pull_request" not in item
+          ]
+          refs=subprocess.run(
+              ["git","ls-remote","--heads","origin","refs/heads/samuel/*"],
+              check=False,capture_output=True,text=True,
+          ).stdout.splitlines()
+          branches=[
+              {"head_sha":line.split()[0],"ref":line.split()[1]}
+              for line in refs[:20] if len(line.split())==2
+          ]
+          context={
+              "schema_version":1,
+              "repository":os.environ["GITHUB_REPOSITORY"],
+              "observed_head_sha":os.environ["GITHUB_SHA"],
+              "open_issues":issues,
+              "samuel_branches":branches,
+          }
+          open("samuel-repository-context.json","w").write(
+              json.dumps(context,sort_keys=True,separators=(",",":"))+"\n"
+          )
+          PY
+
       - name: Load durable controller state and select work
         env:
           PYTHONPATH: src
           GH_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ github.event_name != 'pull_request' && secrets.OPENAI_API_KEY || '' }}
+          SAMUEL_OPENAI_MODEL: gpt-5.6-luna
+          SAMUEL_REASONING_MODE: ${{ github.event_name != 'pull_request' && 'AUTO_WITH_AUDIT' || 'EXTERNAL' }}
           ISSUE_JSON: ${{ toJSON(github.event.issue) }}
         run: |
           set -euo pipefail
@@ -72,6 +114,7 @@ jobs:
             --event-name "$GITHUB_EVENT_NAME" \
             --event-action "${GITHUB_EVENT_ACTION:-}" \
             --issue-json "${ISSUE_JSON:-null}" \
+            --repository-context samuel-repository-context.json \
             --head-sha "$GITHUB_SHA" \
             --ref "$GITHUB_REF" \
             --executor-ref "${{ github.event.pull_request.head.ref || github.ref_name }}" \

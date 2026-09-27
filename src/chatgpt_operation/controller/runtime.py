@@ -15,9 +15,10 @@ from typing import Any, Callable
 from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
-from .decisions import DecisionRegistry
+from .decisions import DecisionRegistry, GuardOutcome
 from .durable_state import load_state_comment, state_write_request
 from .diagnostic import (
+    enqueue_suspended_action,
     record_action_dispatch_intent,
     record_corrective_dispatch_intent,
     record_diagnostic_dispatch_intent,
@@ -32,7 +33,15 @@ from .issue_ingestion import (
     transition_issue_status,
 )
 from .issue_planning import plan_admitted_issue
-from .reasoning_consumption import consume_reasoning_submission
+from .issue_reasoning import (
+    IssueReasoningProposal,
+    compile_guarded_action,
+)
+from .reasoning import ReasoningRequest, StructuredReasoningNode
+from .reasoning_consumption import (
+    ReasoningConsumption,
+    consume_reasoning_submission,
+)
 from .reasoning_provider import ReasoningProviderRegistry
 from .research import ResearchState
 
@@ -317,6 +326,171 @@ class SamuelController:
             state.revision,
         )
 
+    def _consume_provider_reasoning(
+        self,
+        *,
+        work: dict[str, dict[str, Any]],
+        work_id: str,
+        state: ResearchState,
+        repository_context: dict[str, Any] | None,
+    ) -> tuple[ReasoningConsumption, dict[str, Any]]:
+        item = work.get(work_id)
+        if item is None or item.get("status") != "reasoning_required":
+            raise ControllerCompositionError(
+                "provider reasoning requires reasoning_required work"
+            )
+        planned = plan_admitted_issue(item, registry=self.decisions)
+        context = planned.envelope.as_reasoning_context()
+        context["durable_state"] = {
+            "research_id": state.research_id,
+            "revision": state.revision,
+            "stage": state.stage.value,
+            "action_queue": copy.deepcopy(state.action_queue),
+            "diagnostic_recoveries": copy.deepcopy(state.diagnostic_recoveries),
+        }
+        context["repository_context"] = copy.deepcopy(repository_context or {})
+        context["execution_contracts"] = {
+            "repository_mutation": {
+                "purpose": "bounded branch/file mutation through deterministic policy",
+                "resource_actions": {
+                    "branch": ["create"],
+                    "file": ["create", "update", "delete"],
+                },
+                "branch_rule": "never mutate main; use samuel/* or issue-*",
+                "file_update_rule": (
+                    "update/delete require exact current file SHA; create requires absent=true"
+                ),
+            },
+            "github_native": {
+                "rule": "mutation is read-before/write/read-after and postcondition verified",
+                "create_pr": {
+                    "target": ["head", "base", "title", "body"],
+                    "preconditions": {"pr_present": False},
+                    "desired_postcondition": {"pr_present": True},
+                },
+                "close_issue": {
+                    "target": ["number"],
+                    "preconditions": {"issue_state": "open"},
+                    "desired_postcondition": {"issue_state": "closed"},
+                },
+                "comment_issue": {
+                    "target": ["number", "body", "marker"],
+                    "precondition_keys": ["issue_state", "comment_present"],
+                    "desired_postcondition": {"comment_present": True},
+                },
+                "merge_pr": {
+                    "target_required": ["number", "expected_head_sha"],
+                    "desired_postcondition": {"merged": True},
+                },
+                "dispatch_workflow": {
+                    "target_required": ["workflow", "ref"],
+                },
+            },
+        }
+        def parse_provider_proposal(
+            raw: dict[str, Any],
+        ) -> IssueReasoningProposal:
+            proposal = IssueReasoningProposal.from_dict(raw)
+            if (
+                proposal.operation == "implement_gap"
+                and not planned.envelope.implementation_gaps
+            ):
+                raise ValueError(
+                    "implement_gap is invalid because implementation_gaps is empty; "
+                    "use analyze for an action within accepted architecture"
+                )
+            return proposal
+
+        proposal = StructuredReasoningNode(
+            parser=parse_provider_proposal,
+            max_attempts=2,
+        ).run(
+            ReasoningRequest(
+                task=(
+                    "Produce exactly one next bounded ActionPlan toward completing "
+                    f"{work_id}. Continue from durable execution history. "
+                    "Do not repeat completed actions. When implementation_gaps is "
+                    "empty, operation must be analyze. Use implement_gap only for a "
+                    "named gap in implementation_gaps. Follow execution_contracts "
+                    "exactly. Prefer the smallest verifiable next step; return null "
+                    "only when no safe executable step exists."
+                ),
+                context=context,
+            ),
+            self.reasoning.runner(),
+        )
+        outcome, plan, reason = compile_guarded_action(
+            proposal, planned.envelope
+        )
+        planning = {
+            "schema_version": 1,
+            "work_id": work_id,
+            "outcome": outcome.value,
+            "reason": reason,
+            "blocker": None,
+            "semantic_provider": {
+                "available": True,
+                "provider": self.reasoning.status().provider,
+                "mode": "AUTO_WITH_AUDIT",
+            },
+            "proposal": {
+                "operation": proposal.operation,
+                "decision_id": proposal.decision_id,
+                "compatible_with_locked_decisions": (
+                    proposal.compatible_with_locked_decisions
+                ),
+                "revision_requested": proposal.revision_requested,
+            },
+            "action_plan": proposal.action_plan,
+            "reasoning_context": context,
+        }
+        if plan is None:
+            if (
+                proposal.operation == "analyze"
+                and outcome is GuardOutcome.CONTINUE
+            ):
+                return (
+                    ReasoningConsumption(
+                        "reasoning_required",
+                        "provider analysis produced no executable ActionPlan",
+                        work,
+                        state,
+                        None,
+                    ),
+                    planning,
+                )
+            lifecycle = (
+                "revision_required"
+                if outcome is GuardOutcome.REVISION_REQUIRED
+                else "blocked"
+            )
+            return (
+                ReasoningConsumption(
+                    outcome.value,
+                    reason,
+                    transition_issue_status(work, work_id, lifecycle),
+                    state,
+                    None,
+                ),
+                planning,
+            )
+        if plan.research_id != work_id or state.research_id != work_id:
+            raise ControllerCompositionError(
+                "provider ActionPlan research identity does not match active work"
+            )
+        proposed = copy.deepcopy(state)
+        enqueue_suspended_action(proposed, plan)
+        return (
+            ReasoningConsumption(
+                "planned",
+                reason,
+                transition_issue_status(work, work_id, "planned"),
+                proposed,
+                plan.idempotency_key,
+            ),
+            planning,
+        )
+
     def _consume_waiting_reasoning(
         self,
         *,
@@ -328,18 +502,28 @@ class SamuelController:
         admission_comment_id: int | None,
         planning: dict[str, Any] | None = None,
         prior_admission_write: dict[str, Any] | None = None,
+        repository_context: dict[str, Any] | None = None,
     ) -> ControllerCycle:
         item = work.get(work_id)
         if item is None:
             raise ControllerCompositionError("reasoning work is missing from admission ledger")
         working_state = state or _initial_state(work_id, item)
-        result = consume_reasoning_submission(
-            comments,
-            work,
-            work_id,
-            registry=self.decisions,
-            state=working_state,
-        )
+        if self.reasoning.status().available:
+            result, provider_planning = self._consume_provider_reasoning(
+                work=work,
+                work_id=work_id,
+                state=working_state,
+                repository_context=repository_context,
+            )
+            planning = provider_planning
+        else:
+            result = consume_reasoning_submission(
+                comments,
+                work,
+                work_id,
+                registry=self.decisions,
+                state=working_state,
+            )
         if result.outcome == "reasoning_required":
             return ControllerCycle(
                 trigger,
@@ -389,6 +573,7 @@ class SamuelController:
         comments: list[dict[str, Any]],
         pending: list[BootstrapWork],
         issue: dict[str, Any] | None = None,
+        repository_context: dict[str, Any] | None = None,
     ) -> ControllerCycle:
         if not isinstance(comments, list) or any(
             not isinstance(item, dict) for item in comments
@@ -411,6 +596,38 @@ class SamuelController:
                 admission = admit_issue(comments, issue)
                 admitted = decode_admission_ledger(admission["body"])
                 admission_comment_id = admission["comment_id"]
+
+        if state is not None and self.reasoning.status().available:
+            current = admitted.get(state.research_id)
+            if (
+                isinstance(current, dict)
+                and current.get("status") == "planned"
+                and state.action_queue
+                and all(
+                    item.get("status") == "complete"
+                    for item in state.action_queue.values()
+                )
+                and not any(
+                    recovery.get("status") in {"open", "needs_evidence"}
+                    for recovery in state.diagnostic_recoveries.values()
+                )
+            ):
+                admitted = transition_issue_status(
+                    admitted, state.research_id, "reasoning_required"
+                )
+                continuation_write = _admission_write(
+                    admission_comment_id, admitted
+                )
+                return self._consume_waiting_reasoning(
+                    trigger=trigger,
+                    comments=comments,
+                    work=admitted,
+                    work_id=state.research_id,
+                    state=state,
+                    admission_comment_id=admission_comment_id,
+                    prior_admission_write=continuation_write,
+                    repository_context=repository_context,
+                )
 
         waiting = sorted(
             work_id for work_id, item in admitted.items()
@@ -438,6 +655,7 @@ class SamuelController:
                 state=None,
                 admission_comment_id=admission_comment_id,
                 prior_admission_write=recovery_write,
+                repository_context=repository_context,
             )
         if waiting:
             return self._consume_waiting_reasoning(
@@ -447,6 +665,7 @@ class SamuelController:
                 work_id=waiting[0],
                 state=state,
                 admission_comment_id=admission_comment_id,
+                repository_context=repository_context,
             )
 
         selected = select_controller_work(
@@ -511,4 +730,5 @@ class SamuelController:
             admission_comment_id=admission_comment_id,
             planning=planning,
             prior_admission_write=admission_write,
+            repository_context=repository_context,
         )

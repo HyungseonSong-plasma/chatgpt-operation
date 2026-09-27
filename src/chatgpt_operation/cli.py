@@ -32,6 +32,12 @@ from chatgpt_operation.controller.execution_gateway import (
 from chatgpt_operation.controller.research import ResearchState
 from chatgpt_operation.controller.bootstrap import load_pending
 from chatgpt_operation.controller.decisions import DecisionRegistry
+from chatgpt_operation.controller.reasoning_provider import (
+    ProviderUnavailable,
+    ReasoningProviderRegistry,
+)
+from chatgpt_operation.controller.openai_reasoning_provider import OpenAIReasoningProvider
+from chatgpt_operation.controller.reasoning import ReasoningNodeError
 from chatgpt_operation.controller.runtime import (
     ControllerTrigger,
     SamuelController,
@@ -533,17 +539,39 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             executor_ref=args.executor_ref or "",
             executor_head_sha=args.executor_head_sha or "",
         )
+        repository_context={}
+        context_path=getattr(args,"repository_context",None)
+        if context_path:
+            repository_context=json.loads(
+                Path(context_path).read_text(encoding="utf-8")
+            )
+            if not isinstance(repository_context,dict):
+                raise ValueError("repository reasoning context must be an object")
+        mode=os.environ.get("SAMUEL_REASONING_MODE","EXTERNAL").strip().upper()
+        if mode in {"AUTO_WITH_AUDIT","AUTO"}:
+            reasoning=ReasoningProviderRegistry(
+                OpenAIReasoningProvider.from_env(allow_action_plan=True)
+            )
+        elif mode in {"EXTERNAL","OFF","SHADOW"}:
+            reasoning=ReasoningProviderRegistry()
+        else:
+            raise ValueError("unsupported SAMUEL_REASONING_MODE")
         controller=SamuelController(
             decisions=DecisionRegistry.load(args.decisions),
+            reasoning=reasoning,
         )
         cycle=controller.run_cycle(
             trigger,
             comments=comments,
             pending=load_pending(args.pending),
             issue=issue,
+            repository_context=repository_context,
         )
         result=cycle.to_dict()
-    except (OSError,json.JSONDecodeError,ValueError) as exc:
+    except (
+        OSError,json.JSONDecodeError,ValueError,
+        ProviderUnavailable,ReasoningNodeError,
+    ) as exc:
         print(f"CONTROLLER_CYCLE=HARD_STOP {exc}",file=sys.stderr)
         return 2
     print("CONTROLLER_CYCLE="+cycle.selected_work["kind"].upper())
@@ -967,6 +995,7 @@ def parser() -> argparse.ArgumentParser:
     )
     crc.add_argument("--event-action",default="")
     crc.add_argument("--issue-json",default="null")
+    crc.add_argument("--repository-context")
     crc.add_argument("--head-sha",default="")
     crc.add_argument("--ref",default="")
     crc.add_argument("--executor-ref",default="")
