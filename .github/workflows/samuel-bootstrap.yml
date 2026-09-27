@@ -1418,6 +1418,85 @@ jobs:
           print("SAMUEL_CORRECTIVE_RECEIPT=PERSISTED action_id="+selected["action_id"])
           PY
 
+      - name: Persist corrective execution result
+        if: ${{ hashFiles('samuel-corrective-run-id.txt') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(cat samuel-corrective-run-id.txt)"
+          artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+          artifact_id="$(python3 -c 'import json,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"].startswith("samuel-execution-result-") and not x.get("expired")]; assert len(xs)==1; print(xs[0]["id"])' <<<"$artifact_json")"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o corrective-result.zip
+          rm -rf corrective-result && mkdir corrective-result
+          unzip -q corrective-result.zip -d corrective-result
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > corrective-completion-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import (
+              apply_corrective_execution_result, load_state_comment, state_write_request,
+          )
+          from chatgpt_operation.controller.execution import ExecutionResult
+
+          comments=json.load(open("corrective-completion-comments.json"))
+          current=load_state_comment(comments)
+          if current is None:
+              raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP durable state disappeared")
+          selected=json.load(open("samuel-selected-work.json"))
+          action_id=selected["action_id"]
+          raw=json.load(open("corrective-result/samuel-execution-result.json"))
+          result=ExecutionResult.from_dict(raw)
+          if result.action_id != action_id:
+              raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP artifact action identity mismatch")
+          proposed=apply_corrective_execution_result(current,action_id,result)
+          request=state_write_request(comments,proposed)
+          open("samuel-corrective-completion-write.json","w").write(
+              json.dumps(request,sort_keys=True,separators=(",",":"))
+          )
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > corrective-completion-prewrite-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          validate_state_write_precondition(
+              json.load(open("corrective-completion-prewrite-comments.json")),
+              json.load(open("samuel-corrective-completion-write.json")),
+          )
+          PY
+          method="$(python3 -c 'import json; print(json.load(open("samuel-corrective-completion-write.json"))["method"])')"
+          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-corrective-completion-write.json"))["comment_id"]; print("" if x is None else x)')"
+          body="$(python3 -c 'import json; print(json.load(open("samuel-corrective-completion-write.json"))["body"])')"
+          if [ "$method" = "PATCH" ]; then
+            test -n "$comment_id"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > corrective-completion-readback-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import load_state_comment
+          request=json.load(open("samuel-corrective-completion-write.json"))
+          selected=json.load(open("samuel-selected-work.json"))
+          persisted=load_state_comment(json.load(open("corrective-completion-readback-comments.json")))
+          if persisted is None or persisted.revision != request["expected_revision"]:
+              raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP readback revision mismatch")
+          action_id=selected["action_id"]
+          recovery=persisted.diagnostic_recoveries.get(action_id,{})
+          if recovery.get("corrective_dispatch") is not None:
+              raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP dispatch lifecycle not retired")
+          if recovery.get("status")=="resolved":
+              item=persisted.action_queue.get(action_id,{})
+              if item.get("status")!="pending":
+                  raise SystemExit("SAMUEL_CORRECTIVE=HARD_STOP resolved action not resumed")
+          print(
+              "SAMUEL_CORRECTIVE=PERSISTED action_id="+action_id
+              +" status="+str(recovery.get("status"))
+          )
+          PY
+
       - name: Persist durable diagnostic dispatch receipt
         if: ${{ hashFiles('samuel-diagnostic-dispatch-receipt.json') != '' }}
         env:
