@@ -172,27 +172,39 @@ if __name__ == "__main__":
 
 
 def test_open_diagnostic_allows_only_matching_recovery_authorization():
-    plan = make_plan()
-    state = make_state()
+    plan = merge_plan()
+    state = ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)
     state.diagnostic_recoveries[plan.idempotency_key] = {
         "status": "open",
         "fingerprint": [],
         "failure": {"status": "failed"},
         "root_cause": "provider failure",
         "corrective_action": "retry exact source plan through registered fallback",
+        "corrective_provider": "fallback",
         "resolution_evidence": None,
     }
     attach_source_plan(state, plan.idempotency_key, plan)
     auth = recovery_authorization(state, plan.idempotency_key)
     calls = []
+    states = iter([
+        {
+            "merged": False,
+            "head_sha": "2976871b",
+            "mergeable": True,
+            "ci": "success",
+        },
+        {"merged": True, "head_sha": "2976871b"},
+    ])
     provider = ExecutionProvider(
         "fallback",
-        frozenset({GitHubCapability.COMMENT_ISSUE}),
-        lambda action, payload: {"state": "open", "comment_present": False} if not calls else {"state": "open", "comment_present": True},
-        lambda action, payload: calls.append(payload) or {"ok": True},
+        frozenset({GitHubCapability.MERGE_PR}),
+        lambda action, payload: next(states),
+        lambda action, payload: calls.append(payload) or {"merged": True},
     )
     receipt = ExecutionKernel([provider], state=state).execute(
         plan, recovery_authorization=auth
     )
     assert receipt.complete
+    assert receipt.provider == "fallback"
     assert calls
+
