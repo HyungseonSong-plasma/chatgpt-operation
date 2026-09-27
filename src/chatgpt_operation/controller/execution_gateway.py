@@ -253,6 +253,21 @@ class ExecutionGateway:
                 "action", action_id, GatewayStatus.TERMINAL,
                 observation=observation, terminal_run_id=run_id,
             )
+        if status == "BOUND_RUN_IDENTITY_MISMATCH":
+            run_id = receipt.get("workflow_run_id")
+            if not isinstance(run_id, int):
+                raise ExecutionGatewayError(
+                    "bound action mismatch lost workflow run identity"
+                )
+            if observation.get("run_status") == "completed":
+                return GatewayResult(
+                    "action", action_id, GatewayStatus.TERMINAL,
+                    observation=observation, terminal_run_id=run_id,
+                )
+            return GatewayResult(
+                "action", action_id, GatewayStatus.WAIT,
+                observation=observation,
+            )
         if status in {
             "MATCHED_ACTIVE", "PENDING_VISIBILITY", "NO_MATCH",
             "OBSERVATION_INCOMPLETE",
