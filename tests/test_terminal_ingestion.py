@@ -139,6 +139,42 @@ def test_missing_action_artifact_retires_physical_attempt_for_safe_retry():
     assert attempt["failure_kind"]=="missing_execution_result_artifact"
 
 
+def test_rejected_action_becomes_terminal_reasoning_evidence():
+    p,state=dispatched_action()
+    result=ExecutionResult(
+        research_id="r",
+        action_id=p.idempotency_key,
+        executor=ExecutorKind.GITHUB_NATIVE,
+        status=ExecutionStatus.REJECTED,
+        observation="GitHub precondition mismatch; refusing stale mutation",
+        retryable=False,
+        details={
+            "before":{"ci":"pending"},
+            "required":{"ci":"success"},
+            "provenance":{
+                "schema_version":1,
+                "workflow_run_id":99,
+                "run_attempt":1,
+                "head_sha":HEAD,
+                "action_id":p.idempotency_key,
+            },
+        },
+    )
+    ingestion=ingest_terminal_artifact(
+        state,
+        surface=TerminalSurface.ACTION,
+        run_id=99,
+        artifact_text=json.dumps(result.to_dict()),
+        gateway_result=gateway(
+            "action",p.idempotency_key,99,conclusion="failure"
+        ),
+    )
+    assert ingestion.outcome is TerminalIngestionOutcome.APPLIED
+    item=ingestion.proposed_state.action_queue[p.idempotency_key]
+    assert item["status"]=="rejected"
+    assert item["completion_result"]["status"]=="rejected"
+
+
 def test_action_gateway_run_mismatch_fails_closed():
     p,state=dispatched_action()
     try:
