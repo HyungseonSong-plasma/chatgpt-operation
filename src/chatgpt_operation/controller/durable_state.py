@@ -226,7 +226,13 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
     run_id = None if not isinstance(receipt, dict) else receipt.get("workflow_run_id")
     if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
         raise DurableStateError("failed action has no authoritative workflow_run_id")
-    require_execution_provenance(result, workflow_run_id=run_id)
+    from chatgpt_operation.controller.action_lifecycle import DispatchIntent
+    intent = DispatchIntent.from_dict(item.get("dispatch_intent"))
+    require_execution_provenance(
+        result,
+        workflow_run_id=run_id,
+        head_sha=intent.expected_head_sha,
+    )
     proposed = copy.deepcopy(current)
     previous = proposed.execution_results.get(result.action_id)
     record_execution_result(proposed, result)
