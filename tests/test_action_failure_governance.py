@@ -7,6 +7,9 @@ from chatgpt_operation.controller.execution import ExecutionResult, ExecutionSta
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 
 
+HEAD_SHA="b"*40
+
+
 def make_plan():
     return ActionPlan.from_dict({"schema_version":1,"research_id":"r","stage":"execute",
         "executor":"github_native","payload":{"action":"comment_issue","repository":"o/r",
@@ -17,7 +20,7 @@ def make_plan():
 def dispatch(s,p,run_id):
     record_action_dispatch_intent(
         s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",
-        requested_at=f"2026-09-27T12:{run_id % 60:02d}:00Z",
+        requested_at=f"2026-09-27T12:{run_id % 60:02d}:00Z",expected_head_sha=HEAD_SHA,
     )
     record_action_dispatch(s,p.idempotency_key,{
         "workflow_path":".github/workflows/samuel-native-github.yml",
@@ -31,7 +34,7 @@ def failed(p,run_id,retryable=True):
         observation="provider failed",retryable=retryable,
         details={"provider":"native","error_type":"HTTPError","provider_status":"403",
                  "provenance":{"schema_version":1,"workflow_run_id":run_id,"run_attempt":1,
-                               "head_sha":"b"*40,"action_id":p.idempotency_key}})
+                               "head_sha":HEAD_SHA,"action_id":p.idempotency_key}})
 
 
 def test_first_retryable_failure_returns_action_to_clean_pending_state():
