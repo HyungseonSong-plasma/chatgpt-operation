@@ -552,13 +552,19 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             reasoning=ReasoningProviderRegistry(
                 OpenAIReasoningProvider.from_env(allow_action_plan=True)
             )
-        elif mode in {"EXTERNAL","OFF","SHADOW"}:
+            reasoning_enabled=True
+        elif mode=="EXTERNAL":
             reasoning=ReasoningProviderRegistry()
+            reasoning_enabled=True
+        elif mode in {"OFF","SHADOW"}:
+            reasoning=ReasoningProviderRegistry()
+            reasoning_enabled=False
         else:
             raise ValueError("unsupported SAMUEL_REASONING_MODE")
         controller=SamuelController(
             decisions=DecisionRegistry.load(args.decisions),
             reasoning=reasoning,
+            reasoning_enabled=reasoning_enabled,
         )
         cycle=controller.run_cycle(
             trigger,

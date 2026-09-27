@@ -42,6 +42,34 @@ class Provider:
         }
 
 
+
+class RepairProvider:
+    name = "repair-fixture"
+    def __init__(self):
+        self.calls = 0
+        self.validation_errors = []
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.validation_errors.append(kwargs.get("validation_error"))
+        if self.calls == 1:
+            return {
+                "operation":"analyze",
+                "decision_id":"github_execution_authority",
+                "compatible_with_locked_decisions":True,
+                "revision_requested":False,
+                "action_plan":{
+                    "executor":"github_native",
+                    "payload":{"action":"close_issue"},
+                },
+            }
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":native_action_plan(),
+        }
+
 def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
@@ -228,6 +256,23 @@ class ControllerRuntimeTests(unittest.TestCase):
             provider.context["repository_context"]["open_issues"][0]["number"],
             43,
         )
+
+
+    def test_provider_repairs_malformed_nested_action_plan(self):
+        provider=RepairProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[admitted_comment()],
+            pending=[],
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertIsNone(provider.validation_errors[0])
+        self.assertIn(
+            "action plan missing fields",
+            provider.validation_errors[1],
+        )
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertIsNotNone(result.execution_command)
 
     def test_existing_submission_is_consumed_in_same_root_cycle(self):
         result=controller().run_cycle(
