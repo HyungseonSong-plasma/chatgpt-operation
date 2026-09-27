@@ -19,6 +19,7 @@ class ExecutionKernelError(RuntimeError):
 
 
 class GitHubCapability(str, Enum):
+    CREATE_PR = "GITHUB_PR_CREATE"
     MERGE_PR = "GITHUB_PR_MERGE"
     COMMENT_ISSUE = "GITHUB_ISSUE_COMMENT"
     CLOSE_ISSUE = "GITHUB_ISSUE_CLOSE"
@@ -26,6 +27,7 @@ class GitHubCapability(str, Enum):
 
 
 ACTION_CAPABILITIES = {
+    NativeGitHubAction.CREATE_PR: GitHubCapability.CREATE_PR,
     NativeGitHubAction.MERGE_PR: GitHubCapability.MERGE_PR,
     NativeGitHubAction.COMMENT_ISSUE: GitHubCapability.COMMENT_ISSUE,
     NativeGitHubAction.CLOSE_ISSUE: GitHubCapability.CLOSE_ISSUE,
