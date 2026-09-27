@@ -90,6 +90,23 @@ def load_state_comment(comments: list[dict[str, Any]]) -> ResearchState | None:
     return None if comment is None else decode_state(str(comment["body"]))
 
 
+def state_write_request(
+    comments: list[dict[str, Any]],
+    proposed: ResearchState,
+) -> dict[str, Any]:
+    """Return a transport-neutral create/update request for the durable state ledger."""
+    write = prepare_state_write(comments, proposed)
+    comment_id = write["comment_id"]
+    return {
+        "method": "POST" if comment_id is None else "PATCH",
+        "comment_id": comment_id,
+        "body": write["body"],
+        "expected_previous_revision": write["expected_previous_revision"],
+        "expected_revision": proposed.revision,
+        "research_id": proposed.research_id,
+    }
+
+
 def prepare_state_write(
     comments: list[dict[str, Any]],
     proposed: ResearchState,
