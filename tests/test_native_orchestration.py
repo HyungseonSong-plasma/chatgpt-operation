@@ -2,7 +2,12 @@ import unittest
 from unittest.mock import patch
 
 from chatgpt_operation.controller.action_plan import ActionPlan
-from chatgpt_operation.github.native_orchestration import (\n    NativeOrchestrationError, dispatch_native_plan, dispatch_native_plan_async, observe_native_plan,\n)
+from chatgpt_operation.github.native_orchestration import (
+    NativeOrchestrationError,
+    dispatch_native_plan,
+    dispatch_native_plan_async,
+    observe_native_plan,
+)
 
 
 def plan():
