@@ -33,8 +33,8 @@ def decode_state(body: str) -> ResearchState:
     if STATE_MARKER not in body:
         raise DurableStateError("controller state marker missing")
     start = body.find("```json")
-    end = body.find("```", start + 7)
-    if start < 0 or end < 0:
+    end = body.rfind("```")
+    if start < 0 or end <= start + 7:
         raise DurableStateError("controller state JSON fence missing")
     try:
         envelope = json.loads(body[start + 7:end].strip())

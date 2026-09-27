@@ -119,3 +119,32 @@ def test_nonadvancing_diagnostic_artifact_cannot_mutate_ledger():
         assert "exactly one advanced revision" in str(exc)
     else:
         raise AssertionError("WAIT artifact must not mutate durable state")
+
+
+def test_round_trip_preserves_markdown_fences_inside_state_payload():
+    state=ResearchState(
+        "issue:44",
+        "close issue with markdown",
+        revision=3,
+        action_queue={
+            "a"*64:{
+                "status":"complete",
+                "completion_result":{
+                    "schema_version":1,
+                    "research_id":"issue:44",
+                    "action_id":"a"*64,
+                    "executor":"github_native",
+                    "status":"pass",
+                    "observation":"closed",
+                    "retryable":False,
+                    "details":{
+                        "mutation":{
+                            "body":"example\n```python\nprint('x')\n```\n"
+                        }
+                    },
+                },
+            }
+        },
+    )
+    restored=decode_state(encode_state(state))
+    assert restored.action_queue==state.action_queue
