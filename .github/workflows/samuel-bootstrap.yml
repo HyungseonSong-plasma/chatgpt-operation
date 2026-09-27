@@ -257,19 +257,29 @@ jobs:
                   return name=="samuel-evidence-result"
               return name=="samuel-diagnostic-result"
           matches=[item for item in items if match(item)]
-          if len(matches)!=1:
+          if len(matches)==0 and surface=="action":
+              print("")
+          elif len(matches)!=1:
               raise SystemExit(
                   f"SAMUEL_TERMINAL=HARD_STOP expected one {surface} artifact, "
                   f"found {len(matches)}"
               )
-          print(matches[0]["id"])
+          else:
+              print(matches[0]["id"])
           PY
           )"
-          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o terminal.zip
-          rm -rf terminal-result && mkdir terminal-result
-          unzip -q terminal.zip -d terminal-result
-          python3 - <<'PY'
+          if [ -z "$artifact_id" ]; then
+            # A failed native worker may terminate before publishing a result.
+            # Preserve that as typed durable dispatch-evidence failure rather
+            # than wedging the controller on a host-level artifact lookup.
+            : > samuel-missing-execution-result.json
+            printf '%s' samuel-missing-execution-result.json > samuel-terminal-artifact-path.txt
+          else
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o terminal.zip
+            rm -rf terminal-result && mkdir terminal-result
+            unzip -q terminal.zip -d terminal-result
+            python3 - <<'PY'
           import os
           from pathlib import Path
           surface=os.environ["SAMUEL_TERMINAL_SURFACE"]
@@ -288,6 +298,7 @@ jobs:
               str(matches[0]),encoding="utf-8"
           )
           PY
+          fi
           gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > terminal-comments.json
           artifact_path="$(cat samuel-terminal-artifact-path.txt)"
           python3 -m chatgpt_operation.cli controller ingest-terminal \
