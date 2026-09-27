@@ -36,6 +36,11 @@ from chatgpt_operation.controller.runtime import (
     SamuelController,
     TriggerKind,
 )
+from chatgpt_operation.controller.terminal_ingestion import (
+    TerminalIngestionError,
+    TerminalSurface,
+    ingest_terminal_artifact,
+)
 from chatgpt_operation.controller.qualification_gate import (
     QualificationCheck,
     QualificationGateError,
@@ -521,6 +526,47 @@ def controller_execute_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def controller_ingest_terminal(args: argparse.Namespace) -> int:
+    try:
+        comments=json.loads(Path(args.comments).read_text(encoding="utf-8"))
+        if not isinstance(comments,list):
+            raise ValueError("controller comments must be a list")
+        state=load_state_comment(comments)
+        if state is None:
+            raise ValueError("durable controller state is required")
+        gateway_result=json.loads(
+            Path(args.gateway_result).read_text(encoding="utf-8")
+        )
+        artifact_text=Path(args.artifact).read_text(encoding="utf-8")
+        ingestion=ingest_terminal_artifact(
+            state,
+            surface=TerminalSurface(args.surface),
+            run_id=int(args.run_id),
+            artifact_text=artifact_text,
+            gateway_result=gateway_result,
+        )
+        result=ingestion.to_dict()
+        request=(
+            None if ingestion.proposed_state is None
+            else state_write_request(comments,ingestion.proposed_state)
+        )
+    except (
+        OSError,json.JSONDecodeError,ValueError,TerminalIngestionError,
+    ) as exc:
+        print(f"CONTROLLER_TERMINAL=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_TERMINAL="+ingestion.outcome.value.upper())
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+        if request is not None:
+            persist(args.state_write_result,request)
+    except OSError as exc:
+        print(f"CONTROLLER_TERMINAL=HARD_STOP output persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
 def controller_evaluate(args: argparse.Namespace) -> int:
     try:
         snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -789,6 +835,16 @@ def parser() -> argparse.ArgumentParser:
     cec.add_argument("--diagnostic-run-id-result")
     cec.add_argument("--action-terminal-observation-result")
     cec.set_defaults(func=controller_execute_command)
+
+    cit=ctls.add_parser("ingest-terminal")
+    cit.add_argument("--surface",required=True,choices=[x.value for x in TerminalSurface])
+    cit.add_argument("--run-id",required=True,type=int)
+    cit.add_argument("--artifact",required=True)
+    cit.add_argument("--gateway-result",required=True)
+    cit.add_argument("--comments",required=True)
+    cit.add_argument("--result")
+    cit.add_argument("--state-write-result")
+    cit.set_defaults(func=controller_ingest_terminal)
     ce=ctls.add_parser("evaluate"); ce.add_argument("--input",required=True); ce.add_argument("--result")
     ce.set_defaults(func=controller_evaluate)
     cq=ctls.add_parser("qualify")
