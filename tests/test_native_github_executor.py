@@ -76,3 +76,51 @@ class NativeGitHubExecutorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def create_pr_plan(**target_changes):
+    target={
+        "head":"samuel/issues-24-43",
+        "base":"main",
+        "title":"Implement telemetry maintenance",
+        "body":"Closes #24 and #43",
+    }
+    target.update(target_changes)
+    return ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"samuel-44",
+        "stage":"implement",
+        "executor":"github_native",
+        "payload":{
+            "action":"create_pr",
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "target":target,
+            "preconditions":{"pr_present":False},
+            "desired_postcondition":{"pr_present":True},
+        },
+        "expected_observation":"open PR exists for the exact head/base",
+    })
+
+
+def test_create_pr_is_idempotent_through_postcondition():
+    result=execute_native_github(
+        create_pr_plan(),
+        read_state=lambda action,target:{"pr_present":True,"pr_number":130},
+        mutate=lambda action,target: (_ for _ in ()).throw(
+            AssertionError("must not duplicate PR")
+        ),
+    )
+    assert result.status is ExecutionStatus.NOOP
+
+
+def test_create_pr_target_schema_is_closed_world():
+    try:
+        execute_native_github(
+            create_pr_plan(extra="not-allowed"),
+            read_state=lambda action,target:{},
+            mutate=lambda action,target:{},
+        )
+    except NativeGitHubError as exc:
+        assert "head, base, title, and body" in str(exc)
+    else:
+        raise AssertionError("unexpected create_pr target field must fail closed")
