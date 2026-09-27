@@ -139,7 +139,7 @@ def test_round_trip_preserves_markdown_fences_inside_state_payload():
                     "retryable":False,
                     "details":{
                         "mutation":{
-                            "body":"example\n\`\`\`python\nprint('x')\n\`\`\`\n"
+                            "body":"example\n```python\nprint('x')\n```\n"
                         }
                     },
                 },
