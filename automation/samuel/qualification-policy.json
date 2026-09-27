@@ -6,7 +6,7 @@
     "max_decision_drifts": 0,
     "max_false_blocked_rate": 0.02,
     "max_unnecessary_escalation_rate": 0.05,
-    "max_provider_failure_rate": 0.10
+    "max_provider_failure_rate": 0.1
   },
   "auto": {
     "minimum_cycles": 100,
@@ -15,5 +15,15 @@
     "max_false_blocked_rate": 0.01,
     "max_unnecessary_escalation_rate": 0.02,
     "max_provider_failure_rate": 0.05
-  }
+  },
+  "required_domains": [
+    "reasoning",
+    "execution",
+    "observation",
+    "science",
+    "state",
+    "provenance",
+    "liveness",
+    "architecture"
+  ]
 }
