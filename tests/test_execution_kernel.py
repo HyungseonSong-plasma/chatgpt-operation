@@ -21,9 +21,9 @@ def merge_plan():
         "payload": {
             "action": "merge_pr",
             "repository": "HyungseonSong-plasma/chatgpt-operation",
-            "target": {"number": 55},
+            "target": {"number": 55, "expected_head_sha": "a"*40},
             "preconditions": {
-                "head_sha": "2976871b",
+                "head_sha": "a"*40,
                 "mergeable": True,
                 "ci": "success",
             },
@@ -36,8 +36,8 @@ def merge_plan():
 class ExecutionKernelTests(unittest.TestCase):
     def test_merge_provider_executes_and_verifies_postcondition(self):
         states = iter([
-            {"merged": False, "head_sha": "2976871b", "mergeable": True, "ci": "success"},
-            {"merged": True, "head_sha": "2976871b"},
+            {"merged": False, "head_sha": "a"*40, "mergeable": True, "ci": "success"},
+            {"merged": True, "head_sha": "a"*40},
         ])
         mutations = []
         provider = ExecutionProvider(
@@ -94,7 +94,7 @@ class ExecutionKernelTests(unittest.TestCase):
             name="github-connector",
             capabilities=frozenset({GitHubCapability.MERGE_PR}),
             read_state=lambda action, target: {
-                "merged": False, "head_sha": "2976871b",
+                "merged": False, "head_sha": "a"*40,
                 "mergeable": True, "ci": "success",
             },
             mutate=lambda action, target: (_ for _ in ()).throw(
@@ -102,8 +102,8 @@ class ExecutionKernelTests(unittest.TestCase):
             ),
         )
         states = iter([
-            {"merged": False, "head_sha": "2976871b", "mergeable": True, "ci": "success"},
-            {"merged": True, "head_sha": "2976871b"},
+            {"merged": False, "head_sha": "a"*40, "mergeable": True, "ci": "success"},
+            {"merged": True, "head_sha": "a"*40},
         ])
         fallback = ExecutionProvider(
             name="github-rest",
@@ -124,7 +124,7 @@ class ExecutionKernelTests(unittest.TestCase):
                 name=name,
                 capabilities=frozenset({GitHubCapability.MERGE_PR}),
                 read_state=lambda action, target: {
-                    "merged": False, "head_sha": "2976871b",
+                    "merged": False, "head_sha": "a"*40,
                     "mergeable": True, "ci": "success",
                 },
                 mutate=lambda action, target: (_ for _ in ()).throw(
@@ -189,11 +189,11 @@ def test_open_diagnostic_allows_only_matching_recovery_authorization():
     states = iter([
         {
             "merged": False,
-            "head_sha": "2976871b",
+            "head_sha": "a"*40,
             "mergeable": True,
             "ci": "success",
         },
-        {"merged": True, "head_sha": "2976871b"},
+        {"merged": True, "head_sha": "a"*40},
     ])
     provider = ExecutionProvider(
         "fallback",
