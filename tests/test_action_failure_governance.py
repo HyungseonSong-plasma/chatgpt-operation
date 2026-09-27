@@ -59,6 +59,39 @@ def test_second_identical_retryable_failure_suspends_and_opens_diagnosis():
     assert recovery["source_plan"]["payload"]==p.payload
 
 
+def test_legacy_nonretryable_kernel_failure_returns_to_pending():
+    p=make_plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
+    enqueue_suspended_action(s,p); dispatch(s,p,101)
+    result=ExecutionResult(
+        research_id="r",
+        action_id=p.idempotency_key,
+        executor=ExecutorKind.GITHUB_NATIVE,
+        status=ExecutionStatus.FAILED,
+        observation="native execution kernel failed closed",
+        retryable=False,
+        details={
+            "provider":"repository-native",
+            "error_type":"ExecutionKernelError",
+            "error":"Resource not accessible by integration",
+            "available_providers":[],
+            "provenance":{
+                "schema_version":1,
+                "workflow_run_id":101,
+                "run_attempt":1,
+                "head_sha":HEAD_SHA,
+                "action_id":p.idempotency_key,
+            },
+        },
+    )
+    recovered=apply_action_failure(s,result)
+    item=recovered.action_queue[p.idempotency_key]
+    assert item["status"]=="pending"
+    assert "dispatch_intent" not in item
+    assert "dispatch_receipt" not in item
+    evidence=recovered.execution_results[p.idempotency_key]
+    assert evidence["details"]["governance_retryable"] is True
+
+
 def test_failure_from_foreign_workflow_is_rejected():
     p=make_plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
     enqueue_suspended_action(s,p); dispatch(s,p,99)
