@@ -377,6 +377,7 @@ jobs:
         env:
           PYTHONPATH: src
           GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import os
@@ -411,26 +412,86 @@ jobs:
               open("samuel-evidence-run-id.txt","w").write(str(ids[0])+"\n")
               print("SAMUEL_BOOTSTRAP=EVIDENCE_DISPATCHED action_id="+selected["action_id"])
               raise SystemExit(0)
-          if selected.get("kind") == "action":
-              import json
-              from chatgpt_operation.controller.action_plan import ActionPlan
-              from chatgpt_operation.github.native_orchestration import dispatch_native_plan
-              plan=ActionPlan.from_dict(selected["plan"])
-              if plan.idempotency_key != selected["action_id"]:
-                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP durable action identity mismatch")
-              outcome=dispatch_native_plan(
-                  plan, transport=transport, ref="main",
-                  expected_head_sha=sha, timeout_seconds=600, poll_interval_seconds=5,
+          if selected.get("kind") in {"action","action_intent","action_observation"}:
+              import json, subprocess
+              from chatgpt_operation.controller.diagnostic import (
+                  resume_dispatch_intent, resume_dispatched_action,
               )
-              observation=outcome["observation"]
-              if observation.get("status") != "MATCHED_TERMINAL":
-                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP durable action dispatch "+str(observation))
-              run_ids=observation.get("matched_run_ids") or ([observation.get("workflow_run_id")] if observation.get("workflow_run_id") else [])
-              if len(run_ids)!=1:
-                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP ambiguous durable action run")
-              open("samuel-action-run-id.txt","w").write(str(run_ids[0])+"\n")
-              print("SAMUEL_BOOTSTRAP=ACTION_DISPATCHED action_id="+selected["action_id"])
-              raise SystemExit(0)
+              from chatgpt_operation.controller.durable_state import load_state_comment
+              from chatgpt_operation.github.native_orchestration import (
+                  dispatch_native_plan_async, observe_native_intent, observe_native_plan,
+              )
+
+              fresh=json.loads(subprocess.check_output([
+                  "gh","api",f"repos/{repo}/issues/44/comments?per_page=100"
+              ],text=True))
+              current=load_state_comment(fresh)
+              if current is None:
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP durable state disappeared")
+              action_id=selected["action_id"]
+              expected_head=sha if os.environ.get("GITHUB_REF_NAME") == "main" else None
+
+              if selected["kind"] == "action":
+                  plan,intent=resume_dispatch_intent(current,action_id)
+                  receipt=dispatch_native_plan_async(
+                      plan,transport=transport,ref=intent.ref,workflow=intent.workflow,
+                  )
+                  if isinstance(receipt.get("workflow_run_id"),int):
+                      open("samuel-action-dispatch-receipt.json","w").write(
+                          json.dumps(receipt,sort_keys=True,separators=(",",":"))
+                      )
+                      print("SAMUEL_BOOTSTRAP=ACTION_DISPATCH_BOUND action_id="+action_id)
+                  else:
+                      print("SAMUEL_BOOTSTRAP=ACTION_DISPATCH_UNBOUND action_id="+action_id)
+                  raise SystemExit(0)
+
+              if selected["kind"] == "action_intent":
+                  plan,intent=resume_dispatch_intent(current,action_id)
+                  reconciled=observe_native_intent(
+                      plan,intent,transport=transport,expected_head_sha=expected_head,
+                  )
+                  observation=reconciled["observation"]
+                  bound=reconciled.get("receipt")
+                  if bound is not None:
+                      open("samuel-action-dispatch-receipt.json","w").write(
+                          json.dumps(bound,sort_keys=True,separators=(",",":"))
+                      )
+                      print("SAMUEL_BOOTSTRAP=ACTION_RECONCILED action_id="+action_id)
+                      raise SystemExit(0)
+                  status=observation.get("status")
+                  if status in {"PENDING_VISIBILITY","OBSERVATION_INCOMPLETE"}:
+                      print("SAMUEL_BOOTSTRAP=ACTION_INTENT_WAIT status="+str(status))
+                      raise SystemExit(0)
+                  if status == "NO_MATCH":
+                      receipt=dispatch_native_plan_async(
+                          plan,transport=transport,ref=intent.ref,workflow=intent.workflow,
+                      )
+                      if isinstance(receipt.get("workflow_run_id"),int):
+                          open("samuel-action-dispatch-receipt.json","w").write(
+                              json.dumps(receipt,sort_keys=True,separators=(",",":"))
+                          )
+                          print("SAMUEL_BOOTSTRAP=ACTION_RECOVERY_DISPATCH_BOUND action_id="+action_id)
+                      else:
+                          print("SAMUEL_BOOTSTRAP=ACTION_RECOVERY_DISPATCH_UNBOUND action_id="+action_id)
+                      raise SystemExit(0)
+                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP action intent observation "+str(observation))
+
+              plan,receipt=resume_dispatched_action(current,action_id)
+              observation=observe_native_plan(
+                  plan,receipt,transport=transport,expected_head_sha=expected_head,
+              )
+              status=observation.get("status")
+              if status == "MATCHED_TERMINAL":
+                  run_id=receipt.get("workflow_run_id")
+                  if not isinstance(run_id,int):
+                      raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP dispatched action lost run identity")
+                  open("samuel-action-run-id.txt","w").write(str(run_id)+"\n")
+                  print("SAMUEL_BOOTSTRAP=ACTION_TERMINAL action_id="+action_id)
+                  raise SystemExit(0)
+              if status in {"MATCHED_ACTIVE","PENDING_VISIBILITY","NO_MATCH","OBSERVATION_INCOMPLETE"}:
+                  print("SAMUEL_BOOTSTRAP=ACTION_OBSERVE_WAIT status="+str(status))
+                  raise SystemExit(0)
+              raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP action observation "+str(observation))
           if selected.get("kind") == "diagnostic":
               outcome=dispatch_and_wait(
                   transport,
