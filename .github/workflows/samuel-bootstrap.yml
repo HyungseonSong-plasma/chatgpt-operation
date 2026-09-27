@@ -114,14 +114,11 @@ jobs:
           )
           if selected is None:
               payload={"kind":"idle"}
-          elif selected[0] == "diagnostic":
-              payload={"kind":"diagnostic", **selected[1]}
-          elif selected[0] == "action":
-              payload={"kind":"action", **selected[1]}
-          elif selected[0] == "evidence":
-              payload={"kind":"evidence", **selected[1]}
-          elif selected[0] == "issue":
-              payload={"kind":"issue", **selected[1]}
+          elif selected[0] in {
+              "diagnostic", "action", "action_intent", "action_observation",
+              "evidence", "issue",
+          }:
+              payload={"kind":selected[0], **selected[1]}
           else:
               work=selected[1]
               payload={
