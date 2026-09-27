@@ -44,6 +44,8 @@ from .reasoning_consumption import (
 )
 from .reasoning_provider import ReasoningProviderRegistry
 from .research import ResearchState
+from chatgpt_operation.github.native_executor import NativeGitHubCommand
+from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
 
 
 class ControllerCompositionError(ValueError):
@@ -398,6 +400,10 @@ class SamuelController:
                 },
                 "merge_pr": {
                     "target_required": ["number", "expected_head_sha"],
+                    "preconditions": (
+                        "optional in proposal; deterministic executor always enforces "
+                        "exact head_sha, mergeable=true, and ci=success"
+                    ),
                     "desired_postcondition": {"merged": True},
                 },
                 "dispatch_workflow": {
@@ -422,6 +428,22 @@ class SamuelController:
                 if candidate.research_id != work_id:
                     raise ValueError(
                         "ActionPlan research_id must equal active work_id " + work_id
+                    )
+                if candidate.executor is ExecutorKind.GITHUB_NATIVE:
+                    NativeGitHubCommand.from_plan(candidate)
+                elif candidate.executor is ExecutorKind.REPOSITORY_MUTATION:
+                    expected_repository = (
+                        str((repository_context or {}).get("repository") or "")
+                        or None
+                    )
+                    to_repository_manifest(
+                        candidate,
+                        expected_repository=expected_repository,
+                    )
+                else:
+                    raise ValueError(
+                        "production semantic provider emitted unsupported executor "
+                        + candidate.executor.value
                     )
             return proposal
 
@@ -636,7 +658,7 @@ class SamuelController:
                 and current.get("status") == "planned"
                 and state.action_queue
                 and all(
-                    item.get("status") == "complete"
+                    item.get("status") in {"complete", "rejected"}
                     for item in state.action_queue.values()
                 )
                 and not any(
