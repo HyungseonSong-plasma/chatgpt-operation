@@ -16,6 +16,7 @@ class ActionLifecycle(str, Enum):
     TERMINAL = "terminal"
     VERIFIED = "verified"
     COMPLETE = "complete"
+    INVALID = "invalid"
     SUSPENDED = "suspended"
 
 
