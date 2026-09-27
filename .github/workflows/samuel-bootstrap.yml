@@ -662,44 +662,77 @@ jobs:
           run_id="$(cat samuel-action-run-id.txt)"
           artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
           artifact_id="$(python3 -c 'import json,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"].startswith("samuel-execution-result-") and not x.get("expired")]; assert len(xs)==1; print(xs[0]["id"])' <<<"$artifact_json")"
-          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o action-result.zip
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" -o action-result.zip
           rm -rf action-result && mkdir action-result
           unzip -q action-result.zip -d action-result
-          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > current-comments.json
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-completion-comments.json
           python3 - <<'PY'
           import json
           from chatgpt_operation.controller.execution import ExecutionResult
           from chatgpt_operation.controller.durable_state import (
-              apply_action_completion, load_state_comment, prepare_state_write,
+              apply_action_completion, apply_action_failure,
+              load_state_comment, state_write_request,
           )
-          comments=json.load(open("current-comments.json"))
+
+          comments=json.load(open("action-completion-comments.json"))
           current=load_state_comment(comments)
           if current is None:
               raise SystemExit("SAMUEL_ACTION=HARD_STOP durable state disappeared")
           raw=json.load(open("action-result/samuel-execution-result.json"))
           result=ExecutionResult.from_dict(raw)
+          item=current.action_queue.get(result.action_id)
+          if isinstance(item,dict) and item.get("status") == "complete":
+              if item.get("completion_result") != raw:
+                  raise SystemExit("SAMUEL_ACTION=HARD_STOP conflicting completion replay")
+              print("SAMUEL_ACTION=NOOP action_id="+result.action_id)
+              raise SystemExit(0)
           if result.status.value in {"PASS","NOOP"}:
               proposed=apply_action_completion(current,result)
           elif result.status.value == "FAILED":
-              from chatgpt_operation.controller.durable_state import apply_action_failure
               proposed=apply_action_failure(current,result)
           else:
               raise SystemExit("SAMUEL_ACTION=HARD_STOP unsupported terminal result "+result.status.value)
-          write=prepare_state_write(comments,proposed)
-          open("samuel-controller-state-body.txt","w").write(write["body"])
-          open("samuel-controller-state-comment-id.txt","w").write(
-              "" if write["comment_id"] is None else str(write["comment_id"])
+          request=state_write_request(comments,proposed)
+          open("samuel-action-completion-write.json","w").write(
+              json.dumps(request,sort_keys=True,separators=(",",":"))
           )
-          print("SAMUEL_ACTION="+("COMPLETE" if result.status.value in {"PASS","NOOP"} else "FAILED_RECORDED")+" action_id="+result.action_id)
+          print("SAMUEL_ACTION=PREPARED action_id="+result.action_id)
           PY
-          body="$(cat samuel-controller-state-body.txt)"
-          comment_id="$(cat samuel-controller-state-comment-id.txt)"
-          if [ -n "$comment_id" ]; then
+          if [ ! -f samuel-action-completion-write.json ]; then exit 0; fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-completion-prewrite-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
+          validate_state_write_precondition(
+              json.load(open("action-completion-prewrite-comments.json")),
+              json.load(open("samuel-action-completion-write.json")),
+          )
+          PY
+          method="$(python3 -c 'import json; print(json.load(open("samuel-action-completion-write.json"))["method"])')"
+          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-action-completion-write.json"))["comment_id"]; print("" if x is None else x)')"
+          body="$(python3 -c 'import json; print(json.load(open("samuel-action-completion-write.json"))["body"])')"
+          if [ "$method" = "PATCH" ]; then
+            test -n "$comment_id"
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
           else
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
           fi
-
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > action-completion-readback-comments.json
+          python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.durable_state import load_state_comment
+          request=json.load(open("samuel-action-completion-write.json"))
+          raw=json.load(open("action-result/samuel-execution-result.json"))
+          persisted=load_state_comment(json.load(open("action-completion-readback-comments.json")))
+          if persisted is None or persisted.revision != request["expected_revision"]:
+              raise SystemExit("SAMUEL_ACTION=HARD_STOP completion readback revision mismatch")
+          item=persisted.action_queue.get(raw["action_id"],{})
+          expected="complete" if raw["status"] in {"PASS","NOOP"} else None
+          if expected is not None and item.get("status") != expected:
+              raise SystemExit("SAMUEL_ACTION=HARD_STOP completion state mismatch")
+          print("SAMUEL_ACTION=PERSISTED action_id="+raw["action_id"]+" status="+str(item.get("status")))
+          PY
       - name: Persist diagnostic recovery state
         if: ${{ hashFiles('samuel-diagnostic-run-id.txt') != '' }}
         env:
