@@ -760,7 +760,6 @@ jobs:
           import json
           from chatgpt_operation.controller.durable_state import load_state_comment
           request=json.load(open("samuel-action-completion-write.json"))
-          raw=json.load(open("action-result/samuel-execution-result.json"))
           persisted=load_state_comment(json.load(open("action-completion-readback-comments.json")))
           if persisted is None or persisted.revision != request["expected_revision"]:
               raise SystemExit("SAMUEL_ACTION=HARD_STOP completion readback revision mismatch")
