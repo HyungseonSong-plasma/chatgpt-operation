@@ -43,5 +43,12 @@ class IssueIngestionTests(unittest.TestCase):
         with self.assertRaisesRegex(AdmissionError,"multiple authoritative"):
             admit_issue([{"id":1,"body":body},{"id":2,"body":body}],issue())
 
+    def test_admission_preserves_tilde_fences_inside_issue_body(self):
+        item=issue()
+        item["body"]="example\\n~~~json\\n{}\\n~~~\\n"
+        write=admit_issue([],item)
+        ledger=decode_admission_ledger(write["body"])
+        self.assertEqual(ledger["issue:100"]["body"],item["body"])
+
 if __name__ == "__main__":
     unittest.main()
