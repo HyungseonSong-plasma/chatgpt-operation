@@ -63,6 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" > samuel-open-issues.json
+          gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" > samuel-open-pulls.json
           python3 - <<'PY'
           import json, os, subprocess
           issues=[
@@ -75,6 +76,16 @@ jobs:
               }
               for item in json.load(open("samuel-open-issues.json"))
               if "pull_request" not in item
+          ]
+          pulls=[
+              {
+                  "number":item["number"],
+                  "title":item["title"],
+                  "head_sha":item["head"]["sha"],
+                  "head_ref":item["head"]["ref"],
+                  "base":item["base"]["ref"],
+              }
+              for item in json.load(open("samuel-open-pulls.json"))
           ]
           refs=subprocess.run(
               ["git","ls-remote","--heads","origin","refs/heads/samuel/*"],
@@ -89,6 +100,7 @@ jobs:
               "repository":os.environ["GITHUB_REPOSITORY"],
               "observed_head_sha":os.environ["GITHUB_SHA"],
               "open_issues":issues,
+              "open_pull_requests":pulls,
               "samuel_branches":branches,
           }
           open("samuel-repository-context.json","w").write(
@@ -133,16 +145,26 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f samuel-cycle-admission-write.json ]; then
-            method="$(python3 -c 'import json; print(json.load(open("samuel-cycle-admission-write.json"))["method"])')"
-            comment_id="$(python3 -c 'import json; x=json.load(open("samuel-cycle-admission-write.json"))["comment_id"]; print("" if x is None else x)')"
-            body="$(python3 -c 'import json; print(json.load(open("samuel-cycle-admission-write.json"))["body"])')"
+            python3 - <<'PY'
+          import json
+          raw=json.load(open("samuel-cycle-admission-write.json"))
+          json.dump({"body":raw["body"]},open("samuel-admission-request.json","w"))
+          open("samuel-admission-method.txt","w").write(raw["method"])
+          open("samuel-admission-comment-id.txt","w").write(
+              "" if raw["comment_id"] is None else str(raw["comment_id"])
+          )
+          PY
+            method="$(cat samuel-admission-method.txt)"
+            comment_id="$(cat samuel-admission-comment-id.txt)"
             if [ "$method" = "PATCH" ]; then
               test -n "$comment_id"
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+                --input samuel-admission-request.json >/dev/null
             else
               test "$method" = "POST"
               test -z "$comment_id"
-              gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+              gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" \
+                --input samuel-admission-request.json >/dev/null
             fi
           fi
           if [ -f samuel-cycle-state-write.json ]; then
@@ -163,17 +185,30 @@ jobs:
           outcome="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["outcome"])')"
           work_id="$(python3 -c 'import json; print(json.load(open("samuel-issue-planning.json"))["work_id"])')"
           echo "SAMUEL_ISSUE_PLANNING=${outcome^^} work_id=$work_id"
-          marker='<!-- samuel-issue-planning -->'
-          body="$marker
-          ~~~json
-          $(cat samuel-issue-planning.json)
-          ~~~"
-          comments="$(gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100")"
-          comment_id="$(python3 -c 'import json,sys; m="<!-- samuel-issue-planning -->"; xs=json.load(sys.stdin); ids=[x["id"] for x in xs if m in x.get("body","")]; assert len(ids)<=1; print(ids[0] if ids else "")' <<<"$comments")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-planning-comments.json
+          python3 - <<'PY'
+          import json
+          marker="<!-- samuel-issue-planning -->"
+          planning=json.load(open("samuel-issue-planning.json"))
+          body=marker+"\n~~~json\n"+json.dumps(
+              planning,sort_keys=True,separators=(",",":")
+          )+"\n~~~"
+          comments=json.load(open("samuel-planning-comments.json"))
+          ids=[x["id"] for x in comments if marker in x.get("body","")]
+          if len(ids)>1:
+              raise SystemExit("SAMUEL_ISSUE_PLANNING=HARD_STOP multiple planning comments")
+          json.dump({"body":body},open("samuel-planning-request.json","w"))
+          open("samuel-planning-comment-id.txt","w").write(
+              "" if not ids else str(ids[0])
+          )
+          PY
+          comment_id="$(cat samuel-planning-comment-id.txt)"
           if [ -n "$comment_id" ]; then
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              --input samuel-planning-request.json >/dev/null
           else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" \
+              --input samuel-planning-request.json >/dev/null
           fi
 
       - name: Execute root-issued controller command
