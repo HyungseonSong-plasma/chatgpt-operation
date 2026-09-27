@@ -13,6 +13,7 @@ import copy
 from typing import Any, Callable
 
 from .bootstrap import BootstrapWork, select_controller_work
+from .command import ControllerCommand, ControllerCommandKind
 from .decisions import DecisionRegistry
 from .durable_state import load_state_comment, state_write_request
 from .diagnostic import (
@@ -95,15 +96,20 @@ class ControllerCycle:
     issue_planning: dict[str, Any] | None
     admission_write: dict[str, Any] | None = None
     state_write: dict[str, Any] | None = None
+    execution_command: ControllerCommand | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "trigger": self.trigger.to_dict(),
             "selected_work": self.selected_work,
             "issue_planning": self.issue_planning,
             "admission_write": self.admission_write,
             "state_write": self.state_write,
+            "execution_command": (
+                None if self.execution_command is None
+                else self.execution_command.to_dict()
+            ),
         }
 
 
@@ -238,12 +244,50 @@ class SamuelController:
                 requested_at=requested_at,
                 expected_head_sha=executor_head_sha,
             )
+        command_kind = {
+            "action": ControllerCommandKind.DISPATCH_ACTION,
+            "evidence": ControllerCommandKind.DISPATCH_EVIDENCE,
+            "diagnostic": ControllerCommandKind.DISPATCH_DIAGNOSTIC,
+        }[kind]
+        command = ControllerCommand(
+            command_kind,
+            action_id,
+            proposed.research_id,
+            proposed.revision,
+        )
         return ControllerCycle(
             trigger,
             payload,
             planning,
             admission_write,
             state_write_request(comments, proposed),
+            command,
+        )
+
+    @staticmethod
+    def _command_for_in_flight(
+        payload: dict[str, Any],
+        state: ResearchState,
+    ) -> ControllerCommand | None:
+        mapping = {
+            "action_intent": ControllerCommandKind.RECONCILE_ACTION,
+            "action_observation": ControllerCommandKind.OBSERVE_ACTION,
+            "evidence_intent": ControllerCommandKind.RECONCILE_EVIDENCE,
+            "evidence_observation": ControllerCommandKind.OBSERVE_EVIDENCE,
+            "diagnostic_intent": ControllerCommandKind.RECONCILE_DIAGNOSTIC,
+            "diagnostic_observation": ControllerCommandKind.OBSERVE_DIAGNOSTIC,
+        }
+        command_kind = mapping.get(payload.get("kind"))
+        if command_kind is None:
+            return None
+        action_id = payload.get("action_id")
+        if not isinstance(action_id, str) or not action_id:
+            raise ControllerCompositionError("in-flight work has no action_id")
+        return ControllerCommand(
+            command_kind,
+            action_id,
+            state.research_id,
+            state.revision,
         )
 
     def _consume_waiting_reasoning(
@@ -381,8 +425,17 @@ class SamuelController:
                 state=state,
                 payload=payload,
             )
+        if payload["kind"] == "pending":
+            raise ControllerCompositionError(
+                "legacy static workflow work is not supported by production controller"
+            )
         if payload["kind"] != "issue":
-            return ControllerCycle(trigger, payload, None)
+            command = None if state is None else self._command_for_in_flight(
+                payload, state
+            )
+            return ControllerCycle(
+                trigger, payload, None, None, None, command
+            )
 
         result = plan_admitted_issue(payload, registry=self.decisions)
         provider = self.reasoning.status()
