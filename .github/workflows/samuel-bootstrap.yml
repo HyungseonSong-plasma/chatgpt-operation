@@ -103,50 +103,12 @@ jobs:
             fi
           fi
           if [ -f samuel-cycle-state-write.json ]; then
-            gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > cycle-state-prewrite-comments.json
-            python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
-          validate_state_write_precondition(
-              json.load(open("cycle-state-prewrite-comments.json")),
-              json.load(open("samuel-cycle-state-write.json")),
-          )
-          PY
-            method="$(python3 -c 'import json; print(json.load(open("samuel-cycle-state-write.json"))["method"])')"
-            comment_id="$(python3 -c 'import json; x=json.load(open("samuel-cycle-state-write.json"))["comment_id"]; print("" if x is None else x)')"
-            body="$(python3 -c 'import json; print(json.load(open("samuel-cycle-state-write.json"))["body"])')"
-            if [ "$method" = "PATCH" ]; then
-              test -n "$comment_id"
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
-            else
-              gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
-            fi
-            gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > cycle-state-readback-comments.json
-            python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.durable_state import decode_state, STATE_MARKER
-          request=json.load(open("samuel-cycle-state-write.json"))
-          comments=json.load(open("cycle-state-readback-comments.json"))
-          matches=[c for c in comments if STATE_MARKER in str(c.get("body",""))]
-          if len(matches)!=1:
-              raise SystemExit(
-                  "SAMUEL_STATE=HARD_STOP expected one durable state, found "
-                  +str(len(matches))
-              )
-          persisted=decode_state(str(matches[0]["body"]))
-          if (
-              persisted.research_id != request["research_id"]
-              or persisted.revision != request["expected_revision"]
-          ):
-              raise SystemExit(
-                  "SAMUEL_STATE=HARD_STOP readback mismatch "
-                  f"research_id={persisted.research_id} revision={persisted.revision}"
-              )
-          print(
-              f"SAMUEL_STATE=PERSISTED research_id={persisted.research_id} "
-              f"revision={persisted.revision}"
-          )
-          PY
+            python3 -m chatgpt_operation.cli controller persist-state \
+              --request samuel-cycle-state-write.json \
+              --repository "$GITHUB_REPOSITORY" \
+              --issue-number 44 \
+              --token-env GH_TOKEN \
+              --result samuel-cycle-state-persist-result.json
           fi
 
       - name: Persist guarded Issue planning evidence
@@ -200,41 +162,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > gateway-state-prewrite-comments.json
-          python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
-          validate_state_write_precondition(
-              json.load(open("gateway-state-prewrite-comments.json")),
-              json.load(open("samuel-gateway-state-write.json")),
-          )
-          PY
-          method="$(python3 -c 'import json; print(json.load(open("samuel-gateway-state-write.json"))["method"])')"
-          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-gateway-state-write.json"))["comment_id"]; print("" if x is None else x)')"
-          body="$(python3 -c 'import json; print(json.load(open("samuel-gateway-state-write.json"))["body"])')"
-          if [ "$method" = "PATCH" ]; then
-            test -n "$comment_id"
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
-          else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
-          fi
-          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > gateway-state-readback-comments.json
-          python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.durable_state import load_state_comment
-          request=json.load(open("samuel-gateway-state-write.json"))
-          persisted=load_state_comment(json.load(open("gateway-state-readback-comments.json")))
-          if (
-              persisted is None
-              or persisted.research_id != request["research_id"]
-              or persisted.revision != request["expected_revision"]
-          ):
-              raise SystemExit("SAMUEL_GATEWAY_STATE=HARD_STOP readback mismatch")
-          print(
-              "SAMUEL_GATEWAY_STATE=PERSISTED research_id="
-              +persisted.research_id+" revision="+str(persisted.revision)
-          )
-          PY
+          python3 -m chatgpt_operation.cli controller persist-state \
+            --request samuel-gateway-state-write.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --issue-number 44 \
+            --token-env GH_TOKEN \
+            --result samuel-gateway-state-persist-result.json
 
       - name: Persist terminal controller artifact
         if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' }}
@@ -321,40 +254,20 @@ jobs:
             echo "SAMUEL_TERMINAL=NO_STATE_CHANGE"
             exit 0
           fi
-          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > terminal-prewrite-comments.json
+          python3 -m chatgpt_operation.cli controller persist-state \
+            --request samuel-terminal-state-write.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --issue-number 44 \
+            --token-env GH_TOKEN \
+            --result samuel-terminal-state-persist-result.json
           python3 - <<'PY'
           import json
-          from chatgpt_operation.controller.durable_state import validate_state_write_precondition
-          validate_state_write_precondition(
-              json.load(open("terminal-prewrite-comments.json")),
-              json.load(open("samuel-terminal-state-write.json")),
-          )
-          PY
-          method="$(python3 -c 'import json; print(json.load(open("samuel-terminal-state-write.json"))["method"])')"
-          comment_id="$(python3 -c 'import json; x=json.load(open("samuel-terminal-state-write.json"))["comment_id"]; print("" if x is None else x)')"
-          body="$(python3 -c 'import json; print(json.load(open("samuel-terminal-state-write.json"))["body"])')"
-          if [ "$method" = "PATCH" ]; then
-            test -n "$comment_id"
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
-          else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/44/comments" -f body="$body" >/dev/null
-          fi
-          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > terminal-readback-comments.json
-          python3 - <<'PY'
-          import json
-          from chatgpt_operation.controller.durable_state import load_state_comment
-          request=json.load(open("samuel-terminal-state-write.json"))
-          persisted=load_state_comment(json.load(open("terminal-readback-comments.json")))
-          if (
-              persisted is None
-              or persisted.research_id != request["research_id"]
-              or persisted.revision != request["expected_revision"]
-          ):
-              raise SystemExit("SAMUEL_TERMINAL=HARD_STOP durable readback mismatch")
           result=json.load(open("samuel-terminal-ingestion-result.json"))
+          persisted=json.load(open("samuel-terminal-state-persist-result.json"))
           print(
               "SAMUEL_TERMINAL=PERSISTED surface="+result["surface"]
               +" action_id="+result["action_id"]
               +" outcome="+result["outcome"]
+              +" revision="+str(persisted["revision"])
           )
           PY
