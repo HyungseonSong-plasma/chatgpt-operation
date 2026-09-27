@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from urllib import error, request
+from urllib.parse import urlencode
 from typing import Any
 
 from .native_executor import NativeGitHubAction
@@ -58,11 +59,44 @@ class GitHubNativeTransport:
                 "mergeable": pr.get("mergeable"),
                 "ci": status.get("state"),
             }
+        if action is NativeGitHubAction.CREATE_PR:
+            owner=repo.split("/",1)[0]
+            query=urlencode({
+                "state":"open",
+                "head":owner+":"+target["head"],
+                "base":target["base"],
+                "per_page":"100",
+            })
+            pulls=self._call("GET", f"/repos/{repo}/pulls?{query}")
+            if not isinstance(pulls,list):
+                raise NativeGitHubRuntimeError("create_pr lookup returned invalid payload")
+            if len(pulls)>1:
+                raise NativeGitHubRuntimeError("create_pr lookup is ambiguous")
+            if not pulls:
+                return {"pr_present":False}
+            pr=pulls[0]
+            return {
+                "pr_present":True,
+                "pr_number":int(pr["number"]),
+                "head_sha":pr["head"]["sha"],
+                "base":pr["base"]["ref"],
+            }
         if action in {NativeGitHubAction.COMMENT_ISSUE, NativeGitHubAction.CLOSE_ISSUE}:
             number=int(target["number"])
             issue=self._call("GET", f"/repos/{repo}/issues/{number}")
             state={"issue_state": issue["state"]}
-            if action is NativeGitHubAction.COMMENT_ISSUE:
+            if action is NativeGitHubAction.CREATE_PR:
+            return self._call(
+                "POST",
+                f"/repos/{repo}/pulls",
+                {
+                    "head":target["head"],
+                    "base":target["base"],
+                    "title":target["title"],
+                    "body":target["body"],
+                },
+            )
+        if action is NativeGitHubAction.COMMENT_ISSUE:
                 marker=target.get("marker")
                 comments=self._call("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100")
                 state["comment_present"]=bool(marker) and any(marker in item.get("body","") for item in comments)
