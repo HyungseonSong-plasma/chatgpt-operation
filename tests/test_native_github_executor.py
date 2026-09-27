@@ -14,8 +14,8 @@ def plan(action="merge_pr"):
         "payload": {
             "action": action,
             "repository": "HyungseonSong-plasma/chatgpt-operation",
-            "target": {"number": 42},
-            "preconditions": {"head_sha": "abc", "mergeable": True, "ci": "success"},
+            "target": {"number": 42, "expected_head_sha": "a"*40},
+            "preconditions": {"head_sha": "a"*40, "mergeable": True, "ci": "success"},
             "desired_postcondition": {"merged": True},
         },
         "expected_observation": "merged",
@@ -41,8 +41,8 @@ class NativeGitHubExecutorTests(unittest.TestCase):
 
     def test_mutation_requires_postcondition_readback(self):
         states = iter([
-            {"merged": False, "head_sha": "abc", "mergeable": True, "ci": "success"},
-            {"merged": True, "head_sha": "abc"},
+            {"merged": False, "head_sha": "a"*40, "mergeable": True, "ci": "success"},
+            {"merged": True, "head_sha": "a"*40},
         ])
         result = execute_native_github(
             plan(),
@@ -54,8 +54,8 @@ class NativeGitHubExecutorTests(unittest.TestCase):
 
     def test_failed_postcondition_is_retryable_failure(self):
         states = iter([
-            {"merged": False, "head_sha": "abc", "mergeable": True, "ci": "success"},
-            {"merged": False, "head_sha": "abc"},
+            {"merged": False, "head_sha": "a"*40, "mergeable": True, "ci": "success"},
+            {"merged": False, "head_sha": "a"*40},
         ])
         result = execute_native_github(
             plan(),
