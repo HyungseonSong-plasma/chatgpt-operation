@@ -11,6 +11,8 @@ def test_bootstrap_routes_selection_and_planning_through_composition_root():
     assert "record_action_dispatch_intent" not in workflow
     assert "record_evidence_dispatch_intent" not in workflow
     assert "record_diagnostic_dispatch_intent" not in workflow
+    assert "from chatgpt_operation.controller.issue_ingestion import admit_issue" not in workflow
+    assert "--issue-json" in workflow
     for forbidden in (
         "dispatch_workflow",
         "observe_dispatch_once",
