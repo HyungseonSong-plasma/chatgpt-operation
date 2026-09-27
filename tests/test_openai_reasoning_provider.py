@@ -57,6 +57,62 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         self.assertFalse(schema["additionalProperties"])
         self.assertEqual(schema["properties"]["action_plan"]["type"], "null")
 
+
+    def test_production_mode_decodes_one_typed_action_plan_json(self):
+        plan = {
+            "schema_version":1,
+            "research_id":"issue:44",
+            "stage":"implement",
+            "executor":"github_native",
+            "payload":{
+                "action":"close_issue",
+                "repository":"o/r",
+                "target":{"number":43},
+                "preconditions":{"issue_state":"open"},
+                "desired_postcondition":{"issue_state":"closed"},
+            },
+            "expected_observation":"issue is closed",
+        }
+        raw = {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan_json":json.dumps(plan),
+        }
+        seen={}
+        def opener(req, timeout):
+            seen["body"]=json.loads(req.data.decode())
+            return Response({"output_text":json.dumps(raw)})
+        provider=OpenAIReasoningProvider(
+            "secret",opener=opener,allow_action_plan=True
+        )
+        result=provider.reason(
+            task="next",context={},attempt=1,validation_error=None
+        )
+        self.assertEqual(result["action_plan"],plan)
+        schema=seen["body"]["text"]["format"]["schema"]
+        self.assertIn("action_plan_json",schema["properties"])
+        self.assertNotIn("action_plan",schema["properties"])
+
+    def test_production_mode_rejects_invalid_embedded_action_plan_json(self):
+        raw = {
+            "operation":"analyze",
+            "decision_id":None,
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan_json":"not-json",
+        }
+        provider=OpenAIReasoningProvider(
+            "secret",
+            opener=lambda req,timeout:Response({"output_text":json.dumps(raw)}),
+            allow_action_plan=True,
+        )
+        with self.assertRaises(ProviderUnavailable):
+            provider.reason(
+                task="next",context={},attempt=1,validation_error=None
+            )
+
     def test_non_json_fails_closed(self):
         p = OpenAIReasoningProvider(
             "secret", opener=lambda req, timeout: Response({"output_text": "not-json"})
