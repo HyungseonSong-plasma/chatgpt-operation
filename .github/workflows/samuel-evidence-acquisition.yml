@@ -27,6 +27,7 @@ jobs:
           RECOVERY_JSON: ${{ inputs.recovery_json }}
           CONTROLLER_STATE: ${{ inputs.controller_state }}
           GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_DISPATCH_ID: ${{ inputs.samuel_dispatch_id }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -64,7 +65,21 @@ jobs:
           if not evidence["available_providers"]:
               raise SystemExit("SAMUEL_EVIDENCE=HARD_STOP no repository providers resolved")
           record_acquired_diagnostic_evidence(state,action_id,evidence)
-          out={"action_id":action_id,"evidence":evidence,"controller_state":encode_state(state),"revision_delta":1}
+          out={
+              "schema_version":1,
+              "action_id":action_id,
+              "evidence":evidence,
+              "controller_state":encode_state(state),
+              "revision_delta":1,
+              "provenance":{
+                  "schema_version":1,
+                  "workflow_run_id":int(os.environ["GITHUB_RUN_ID"]),
+                  "run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "head_sha":os.environ["GITHUB_SHA"],
+                  "action_id":action_id,
+                  "dispatch_id":os.environ["SAMUEL_DISPATCH_ID"],
+              },
+          }
           open("samuel-evidence-result.json","w").write(json.dumps(out,sort_keys=True,separators=(",",":")))
           print("SAMUEL_EVIDENCE=ACQUIRED action_id="+action_id)
           PY
