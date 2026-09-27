@@ -6,11 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from chatgpt_operation.controller.action_plan import ActionPlan, ExecutorKind
+from chatgpt_operation.controller.action_lifecycle import DispatchIntent
 from chatgpt_operation.controller.execution import ExecutionResult
 from chatgpt_operation.github.actions_runtime import (
     GitHubActionsTransport,
     dispatch_and_wait,
     dispatch_workflow,
+    observation_receipt_from_identity,
     observe_dispatch_once,
 )
 
@@ -67,6 +69,42 @@ def dispatch_native_plan_async(
         correlation_input="samuel_action_id",
         correlation_run_name_prefix=NATIVE_RUN_NAME_PREFIX,
     )
+
+
+def observe_native_intent(
+    plan: ActionPlan,
+    intent: DispatchIntent,
+    *,
+    transport: GitHubActionsTransport,
+    expected_head_sha: str | None = None,
+) -> dict[str, Any]:
+    """Reconcile a pre-dispatch intent without issuing another dispatch."""
+    if (
+        plan.idempotency_key != intent.action_id
+        or plan.research_id != intent.research_id
+    ):
+        raise NativeOrchestrationError("dispatch intent does not match ActionPlan")
+    receipt = observation_receipt_from_identity(
+        transport,
+        workflow=intent.workflow,
+        ref=intent.ref,
+        correlation_id=intent.action_id,
+        requested_at=intent.requested_at,
+        correlation_input="samuel_action_id",
+        correlation_run_name_prefix=NATIVE_RUN_NAME_PREFIX,
+    )
+    observation = observe_dispatch_once(
+        transport, receipt, expected_head_sha=expected_head_sha
+    )
+    matched = observation.get("matched_run_ids") or []
+    bound_receipt = None
+    if observation.get("status") in {"MATCHED_ACTIVE", "MATCHED_TERMINAL"}:
+        if len(matched) != 1:
+            raise NativeOrchestrationError("matched dispatch identity is not unique")
+        bound_receipt = dict(receipt)
+        bound_receipt["workflow_run_id"] = int(matched[0])
+        bound_receipt["recovered_from_intent"] = True
+    return {"observation": observation, "receipt": bound_receipt}
 
 
 def observe_native_plan(

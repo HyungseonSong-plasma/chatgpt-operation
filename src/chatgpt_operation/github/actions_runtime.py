@@ -214,6 +214,50 @@ def dispatch_workflow(
     }
 
 
+def observation_receipt_from_identity(
+    transport: ActionsTransport,
+    *,
+    workflow: str | int,
+    ref: str,
+    correlation_id: str,
+    requested_at: str,
+    correlation_input: str | None = None,
+    correlation_run_name_prefix: str | None = None,
+) -> dict[str, Any]:
+    """Build a non-dispatching receipt used only to reconcile an existing run."""
+    if not isinstance(ref, str) or not ref:
+        raise ActionsRuntimeError("ref must be a non-empty branch or tag name")
+    if not isinstance(correlation_id, str) or not correlation_id:
+        raise ActionsRuntimeError("correlation_id must be non-empty")
+    try:
+        _parse_time = datetime.fromisoformat(requested_at.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ActionsRuntimeError("requested_at must be ISO-8601") from exc
+    if correlation_input is not None and (
+        not isinstance(correlation_input, str) or not correlation_input
+    ):
+        raise ActionsRuntimeError("correlation_input must be non-empty or null")
+    if correlation_run_name_prefix is not None and (
+        not isinstance(correlation_run_name_prefix, str)
+        or not correlation_run_name_prefix
+    ):
+        raise ActionsRuntimeError("correlation_run_name_prefix must be non-empty or null")
+    workflow_meta = resolve_workflow(transport, workflow)
+    return {
+        "workflow_id": workflow_meta["id"],
+        "workflow_path": workflow_meta.get("path"),
+        "workflow_name": workflow_meta.get("name"),
+        "ref": ref,
+        "correlation_id": correlation_id,
+        "correlation_input": correlation_input,
+        "correlation_run_name_prefix": correlation_run_name_prefix,
+        "requested_at": requested_at,
+        "workflow_run_id": None,
+        "run_url": None,
+        "html_url": None,
+        "dispatch_status": None,
+    }
+
 def _run_evidence(
     run: dict[str, Any],
     *,

@@ -59,7 +59,7 @@ def test_dispatch_receipt_is_durable_and_reentrant_without_redispatch():
     }
     before=s.revision
     intent=record_action_dispatch_intent(
-        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main"
+        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",requested_at="2026-09-27T12:00:00Z"
     )
     assert s.revision==before+1
     assert intent.action_id==p.idempotency_key
@@ -81,7 +81,7 @@ def test_dispatch_receipt_rejects_wrong_action_identity():
     p=plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
     enqueue_suspended_action(s,p)
     record_action_dispatch_intent(
-        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main"
+        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",requested_at="2026-09-27T12:00:00Z"
     )
     try:
         record_action_dispatch(
@@ -130,19 +130,33 @@ def test_dispatch_intent_is_reentrant_and_conflicting_target_fails_closed():
     p=plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
     enqueue_suspended_action(s,p)
     first=record_action_dispatch_intent(
-        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main"
+        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",requested_at="2026-09-27T12:00:00Z"
     )
     before=s.revision
     second=record_action_dispatch_intent(
-        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main"
+        s,p.idempotency_key,workflow="samuel-native-github.yml",ref="main",requested_at="2026-09-27T12:00:00Z"
     )
     assert second==first
     assert s.revision==before
     try:
         record_action_dispatch_intent(
-            s,p.idempotency_key,workflow="samuel-native-github.yml",ref="other"
+            s,p.idempotency_key,workflow="samuel-native-github.yml",ref="other",requested_at="2026-09-27T12:05:00Z"
         )
     except ValueError as exc:
         assert "conflicts" in str(exc)
     else:
         raise AssertionError("dispatch target drift must fail closed")
+
+
+def test_dispatch_intent_rejects_invalid_timestamp():
+    p=plan(); s=ResearchState("r","finish",stage=ResearchStage.EXECUTE)
+    enqueue_suspended_action(s,p)
+    try:
+        record_action_dispatch_intent(
+            s,p.idempotency_key,workflow="samuel-native-github.yml",
+            ref="main",requested_at="not-a-time"
+        )
+    except ValueError as exc:
+        assert "ISO-8601" in str(exc)
+    else:
+        raise AssertionError("invalid dispatch timestamp must fail closed")

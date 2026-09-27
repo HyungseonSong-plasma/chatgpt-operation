@@ -6,6 +6,7 @@ from chatgpt_operation.github.native_orchestration import (
     NativeOrchestrationError,
     dispatch_native_plan,
     dispatch_native_plan_async,
+    observe_native_intent,
     observe_native_plan,
 )
 
@@ -91,3 +92,41 @@ class AsyncNativeOrchestrationTests(unittest.TestCase):
             observe_native_plan(
                 p,{"correlation_id":"foreign"},transport=object()
             )
+
+
+class IntentRecoveryTests(unittest.TestCase):
+    @patch("chatgpt_operation.github.native_orchestration.observe_dispatch_once")
+    @patch("chatgpt_operation.github.native_orchestration.observation_receipt_from_identity")
+    def test_intent_recovery_observes_without_redispatch(self, build_receipt, observe):
+        p=plan()
+        from chatgpt_operation.controller.action_lifecycle import DispatchIntent
+        intent=DispatchIntent(
+            action_id=p.idempotency_key,research_id="r",workflow="samuel-native-github.yml",
+            ref="main",requested_at="2026-09-27T12:00:00Z",state_revision=2,
+        )
+        base={"workflow_id":1,"workflow_path":".github/workflows/samuel-native-github.yml",
+              "ref":"main","correlation_id":p.idempotency_key,
+              "correlation_input":"samuel_action_id",
+              "correlation_run_name_prefix":"Samuel Native GitHub Executor action:",
+              "requested_at":intent.requested_at,"workflow_run_id":None}
+        build_receipt.return_value=base
+        observe.return_value={"status":"MATCHED_ACTIVE","matched_run_ids":[99]}
+        result=observe_native_intent(p,intent,transport=object())
+        self.assertEqual(result["receipt"]["workflow_run_id"],99)
+        self.assertTrue(result["receipt"]["recovered_from_intent"])
+        self.assertEqual(observe.call_count,1)
+
+    @patch("chatgpt_operation.github.native_orchestration.observe_dispatch_once")
+    @patch("chatgpt_operation.github.native_orchestration.observation_receipt_from_identity")
+    def test_intent_pending_visibility_does_not_invent_receipt(self, build_receipt, observe):
+        p=plan()
+        from chatgpt_operation.controller.action_lifecycle import DispatchIntent
+        intent=DispatchIntent(
+            action_id=p.idempotency_key,research_id="r",workflow="samuel-native-github.yml",
+            ref="main",requested_at="2026-09-27T12:00:00Z",state_revision=2,
+        )
+        build_receipt.return_value={"workflow_id":1,"ref":"main","correlation_id":p.idempotency_key,
+                                    "requested_at":intent.requested_at,"workflow_run_id":None}
+        observe.return_value={"status":"PENDING_VISIBILITY","matched_run_ids":[]}
+        result=observe_native_intent(p,intent,transport=object())
+        self.assertIsNone(result["receipt"])
