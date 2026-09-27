@@ -33,24 +33,20 @@ class SamuelBootstrapTests(unittest.TestCase):
         self.assertIn("actions: write", text)
         self.assertIn("issues: write", text)
         self.assertNotIn("dispatch_and_wait", text)
-        self.assertIn("legacy static workflow work", text)
+        self.assertIn("controller run-cycle", text)
+        self.assertIn("controller execute-command", text)
         self.assertNotIn("plan_json", text)
 
-    def test_evidence_path_never_uses_blocking_dispatch_wait(self):
+    def test_workflow_has_no_direct_evidence_or_diagnostic_dispatch_runtime(self):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
-        start=text.index('if selected.get("kind") in {"evidence","evidence_intent","evidence_observation"}:')
-        end=text.index('if selected.get("kind") in {"action","action_intent","action_observation"}:',start)
-        self.assertNotIn("dispatch_and_wait",text[start:end])
-        self.assertIn("dispatch_workflow(",text[start:end])
-        self.assertIn("observe_dispatch_once(",text[start:end])
-
-    def test_diagnostic_path_never_uses_blocking_dispatch_wait(self):
-        text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
-        start=text.index('if selected.get("kind") in {"diagnostic","diagnostic_intent","diagnostic_observation"}:')
-        end=text.index('if selected.get("kind") == "pending":',start)
-        self.assertNotIn("dispatch_and_wait",text[start:end])
-        self.assertIn("dispatch_workflow(",text[start:end])
-        self.assertIn("observe_dispatch_once(",text[start:end])
+        self.assertNotIn("dispatch_and_wait",text)
+        self.assertNotIn("dispatch_workflow(",text)
+        self.assertNotIn("observe_dispatch_once(",text)
+        self.assertNotIn("resume_evidence_dispatch_intent",text)
+        self.assertNotIn("resume_dispatched_evidence",text)
+        self.assertNotIn("resume_diagnostic_dispatch_intent",text)
+        self.assertNotIn("resume_dispatched_diagnostic",text)
+        self.assertEqual(text.count("controller execute-command"),1)
 
     def test_legacy_work_still_resolves_repository_provider_outside_runtime(self):
         work=synthetic_pending()[0]
