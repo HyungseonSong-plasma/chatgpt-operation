@@ -439,7 +439,6 @@ jobs:
               action_id=selected["action_id"]
               executor_ref=os.environ.get("SAMUEL_EXECUTOR_REF","")
               executor_sha=os.environ.get("SAMUEL_EXECUTOR_SHA","")
-              expected_head=executor_sha if executor_ref and intent.ref == executor_ref else None
 
               if selected["kind"] == "action":
                   plan,intent=resume_dispatch_intent(current,action_id)
@@ -457,6 +456,7 @@ jobs:
 
               if selected["kind"] == "action_intent":
                   plan,intent=resume_dispatch_intent(current,action_id)
+                  expected_head=executor_sha if executor_ref and intent.ref == executor_ref else None
                   reconciled=observe_native_intent(
                       plan,intent,transport=transport,expected_head_sha=expected_head,
                   )
@@ -487,6 +487,7 @@ jobs:
                   raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP action intent observation "+str(observation))
 
               plan,receipt=resume_dispatched_action(current,action_id)
+              expected_head=executor_sha if executor_ref and receipt.get("ref") == executor_ref else None
               observation=observe_native_plan(
                   plan,receipt,transport=transport,expected_head_sha=expected_head,
               )
