@@ -19,6 +19,67 @@ class NativeOrchestrationError(RuntimeError):
     pass
 
 
+
+def dispatch_native_plan_async(
+    plan: ActionPlan,
+    *,
+    transport: GitHubActionsTransport,
+    workflow: str = "samuel-native-github.yml",
+    ref: str,
+    recovery_state: str | None = None,
+    recovery_authorization: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Dispatch once and return a durable receipt without waiting for completion."""
+    if plan.executor is not ExecutorKind.GITHUB_NATIVE:
+        raise NativeOrchestrationError("only github_native plans may be dispatched")
+    if plan.requires_escalation():
+        raise NativeOrchestrationError("plan requires escalation before dispatch")
+    inputs = {
+        "plan_json": json.dumps({
+            "schema_version": 1,
+            "research_id": plan.research_id,
+            "stage": plan.stage.value,
+            "executor": plan.executor.value,
+            "payload": plan.payload,
+            "expected_observation": plan.expected_observation,
+            "decision_risk": None if plan.decision_risk is None else {
+                "impact": plan.decision_risk.impact,
+                "uncertainty": plan.decision_risk.uncertainty,
+                "irreversibility": plan.decision_risk.irreversibility,
+            },
+        }, sort_keys=True),
+    }
+    if recovery_state is not None and recovery_authorization is not None:
+        inputs["recovery_state"] = recovery_state
+        inputs["recovery_authorization"] = json.dumps(
+            recovery_authorization, sort_keys=True, separators=(",", ":")
+        )
+    return dispatch_workflow(
+        transport,
+        workflow=workflow,
+        ref=ref,
+        inputs=inputs,
+        correlation_id=plan.idempotency_key,
+        correlation_input=None,
+    )
+
+
+def observe_native_plan(
+    plan: ActionPlan,
+    receipt: dict[str, Any],
+    *,
+    transport: GitHubActionsTransport,
+    expected_head_sha: str | None = None,
+) -> dict[str, Any]:
+    """Observe a persisted dispatch once; never redispatch it."""
+    if receipt.get("correlation_id") != plan.idempotency_key:
+        raise NativeOrchestrationError("dispatch receipt does not match ActionPlan")
+    return observe_dispatch_once(
+        transport,
+        receipt,
+        expected_head_sha=expected_head_sha,
+    )
+
 def dispatch_native_plan(
     plan: ActionPlan,
     *,
