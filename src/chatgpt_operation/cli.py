@@ -16,7 +16,12 @@ from chatgpt_operation.controller.action_plan import ActionPlan, ActionPlanError
 from chatgpt_operation.github.native_executor import NativeGitHubError
 from chatgpt_operation.github.execution_kernel import ExecutionKernel, native_runtime_provider
 from chatgpt_operation.controller.diagnostic import recovery_authorization_from_dict
-from chatgpt_operation.controller.durable_state import decode_state, load_state_comment
+from chatgpt_operation.controller.durable_state import (
+    apply_dispatch_receipt,
+    decode_state,
+    load_state_comment,
+    state_write_request,
+)
 from chatgpt_operation.controller.command import ControllerCommand, ControllerCommandError
 from chatgpt_operation.controller.execution_gateway import (
     ExecutionGateway,
@@ -487,18 +492,19 @@ def controller_execute_command(args: argparse.Namespace) -> int:
     print(json.dumps(encoded,sort_keys=True))
     try:
         persist(args.result,encoded)
-        receipt_paths={
-            "action":args.action_receipt_result,
-            "evidence":args.evidence_receipt_result,
-            "diagnostic":args.diagnostic_receipt_result,
-        }
         run_id_paths={
             "action":args.action_run_id_result,
             "evidence":args.evidence_run_id_result,
             "diagnostic":args.diagnostic_run_id_result,
         }
         if result.receipt is not None:
-            persist(receipt_paths[result.surface],result.receipt)
+            proposed=apply_dispatch_receipt(
+                state,
+                surface=result.surface,
+                action_id=result.action_id,
+                receipt=result.receipt,
+            )
+            persist(args.state_write_result,state_write_request(comments,proposed))
         if result.terminal_run_id is not None:
             target=run_id_paths[result.surface]
             if target:
@@ -777,9 +783,7 @@ def parser() -> argparse.ArgumentParser:
     cec.add_argument("--api-url",default="https://api.github.com")
     cec.add_argument("--api-version",default=DEFAULT_API_VERSION)
     cec.add_argument("--result")
-    cec.add_argument("--action-receipt-result")
-    cec.add_argument("--evidence-receipt-result")
-    cec.add_argument("--diagnostic-receipt-result")
+    cec.add_argument("--state-write-result")
     cec.add_argument("--action-run-id-result")
     cec.add_argument("--evidence-run-id-result")
     cec.add_argument("--diagnostic-run-id-result")
