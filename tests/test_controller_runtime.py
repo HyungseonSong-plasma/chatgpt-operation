@@ -2,6 +2,7 @@ import unittest
 
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.bootstrap import BootstrapKind, BootstrapWork
+from chatgpt_operation.controller.command import ControllerCommandKind
 from chatgpt_operation.controller.diagnostic import enqueue_suspended_action
 from chatgpt_operation.controller.durable_state import decode_state, encode_state
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
@@ -121,7 +122,8 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertIsNone(result.issue_planning)
         self.assertIsNone(result.admission_write)
         self.assertIsNone(result.state_write)
-        self.assertEqual(result.to_dict()["schema_version"],2)
+        self.assertEqual(result.to_dict()["schema_version"],3)
+        self.assertIsNone(result.execution_command)
 
     def test_admitted_issue_builds_reasoning_preflight_and_transition(self):
         result=controller().run_cycle(
@@ -169,6 +171,14 @@ class ControllerRuntimeTests(unittest.TestCase):
         proposed=decode_state(result.state_write["body"])
         item=proposed.action_queue[result.selected_work["action_id"]]
         self.assertEqual(item["status"],"dispatch_intent")
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.DISPATCH_ACTION,
+        )
+        self.assertEqual(
+            result.execution_command.state_revision,
+            proposed.revision,
+        )
 
     def test_analyze_only_submission_remains_reasoning_required(self):
         result=controller().run_cycle(
@@ -205,6 +215,11 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(item["status"],"dispatch_intent")
         self.assertEqual(item["dispatch_intent"]["ref"],"main")
         self.assertEqual(item["dispatch_intent"]["expected_head_sha"],"b"*40)
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.DISPATCH_ACTION,
+        )
+        self.assertEqual(result.execution_command.state_revision,proposed.revision)
 
     def test_evidence_work_is_promoted_to_dispatch_intent_by_root(self):
         action_id="c"*64
@@ -225,6 +240,10 @@ class ControllerRuntimeTests(unittest.TestCase):
         dispatch=proposed.diagnostic_recoveries[action_id]["evidence_dispatch"]
         self.assertEqual(dispatch["status"],"dispatch_intent")
         self.assertEqual(dispatch["intent"]["expected_head_sha"],"b"*40)
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.DISPATCH_EVIDENCE,
+        )
 
     def test_diagnostic_work_is_promoted_to_dispatch_intent_by_root(self):
         action_id="d"*64
@@ -249,6 +268,57 @@ class ControllerRuntimeTests(unittest.TestCase):
         dispatch=proposed.diagnostic_recoveries[action_id]["diagnostic_dispatch"]
         self.assertEqual(dispatch["status"],"dispatch_intent")
         self.assertEqual(dispatch["intent"]["expected_head_sha"],"b"*40)
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.DISPATCH_DIAGNOSTIC,
+        )
+
+    def test_existing_action_intent_emits_reconcile_command(self):
+        plan,state=queued_state()
+        from chatgpt_operation.controller.diagnostic import record_action_dispatch_intent
+        record_action_dispatch_intent(
+            state,plan.idempotency_key,
+            workflow="samuel-native-github.yml",ref="main",
+            requested_at="2026-09-27T20:00:00Z",
+            expected_head_sha="b"*40,
+        )
+        result=controller().run_cycle(
+            trigger(),comments=[state_comment(state)],pending=[]
+        )
+        self.assertEqual(result.selected_work["kind"],"action_intent")
+        self.assertIsNone(result.state_write)
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.RECONCILE_ACTION,
+        )
+        self.assertEqual(result.execution_command.state_revision,state.revision)
+
+    def test_dispatched_action_emits_observe_command(self):
+        plan,state=queued_state()
+        from chatgpt_operation.controller.diagnostic import (
+            record_action_dispatch, record_action_dispatch_intent,
+        )
+        record_action_dispatch_intent(
+            state,plan.idempotency_key,
+            workflow="samuel-native-github.yml",ref="main",
+            requested_at="2026-09-27T20:00:00Z",
+            expected_head_sha="b"*40,
+        )
+        record_action_dispatch(state,plan.idempotency_key,{
+            "workflow_path":".github/workflows/samuel-native-github.yml",
+            "ref":"main",
+            "correlation_id":plan.idempotency_key,
+            "workflow_run_id":99,
+        })
+        result=controller().run_cycle(
+            trigger(),comments=[state_comment(state)],pending=[]
+        )
+        self.assertEqual(result.selected_work["kind"],"action_observation")
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.OBSERVE_ACTION,
+        )
+        self.assertEqual(result.execution_command.state_revision,state.revision)
 
     def test_dispatchable_work_requires_executor_identity(self):
         plan,state=queued_state()
