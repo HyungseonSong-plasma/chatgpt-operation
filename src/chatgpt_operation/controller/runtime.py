@@ -18,6 +18,7 @@ from .decisions import DecisionRegistry
 from .durable_state import load_state_comment, state_write_request
 from .diagnostic import (
     record_action_dispatch_intent,
+    record_corrective_dispatch_intent,
     record_diagnostic_dispatch_intent,
     record_evidence_dispatch_intent,
 )
@@ -208,7 +209,7 @@ class SamuelController:
         planning: dict[str, Any] | None = None,
     ) -> ControllerCycle:
         kind = payload.get("kind")
-        if kind not in {"action", "evidence", "diagnostic"}:
+        if kind not in {"action", "evidence", "diagnostic", "corrective"}:
             return ControllerCycle(
                 trigger, payload, planning, admission_write, None
             )
@@ -236,7 +237,7 @@ class SamuelController:
                 requested_at=requested_at,
                 expected_head_sha=executor_head_sha,
             )
-        else:
+        elif kind == "diagnostic":
             record_diagnostic_dispatch_intent(
                 proposed,
                 action_id,
@@ -245,10 +246,20 @@ class SamuelController:
                 requested_at=requested_at,
                 expected_head_sha=executor_head_sha,
             )
+        else:
+            record_corrective_dispatch_intent(
+                proposed,
+                action_id,
+                workflow="samuel-native-github.yml",
+                ref=executor_ref,
+                requested_at=requested_at,
+                expected_head_sha=executor_head_sha,
+            )
         command_kind = {
             "action": ControllerCommandKind.DISPATCH_ACTION,
             "evidence": ControllerCommandKind.DISPATCH_EVIDENCE,
             "diagnostic": ControllerCommandKind.DISPATCH_DIAGNOSTIC,
+            "corrective": ControllerCommandKind.DISPATCH_CORRECTIVE,
         }[kind]
         command = ControllerCommand(
             command_kind,
@@ -277,6 +288,8 @@ class SamuelController:
             "evidence_observation": ControllerCommandKind.OBSERVE_EVIDENCE,
             "diagnostic_intent": ControllerCommandKind.RECONCILE_DIAGNOSTIC,
             "diagnostic_observation": ControllerCommandKind.OBSERVE_DIAGNOSTIC,
+            "corrective_intent": ControllerCommandKind.RECONCILE_CORRECTIVE,
+            "corrective_observation": ControllerCommandKind.OBSERVE_CORRECTIVE,
         }
         command_kind = mapping.get(payload.get("kind"))
         if command_kind is None:
@@ -430,7 +443,7 @@ class SamuelController:
             admitted_work=admitted,
         )
         payload = _selected_payload(selected)
-        if payload["kind"] in {"action", "evidence", "diagnostic"}:
+        if payload["kind"] in {"action", "evidence", "diagnostic", "corrective"}:
             if state is None:
                 raise ControllerCompositionError(
                     "dispatchable work requires durable controller state"

@@ -20,6 +20,9 @@ class ControllerCommandKind(str, Enum):
     DISPATCH_DIAGNOSTIC = "dispatch_diagnostic"
     RECONCILE_DIAGNOSTIC = "reconcile_diagnostic"
     OBSERVE_DIAGNOSTIC = "observe_diagnostic"
+    DISPATCH_CORRECTIVE = "dispatch_corrective"
+    RECONCILE_CORRECTIVE = "reconcile_corrective"
+    OBSERVE_CORRECTIVE = "observe_corrective"
 
 
 @dataclass(frozen=True)

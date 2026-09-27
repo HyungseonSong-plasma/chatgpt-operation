@@ -232,6 +232,7 @@ def apply_dispatch_receipt(
     """Bind one verified external workflow receipt as exactly one durable revision."""
     from chatgpt_operation.controller.diagnostic import (
         record_action_dispatch,
+        record_corrective_dispatch,
         record_diagnostic_dispatch,
         record_evidence_dispatch,
     )
@@ -241,6 +242,7 @@ def apply_dispatch_receipt(
         "action": record_action_dispatch,
         "evidence": record_evidence_dispatch,
         "diagnostic": record_diagnostic_dispatch,
+        "corrective": record_corrective_dispatch,
     }
     try:
         handler = handlers[surface]

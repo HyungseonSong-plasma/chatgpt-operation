@@ -509,6 +509,7 @@ def controller_execute_command(args: argparse.Namespace) -> int:
             "action":args.action_run_id_result,
             "evidence":args.evidence_run_id_result,
             "diagnostic":args.diagnostic_run_id_result,
+            "corrective":getattr(args,"corrective_run_id_result",None),
         }
         if result.receipt is not None:
             proposed=apply_dispatch_receipt(
@@ -879,6 +880,7 @@ def parser() -> argparse.ArgumentParser:
     cec.add_argument("--action-run-id-result")
     cec.add_argument("--evidence-run-id-result")
     cec.add_argument("--diagnostic-run-id-result")
+    cec.add_argument("--corrective-run-id-result")
     cec.add_argument("--action-terminal-observation-result")
     cec.set_defaults(func=controller_execute_command)
 

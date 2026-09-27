@@ -8,8 +8,11 @@ from typing import Any
 from .action_lifecycle import DispatchIntent
 from .command import ControllerCommand, ControllerCommandKind
 from .diagnostic import (
+    recovery_authorization_to_dict,
+    resume_corrective_dispatch_intent,
     resume_diagnostic_dispatch_intent,
     resume_dispatched_action,
+    resume_dispatched_corrective,
     resume_dispatched_diagnostic,
     resume_dispatched_evidence,
     resume_dispatch_intent,
@@ -93,6 +96,9 @@ class ExecutionGateway:
             ControllerCommandKind.DISPATCH_DIAGNOSTIC: self._dispatch_diagnostic,
             ControllerCommandKind.RECONCILE_DIAGNOSTIC: self._reconcile_diagnostic,
             ControllerCommandKind.OBSERVE_DIAGNOSTIC: self._observe_diagnostic,
+            ControllerCommandKind.DISPATCH_CORRECTIVE: self._dispatch_corrective,
+            ControllerCommandKind.RECONCILE_CORRECTIVE: self._reconcile_corrective,
+            ControllerCommandKind.OBSERVE_CORRECTIVE: self._observe_corrective,
         }
         try:
             handler = dispatch[command.kind]
@@ -179,6 +185,112 @@ class ExecutionGateway:
                 "action", action_id, GatewayStatus.WAIT, observation=observation
             )
         raise ExecutionGatewayError("unsupported action observation: " + str(status))
+
+    def _dispatch_corrective(
+        self, state: ResearchState, action_id: str
+    ) -> GatewayResult:
+        plan, authorization, intent, correlation_id = (
+            resume_corrective_dispatch_intent(state, action_id)
+        )
+        receipt = dispatch_native_plan_async(
+            plan,
+            transport=self.transport,
+            ref=intent.ref,
+            workflow=intent.workflow,
+            recovery_state=encode_state(state),
+            recovery_authorization=recovery_authorization_to_dict(authorization),
+            dispatch_id=correlation_id,
+        )
+        if isinstance(receipt.get("workflow_run_id"), int):
+            return GatewayResult(
+                "corrective", action_id, GatewayStatus.RECEIPT, receipt=receipt
+            )
+        return GatewayResult("corrective", action_id, GatewayStatus.WAIT)
+
+    def _reconcile_corrective(
+        self, state: ResearchState, action_id: str
+    ) -> GatewayResult:
+        plan, authorization, intent, correlation_id = (
+            resume_corrective_dispatch_intent(state, action_id)
+        )
+        reconciled = observe_native_intent(
+            plan,
+            intent,
+            transport=self.transport,
+            expected_head_sha=intent.expected_head_sha,
+            dispatch_id=correlation_id,
+        )
+        observation = reconciled["observation"]
+        bound = reconciled.get("receipt")
+        if bound is not None:
+            return GatewayResult(
+                "corrective", action_id, GatewayStatus.RECEIPT,
+                receipt=bound, observation=observation,
+            )
+        status = observation.get("status")
+        if status in {"PENDING_VISIBILITY", "OBSERVATION_INCOMPLETE"}:
+            return GatewayResult(
+                "corrective", action_id, GatewayStatus.WAIT,
+                observation=observation,
+            )
+        if status == "NO_MATCH":
+            receipt = dispatch_native_plan_async(
+                plan,
+                transport=self.transport,
+                ref=intent.ref,
+                workflow=intent.workflow,
+                recovery_state=encode_state(state),
+                recovery_authorization=recovery_authorization_to_dict(authorization),
+                dispatch_id=correlation_id,
+            )
+            if isinstance(receipt.get("workflow_run_id"), int):
+                return GatewayResult(
+                    "corrective", action_id, GatewayStatus.RECEIPT,
+                    receipt=receipt, observation=observation,
+                )
+            return GatewayResult(
+                "corrective", action_id, GatewayStatus.WAIT,
+                observation=observation,
+            )
+        raise ExecutionGatewayError(
+            "corrective intent observation cannot continue: " + str(status)
+        )
+
+    def _observe_corrective(
+        self, state: ResearchState, action_id: str
+    ) -> GatewayResult:
+        plan, _authorization, intent, correlation_id, receipt = (
+            resume_dispatched_corrective(state, action_id)
+        )
+        observation = observe_native_plan(
+            plan,
+            receipt,
+            transport=self.transport,
+            expected_head_sha=intent.expected_head_sha,
+            dispatch_id=correlation_id,
+        )
+        status = observation.get("status")
+        if status == "MATCHED_TERMINAL":
+            run_id = receipt.get("workflow_run_id")
+            if not isinstance(run_id, int):
+                raise ExecutionGatewayError(
+                    "dispatched corrective lost workflow run identity"
+                )
+            return GatewayResult(
+                "corrective", action_id, GatewayStatus.TERMINAL,
+                observation=observation, terminal_run_id=run_id,
+            )
+        if status in {
+            "MATCHED_ACTIVE", "PENDING_VISIBILITY", "NO_MATCH",
+            "OBSERVATION_INCOMPLETE",
+        }:
+            return GatewayResult(
+                "corrective", action_id, GatewayStatus.WAIT,
+                observation=observation,
+            )
+        raise ExecutionGatewayError(
+            "unsupported corrective observation: " + str(status)
+        )
 
     def _generic_dispatch(
         self,

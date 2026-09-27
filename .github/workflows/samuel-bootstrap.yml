@@ -153,6 +153,7 @@ jobs:
             --action-run-id-result samuel-action-run-id.txt \
             --evidence-run-id-result samuel-evidence-run-id.txt \
             --diagnostic-run-id-result samuel-diagnostic-run-id.txt \
+            --corrective-run-id-result samuel-corrective-run-id.txt \
             --action-terminal-observation-result samuel-action-terminal-observation.json
 
       - name: Persist execution gateway state write
@@ -170,7 +171,7 @@ jobs:
             --result samuel-gateway-state-persist-result.json
 
       - name: Persist terminal controller artifact
-        if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' }}
+        if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
         env:
           PYTHONPATH: src
           GH_TOKEN: ${{ github.token }}
@@ -188,6 +189,9 @@ jobs:
           if [ -f samuel-diagnostic-run-id.txt ]; then
             count=$((count+1)); surface="diagnostic"; run_file="samuel-diagnostic-run-id.txt"
           fi
+          if [ -f samuel-corrective-run-id.txt ]; then
+            count=$((count+1)); surface="corrective"; run_file="samuel-corrective-run-id.txt"
+          fi
           if [ "$count" -ne 1 ]; then
             echo "SAMUEL_TERMINAL=HARD_STOP expected exactly one terminal surface, found $count" >&2
             exit 2
@@ -204,7 +208,7 @@ jobs:
               if item.get("expired"):
                   return False
               name=str(item.get("name",""))
-              if surface=="action":
+              if surface in {"action","corrective"}:
                   return name.startswith("samuel-execution-result-")
               if surface=="evidence":
                   return name=="samuel-evidence-result"
@@ -228,6 +232,7 @@ jobs:
           surface=os.environ["SAMUEL_TERMINAL_SURFACE"]
           expected={
               "action":"samuel-execution-result.json",
+              "corrective":"samuel-execution-result.json",
               "evidence":"samuel-evidence-result.json",
               "diagnostic":"samuel-diagnostic-result.json",
           }[surface]

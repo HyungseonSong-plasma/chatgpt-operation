@@ -11,6 +11,7 @@ from .diagnostic import record_native_dispatch_evidence_failure
 from .durable_state import (
     apply_action_completion,
     apply_action_failure,
+    apply_corrective_execution_result,
     apply_diagnostic_patch,
     apply_evidence_patch,
 )
@@ -26,6 +27,7 @@ class TerminalSurface(str, Enum):
     ACTION = "action"
     EVIDENCE = "evidence"
     DIAGNOSTIC = "diagnostic"
+    CORRECTIVE = "corrective"
 
 
 class TerminalIngestionOutcome(str, Enum):
@@ -153,6 +155,20 @@ def ingest_terminal_artifact(
             raise TerminalIngestionError(
                 "unsupported terminal execution status " + result.status.value
             )
+        return TerminalIngestionResult(
+            surface, action_id, run_id, TerminalIngestionOutcome.APPLIED, proposed
+        )
+
+    if surface is TerminalSurface.CORRECTIVE:
+        raw = _parse_json_artifact(artifact_text, surface=surface)
+        result = ExecutionResult.from_dict(raw)
+        if result.action_id != action_id:
+            raise TerminalIngestionError(
+                "corrective artifact identity does not match gateway terminal"
+            )
+        proposed = apply_corrective_execution_result(
+            current, action_id, result
+        )
         return TerminalIngestionResult(
             surface, action_id, run_id, TerminalIngestionOutcome.APPLIED, proposed
         )
