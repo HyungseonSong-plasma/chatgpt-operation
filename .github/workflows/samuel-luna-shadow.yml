@@ -54,17 +54,20 @@ jobs:
               "passed":result.passed,
               "failures":[x.value for x in result.failures],
               "executed":result.executed,
+              "provider_failure":result.provider_failure,
           }
           assert artifact["executed"] is False
           open("samuel-luna-shadow.json","w").write(
               json.dumps(artifact,sort_keys=True,separators=(",",":"))
           )
           print("SAMUEL_LUNA_SHADOW="+("PASS" if result.passed else "FAIL"))
+          if result.provider_failure:
+              print("SAMUEL_PROVIDER_FAILURE="+json.dumps(result.provider_failure,sort_keys=True))
           if not result.passed:
               raise SystemExit(1)
           PY
       - uses: actions/upload-artifact@v4
-        if: steps.config.outputs.configured == 'true'
+        if: always() && steps.config.outputs.configured == 'true'
         with:
           name: samuel-luna-shadow
           path: samuel-luna-shadow.json

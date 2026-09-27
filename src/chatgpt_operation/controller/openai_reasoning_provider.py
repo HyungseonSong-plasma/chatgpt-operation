@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from urllib import request, error
 
-from .reasoning_provider import ProviderUnavailable
+from .reasoning_provider import (
+    ProviderFailureKind, ProviderRequestFailure, ProviderUnavailable,
+)
 
 
 DEFAULT_MODEL = "gpt-5.6-luna"
@@ -73,8 +75,20 @@ class OpenAIReasoningProvider:
         try:
             with self.opener(req, timeout=self.timeout_seconds) as response:
                 payload = json.loads(response.read().decode())
-        except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-            raise ProviderUnavailable("OpenAI reasoning provider request failed") from exc
+        except error.HTTPError as exc:
+            raise self._http_failure(exc) from exc
+        except (error.URLError, TimeoutError) as exc:
+            raise ProviderRequestFailure(
+                "OpenAI reasoning provider network request failed",
+                kind=ProviderFailureKind.NETWORK,
+                retryable=True,
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise ProviderRequestFailure(
+                "OpenAI reasoning provider returned invalid response JSON",
+                kind=ProviderFailureKind.UNKNOWN,
+                retryable=False,
+            ) from exc
         text = self._output_text(payload)
         try:
             decoded = json.loads(text)
@@ -99,3 +113,41 @@ class OpenAIReasoningProvider:
         if not parts:
             raise ProviderUnavailable("OpenAI response contained no text output")
         return "".join(parts).strip()
+
+
+    @staticmethod
+    def _http_failure(exc: error.HTTPError) -> ProviderRequestFailure:
+        code = None
+        error_type = None
+        try:
+            raw = exc.read().decode()
+            payload = json.loads(raw)
+            detail = payload.get("error", {}) if isinstance(payload, dict) else {}
+            if isinstance(detail, dict):
+                value = detail.get("code")
+                code = value if isinstance(value, str) else None
+                value = detail.get("type")
+                error_type = value if isinstance(value, str) else None
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        token = (code or error_type or "").lower()
+        quota_tokens = ("quota", "billing", "credit", "spend")
+        if exc.code == 429 and any(x in token for x in quota_tokens):
+            kind, retryable = ProviderFailureKind.QUOTA_OR_BILLING, False
+        elif exc.code == 429:
+            kind, retryable = ProviderFailureKind.RATE_LIMITED, True
+        elif exc.code in (401, 403):
+            kind, retryable = ProviderFailureKind.AUTHENTICATION, False
+        elif 400 <= exc.code < 500:
+            kind, retryable = ProviderFailureKind.BAD_REQUEST, False
+        elif exc.code >= 500:
+            kind, retryable = ProviderFailureKind.SERVER_ERROR, True
+        else:
+            kind, retryable = ProviderFailureKind.UNKNOWN, False
+        return ProviderRequestFailure(
+            "OpenAI reasoning provider HTTP request failed",
+            kind=kind,
+            status=exc.code,
+            provider_code=code or error_type,
+            retryable=retryable,
+        )

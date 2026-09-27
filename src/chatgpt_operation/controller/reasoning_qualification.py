@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Any
 
 from .issue_reasoning import IssueReasoningProposal
+from .reasoning_provider import ProviderRequestFailure
 
 
 class QualificationFailure(str, Enum):
@@ -30,6 +31,7 @@ class ShadowResult:
     failures: tuple[QualificationFailure, ...]
     proposal: IssueReasoningProposal | None
     executed: bool = False
+    provider_failure: dict[str, Any] | None = None
 
 
 def evaluate_shadow(
@@ -48,6 +50,16 @@ def evaluate_shadow(
             validation_error=None,
         )
         proposal = IssueReasoningProposal.from_dict(raw)
+    except ProviderRequestFailure as exc:
+        return ShadowResult(
+            case.case_id, provider.name, False, tuple(failures), None, False,
+            {
+                "kind": exc.kind,
+                "status": exc.status,
+                "provider_code": exc.provider_code,
+                "retryable": exc.retryable,
+            },
+        )
     except (TypeError, ValueError):
         failures.append(QualificationFailure.SCHEMA_INVALID)
         return ShadowResult(case.case_id, provider.name, False, tuple(failures), None)
