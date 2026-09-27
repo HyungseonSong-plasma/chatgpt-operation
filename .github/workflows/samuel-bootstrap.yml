@@ -476,28 +476,106 @@ jobs:
           transport=GitHubActionsTransport(repo, os.environ["GITHUB_TOKEN"])
           selected=__import__("json").load(open("samuel-selected-work.json"))
           comments=__import__("json").load(open("samuel-issue-comments.json"))
-          if selected.get("kind") == "evidence":
-              outcome=dispatch_and_wait(
-                  transport, workflow="samuel-evidence-acquisition.yml", ref="main",
-                  inputs={
-                      "recovery_json":json.dumps(selected,sort_keys=True,separators=(",",":")),
-                      "controller_state":next(
-                          (str(c.get("body","")) for c in comments
-                           if "<!-- samuel-controller-state -->" in str(c.get("body",""))),
-                          "",
-                      ),
-                  },
-                  correlation_id="evidence-"+selected["action_id"],
-                  correlation_input=None,
-                  expected_head_sha=sha if os.environ.get("GITHUB_REF_NAME") == "main" else None,
-                  timeout_seconds=600,poll_interval_seconds=5,
+          if selected.get("kind") in {"evidence","evidence_intent","evidence_observation"}:
+              import json, subprocess
+              from chatgpt_operation.controller.diagnostic import (
+                  resume_dispatched_evidence, resume_evidence_dispatch_intent,
               )
-              obs=outcome["observation"]
-              ids=obs.get("matched_run_ids") or ([obs.get("workflow_run_id")] if obs.get("workflow_run_id") else [])
-              if obs.get("status")!="MATCHED_TERMINAL" or obs.get("conclusion")!="success" or len(ids)!=1:
-                  raise SystemExit("SAMUEL_BOOTSTRAP=HARD_STOP evidence acquisition "+str(obs))
-              open("samuel-evidence-run-id.txt","w").write(str(ids[0])+"\n")
-              print("SAMUEL_BOOTSTRAP=EVIDENCE_DISPATCHED action_id="+selected["action_id"])
+              from chatgpt_operation.controller.durable_state import (
+                  encode_state, load_state_comment,
+              )
+              from chatgpt_operation.github.actions_runtime import (
+                  dispatch_workflow, observation_receipt_from_identity,
+                  observe_dispatch_once,
+              )
+
+              fresh=json.loads(subprocess.check_output([
+                  "gh","api",f"repos/{repo}/issues/44/comments?per_page=100"
+              ],text=True))
+              current=load_state_comment(fresh)
+              if current is None:
+                  raise SystemExit("SAMUEL_EVIDENCE=HARD_STOP durable state disappeared")
+              action_id=selected["action_id"]
+              prefix="Samuel Evidence Acquisition dispatch:"
+
+              if selected["kind"] == "evidence":
+                  intent,correlation_id=resume_evidence_dispatch_intent(current,action_id)
+                  receipt=dispatch_workflow(
+                      transport,workflow=intent.workflow,ref=intent.ref,
+                      inputs={
+                          "samuel_dispatch_id":correlation_id,
+                          "recovery_json":json.dumps(
+                              selected,sort_keys=True,separators=(",",":")
+                          ),
+                          "controller_state":encode_state(current),
+                      },
+                      correlation_id=correlation_id,
+                      correlation_input="samuel_dispatch_id",
+                      correlation_run_name_prefix=prefix,
+                  )
+                  if receipt.get("workflow_run_id") is not None:
+                      open("samuel-evidence-dispatch-receipt.json","w").write(
+                          json.dumps(receipt,sort_keys=True,separators=(",",":"))
+                      )
+                  print("SAMUEL_EVIDENCE=DISPATCHED action_id="+action_id)
+                  raise SystemExit(0)
+
+              if selected["kind"] == "evidence_intent":
+                  intent,correlation_id=resume_evidence_dispatch_intent(current,action_id)
+                  receipt=observation_receipt_from_identity(
+                      transport,workflow=intent.workflow,ref=intent.ref,
+                      correlation_id=correlation_id,requested_at=intent.requested_at,
+                      correlation_input="samuel_dispatch_id",
+                      correlation_run_name_prefix=prefix,
+                  )
+                  observation=observe_dispatch_once(
+                      transport,receipt,expected_head_sha=intent.expected_head_sha
+                  )
+                  status=observation.get("status")
+                  matched=observation.get("matched_run_ids") or []
+                  if status not in {"MATCHED_ACTIVE","MATCHED_TERMINAL"}:
+                      print("SAMUEL_EVIDENCE=WAIT status="+str(status))
+                      raise SystemExit(0)
+                  if len(matched)!=1:
+                      raise SystemExit(
+                          "SAMUEL_EVIDENCE=HARD_STOP ambiguous recovered run "
+                          +str(matched)
+                      )
+                  receipt["workflow_run_id"]=int(matched[0])
+                  receipt["recovered_from_intent"]=True
+                  open("samuel-evidence-dispatch-receipt.json","w").write(
+                      json.dumps(receipt,sort_keys=True,separators=(",",":"))
+                  )
+                  if status=="MATCHED_TERMINAL":
+                      if observation.get("conclusion")!="success":
+                          raise SystemExit(
+                              "SAMUEL_EVIDENCE=HARD_STOP terminal workflow failure "
+                              +str(observation.get("conclusion"))
+                          )
+                      open("samuel-evidence-run-id.txt","w").write(str(matched[0])+"\n")
+                  print("SAMUEL_EVIDENCE=RECOVERED action_id="+action_id+" status="+status)
+                  raise SystemExit(0)
+
+              intent,correlation_id,receipt=resume_dispatched_evidence(current,action_id)
+              observation=observe_dispatch_once(
+                  transport,receipt,expected_head_sha=intent.expected_head_sha
+              )
+              status=observation.get("status")
+              if status!="MATCHED_TERMINAL":
+                  print("SAMUEL_EVIDENCE=WAIT status="+str(status))
+                  raise SystemExit(0)
+              matched=observation.get("matched_run_ids") or (
+                  [receipt.get("workflow_run_id")] if receipt.get("workflow_run_id") else []
+              )
+              if len(matched)!=1 or int(matched[0])!=int(receipt["workflow_run_id"]):
+                  raise SystemExit("SAMUEL_EVIDENCE=HARD_STOP terminal run identity mismatch")
+              if observation.get("conclusion")!="success":
+                  raise SystemExit(
+                      "SAMUEL_EVIDENCE=HARD_STOP terminal workflow failure "
+                      +str(observation.get("conclusion"))
+                  )
+              open("samuel-evidence-run-id.txt","w").write(str(matched[0])+"\n")
+              print("SAMUEL_EVIDENCE=TERMINAL action_id="+action_id)
               raise SystemExit(0)
           if selected.get("kind") in {"action","action_intent","action_observation"}:
               import json, subprocess
