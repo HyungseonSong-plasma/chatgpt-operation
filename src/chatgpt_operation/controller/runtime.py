@@ -33,8 +33,11 @@ from .issue_ingestion import (
     transition_issue_status,
 )
 from .issue_planning import plan_admitted_issue
-from .issue_reasoning import compile_guarded_action, issue_reasoning_node
-from .reasoning import ReasoningRequest
+from .issue_reasoning import (
+    IssueReasoningProposal,
+    compile_guarded_action,
+)
+from .reasoning import ReasoningRequest, StructuredReasoningNode
 from .reasoning_consumption import (
     ReasoningConsumption,
     consume_reasoning_submission,
@@ -359,20 +362,58 @@ class SamuelController:
                 ),
             },
             "github_native": {
-                "actions": [
-                    "create_pr", "merge_pr", "comment_issue",
-                    "close_issue", "dispatch_workflow",
-                ],
                 "rule": "mutation is read-before/write/read-after and postcondition verified",
+                "create_pr": {
+                    "target": ["head", "base", "title", "body"],
+                    "preconditions": {"pr_present": False},
+                    "desired_postcondition": {"pr_present": True},
+                },
+                "close_issue": {
+                    "target": ["number"],
+                    "preconditions": {"issue_state": "open"},
+                    "desired_postcondition": {"issue_state": "closed"},
+                },
+                "comment_issue": {
+                    "target": ["number", "body", "marker"],
+                    "precondition_keys": ["issue_state", "comment_present"],
+                    "desired_postcondition": {"comment_present": True},
+                },
+                "merge_pr": {
+                    "target_required": ["number", "expected_head_sha"],
+                    "desired_postcondition": {"merged": True},
+                },
+                "dispatch_workflow": {
+                    "target_required": ["workflow", "ref"],
+                },
             },
         }
-        proposal = issue_reasoning_node(max_attempts=2).run(
+        def parse_provider_proposal(
+            raw: dict[str, Any],
+        ) -> IssueReasoningProposal:
+            proposal = IssueReasoningProposal.from_dict(raw)
+            if (
+                proposal.operation == "implement_gap"
+                and not planned.envelope.implementation_gaps
+            ):
+                raise ValueError(
+                    "implement_gap is invalid because implementation_gaps is empty; "
+                    "use analyze for an action within accepted architecture"
+                )
+            return proposal
+
+        proposal = StructuredReasoningNode(
+            parser=parse_provider_proposal,
+            max_attempts=2,
+        ).run(
             ReasoningRequest(
                 task=(
                     "Produce exactly one next bounded ActionPlan toward completing "
                     f"{work_id}. Continue from durable execution history. "
-                    "Do not repeat completed actions. Prefer the smallest verifiable "
-                    "next step; return null only when no safe executable step exists."
+                    "Do not repeat completed actions. When implementation_gaps is "
+                    "empty, operation must be analyze. Use implement_gap only for a "
+                    "named gap in implementation_gaps. Follow execution_contracts "
+                    "exactly. Prefer the smallest verifiable next step; return null "
+                    "only when no safe executable step exists."
                 ),
                 context=context,
             ),
