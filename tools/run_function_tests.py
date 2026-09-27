@@ -4,7 +4,11 @@ from __future__ import annotations
 import importlib.util
 import inspect
 from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
 import traceback
+
+sys.path.insert(0, str(Path.cwd()))
 
 
 def load_module(path: Path):
@@ -33,12 +37,17 @@ def main() -> None:
             if candidate.__module__ != module.__name__:
                 continue
             signature = inspect.signature(candidate)
-            if signature.parameters:
+            parameters = tuple(signature.parameters)
+            if parameters not in {(), ("tmp_path",)}:
                 unsupported.append(f"{path}:{name}{signature}")
                 continue
             executed += 1
             try:
-                candidate()
+                if parameters == ("tmp_path",):
+                    with TemporaryDirectory() as directory:
+                        candidate(Path(directory))
+                else:
+                    candidate()
             except Exception:
                 failures.append(f"{path}:{name}\n{traceback.format_exc()}")
             else:
