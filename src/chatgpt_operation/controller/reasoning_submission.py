@@ -46,7 +46,7 @@ def encode_submission(submission: ReasoningSubmission) -> str:
 def decode_submission(body: str) -> ReasoningSubmission:
     if REASONING_SUBMISSION_MARKER not in body:
         raise ReasoningSubmissionError("reasoning submission marker missing")
-    start=body.find("~~~json"); end=body.find("~~~",start+7)
+    start=body.find("~~~json"); end=body.rfind("~~~")
     if start<0 or end<0:
         raise ReasoningSubmissionError("reasoning submission JSON fence missing")
     return ReasoningSubmission.from_dict(json.loads(body[start+7:end].strip()))
