@@ -160,10 +160,13 @@ def require_execution_provenance(
     result: ExecutionResult,
     *,
     workflow_run_id: int | None = None,
+    head_sha: str | None = None,
 ) -> ExecutionProvenance:
     provenance = ExecutionProvenance.from_result(result)
     if workflow_run_id is not None and provenance.workflow_run_id != workflow_run_id:
         raise ExecutionResultError("execution provenance workflow_run_id mismatch")
+    if head_sha is not None and provenance.head_sha != head_sha:
+        raise ExecutionResultError("execution provenance head_sha mismatch")
     return provenance
 
 
