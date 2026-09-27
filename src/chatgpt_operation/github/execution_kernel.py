@@ -20,6 +20,7 @@ class ExecutionKernelError(RuntimeError):
 
 class GitHubCapability(str, Enum):
     MERGE_PR = "GITHUB_PR_MERGE"
+    CREATE_PR = "GITHUB_PR_CREATE"
     COMMENT_ISSUE = "GITHUB_ISSUE_COMMENT"
     CLOSE_ISSUE = "GITHUB_ISSUE_CLOSE"
     DISPATCH_WORKFLOW = "GITHUB_WORKFLOW_DISPATCH"
@@ -27,6 +28,7 @@ class GitHubCapability(str, Enum):
 
 ACTION_CAPABILITIES = {
     NativeGitHubAction.MERGE_PR: GitHubCapability.MERGE_PR,
+    NativeGitHubAction.CREATE_PR: GitHubCapability.CREATE_PR,
     NativeGitHubAction.COMMENT_ISSUE: GitHubCapability.COMMENT_ISSUE,
     NativeGitHubAction.CLOSE_ISSUE: GitHubCapability.CLOSE_ISSUE,
     NativeGitHubAction.DISPATCH_WORKFLOW: GitHubCapability.DISPATCH_WORKFLOW,
@@ -86,7 +88,12 @@ class ExecutionKernel:
             action = NativeGitHubAction(raw_action)
         except (TypeError, ValueError) as exc:
             raise ExecutionKernelError(f"unsupported action: {raw_action}") from exc
-        capability = ACTION_CAPABILITIES[action]
+        try:
+            capability = ACTION_CAPABILITIES[action]
+        except KeyError as exc:
+            raise ExecutionKernelError(
+                "native action has no registered capability: " + action.value
+            ) from exc
         providers = tuple(p for p in self._providers if capability in p.capabilities)
         if recovery_authorization is not None:
             providers = tuple(

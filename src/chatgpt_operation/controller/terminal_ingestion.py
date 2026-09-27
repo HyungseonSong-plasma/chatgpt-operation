@@ -19,6 +19,9 @@ from .execution import ExecutionResult, ExecutionStatus
 from .research import ResearchState
 
 
+MISSING_ACTION_ARTIFACT = "__SAMUEL_MISSING_ACTION_ARTIFACT__"
+
+
 class TerminalIngestionError(ValueError):
     pass
 
@@ -118,13 +121,18 @@ def ingest_terminal_artifact(
                 if isinstance(observation, dict)
                 else "unknown"
             )
+            failure_kind = (
+                "missing_execution_result_artifact"
+                if artifact_text.strip() == MISSING_ACTION_ARTIFACT
+                else "invalid_execution_result_json"
+            )
             proposed = copy.deepcopy(current)
             record_native_dispatch_evidence_failure(
                 proposed,
                 action_id,
                 workflow_run_id=run_id,
                 conclusion=conclusion,
-                failure_kind="invalid_execution_result_json",
+                failure_kind=failure_kind,
             )
             return TerminalIngestionResult(
                 surface,

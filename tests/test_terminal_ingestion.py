@@ -14,6 +14,7 @@ from chatgpt_operation.controller.diagnostic import (
 from chatgpt_operation.controller.execution import ExecutionResult, ExecutionStatus
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 from chatgpt_operation.controller.terminal_ingestion import (
+    MISSING_ACTION_ARTIFACT,
     TerminalIngestionError,
     TerminalIngestionOutcome,
     TerminalSurface,
@@ -117,6 +118,25 @@ def test_invalid_action_json_retires_physical_attempt_for_safe_retry():
     item=ingestion.proposed_state.action_queue[p.idempotency_key]
     assert item["status"]=="pending"
     assert item["dispatch_attempt_history"][-1]["workflow_run_id"]==99
+
+
+def test_missing_action_artifact_retires_physical_attempt_for_safe_retry():
+    p,state=dispatched_action()
+    ingestion=ingest_terminal_artifact(
+        state,
+        surface=TerminalSurface.ACTION,
+        run_id=99,
+        artifact_text=MISSING_ACTION_ARTIFACT,
+        gateway_result=gateway(
+            "action",p.idempotency_key,99,conclusion="failure"
+        ),
+    )
+    assert ingestion.outcome is TerminalIngestionOutcome.RECOVERED_INVALID_EVIDENCE
+    item=ingestion.proposed_state.action_queue[p.idempotency_key]
+    assert item["status"]=="pending"
+    attempt=item["dispatch_attempt_history"][-1]
+    assert attempt["workflow_run_id"]==99
+    assert attempt["failure_kind"]=="missing_execution_result_artifact"
 
 
 def test_action_gateway_run_mismatch_fails_closed():

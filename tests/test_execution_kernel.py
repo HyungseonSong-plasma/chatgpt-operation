@@ -208,3 +208,53 @@ def test_open_diagnostic_allows_only_matching_recovery_authorization():
     assert receipt.provider == "fallback"
     assert calls
 
+
+
+def create_pr_plan():
+    return ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"samuel-55",
+        "stage":"implement",
+        "executor":"github_native",
+        "payload":{
+            "action":"create_pr",
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "target":{
+                "head":"samuel/issues-24-43",
+                "base":"main",
+                "title":"Telemetry maintenance",
+                "body":"Related: #24 #43",
+            },
+            "preconditions":{"pr_present":False},
+            "desired_postcondition":{"pr_present":True},
+        },
+        "expected_observation":"open PR exists",
+    })
+
+
+def test_create_pr_is_registered_in_execution_kernel():
+    states=iter([
+        {"pr_present":False},
+        {"pr_present":True,"pr_number":134},
+    ])
+    calls=[]
+    provider=ExecutionProvider(
+        name="repository-native",
+        capabilities=frozenset({GitHubCapability.CREATE_PR}),
+        read_state=lambda action,target: next(states),
+        mutate=lambda action,target: calls.append(action) or {"number":134},
+    )
+    receipt=ExecutionKernel(
+        [provider],
+        state=ResearchState(
+            "samuel-55","create PR",stage=ResearchStage.IMPLEMENT
+        ),
+    ).execute(create_pr_plan())
+    assert receipt.complete
+    assert receipt.result.status is ExecutionStatus.PASS
+    assert calls == [
+        __import__(
+            "chatgpt_operation.github.native_executor",
+            fromlist=["NativeGitHubAction"],
+        ).NativeGitHubAction.CREATE_PR
+    ]
