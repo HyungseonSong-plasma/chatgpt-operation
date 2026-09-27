@@ -19,6 +19,22 @@ from .reasoning_provider import (
 DEFAULT_MODEL = "gpt-5.6-luna"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
+ISSUE_REASONING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "operation": {"type": "string", "enum": ["analyze", "implement_gap", "propose_revision"]},
+        "decision_id": {"type": ["string", "null"]},
+        "compatible_with_locked_decisions": {"type": "boolean"},
+        "revision_requested": {"type": "boolean"},
+        "action_plan": {"type": ["object", "null"]},
+    },
+    "required": [
+        "operation", "decision_id", "compatible_with_locked_decisions",
+        "revision_requested", "action_plan",
+    ],
+    "additionalProperties": False,
+}
+
 
 @dataclass
 class OpenAIReasoningProvider:
@@ -62,6 +78,14 @@ class OpenAIReasoningProvider:
         body = json.dumps({
             "model": self.model,
             "input": json.dumps(prompt, sort_keys=True, separators=(",", ":")),
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "samuel_issue_reasoning_proposal",
+                    "strict": True,
+                    "schema": ISSUE_REASONING_SCHEMA,
+                }
+            },
         }).encode()
         req = request.Request(
             self.base_url + "/responses",
