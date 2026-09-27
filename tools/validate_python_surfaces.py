@@ -24,7 +24,15 @@ def embedded_python_blocks(text: str) -> list[str]:
                 break
             body.append(current[indent:] if current.startswith(" " * indent) else current)
             index += 1
-        blocks.append("\n".join(body))
+        nonblank = [line for line in body if line.strip()]
+        body_indent = min(
+            (len(line) - len(line.lstrip()) for line in nonblank),
+            default=0,
+        )
+        blocks.append("\n".join(
+            line[body_indent:] if line.strip() else ""
+            for line in body
+        ))
         index += 1
     return blocks
 
