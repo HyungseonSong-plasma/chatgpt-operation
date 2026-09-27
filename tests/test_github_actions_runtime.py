@@ -211,7 +211,7 @@ class ActionsRuntimeTests(unittest.TestCase):
             receipt,
             timeout_seconds=10,
             poll_interval_seconds=0,
-            now=lambda: dt(61),
+            now=lambda: datetime(2026, 9, 22, 8, 1, 1, tzinfo=timezone.utc),
             monotonic=lambda: next(ticks),
             sleep=lambda _: None,
         )
