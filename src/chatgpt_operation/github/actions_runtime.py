@@ -368,7 +368,11 @@ def wait_for_dispatch(
             run_attempt=run_attempt,
             now=now,
         )
-        if result["status"] not in {"PENDING_VISIBILITY", "MATCHED_ACTIVE"}:
+        if result["status"] not in {"PENDING_VISIBILITY", "MATCHED_ACTIVE", "NO_MATCH"}:
+            return result
+        if result["status"] == "NO_MATCH" and monotonic() >= deadline:
+            result = dict(result)
+            result["wait_timeout"] = True
             return result
         current = monotonic()
         if current >= deadline:
