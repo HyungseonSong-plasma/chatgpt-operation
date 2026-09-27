@@ -26,7 +26,7 @@ ISSUE_REASONING_SCHEMA = {
         "decision_id": {"type": ["string", "null"]},
         "compatible_with_locked_decisions": {"type": "boolean"},
         "revision_requested": {"type": "boolean"},
-        "action_plan": {"type": ["object", "null"]},
+        "action_plan": {"type": "null"},
     },
     "required": [
         "operation", "decision_id", "compatible_with_locked_decisions",

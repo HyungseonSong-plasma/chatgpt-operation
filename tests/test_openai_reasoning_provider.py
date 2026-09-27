@@ -55,7 +55,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         schema = fmt["schema"]
         self.assertEqual(set(schema["required"]), set(schema["properties"]))
         self.assertFalse(schema["additionalProperties"])
-        self.assertEqual(schema["properties"]["action_plan"]["type"], ["object", "null"])
+        self.assertEqual(schema["properties"]["action_plan"]["type"], "null")
 
     def test_non_json_fails_closed(self):
         p = OpenAIReasoningProvider(
@@ -67,3 +67,9 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShadowStructuredOutputContractTests(unittest.TestCase):
+    def test_shadow_schema_forbids_executable_action_plan(self):
+        from chatgpt_operation.controller.openai_reasoning_provider import ISSUE_REASONING_SCHEMA
+        self.assertEqual(ISSUE_REASONING_SCHEMA["properties"]["action_plan"], {"type": "null"})
