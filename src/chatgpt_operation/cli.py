@@ -424,6 +424,9 @@ def skills_validate_capabilities(args: argparse.Namespace) -> int:
 def controller_run_cycle(args: argparse.Namespace) -> int:
     try:
         comments=json.loads(Path(args.comments).read_text(encoding="utf-8"))
+        issue=json.loads(getattr(args,"issue_json","null"))
+        if issue is not None and not isinstance(issue,dict):
+            raise ValueError("controller issue payload must be an object or null")
         trigger=ControllerTrigger(
             kind=TriggerKind(args.event_name),
             action=args.event_action or "",
@@ -439,6 +442,7 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             trigger,
             comments=comments,
             pending=load_pending(args.pending),
+            issue=issue,
         )
         result=cycle.to_dict()
     except (OSError,json.JSONDecodeError,ValueError) as exc:
@@ -809,6 +813,7 @@ def parser() -> argparse.ArgumentParser:
         choices=[item.value for item in TriggerKind],
     )
     crc.add_argument("--event-action",default="")
+    crc.add_argument("--issue-json",default="null")
     crc.add_argument("--head-sha",default="")
     crc.add_argument("--ref",default="")
     crc.add_argument("--executor-ref",default="")

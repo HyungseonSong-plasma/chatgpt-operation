@@ -22,7 +22,9 @@ from .diagnostic import (
     record_evidence_dispatch_intent,
 )
 from .issue_ingestion import (
+    ADMISSION_LABEL,
     ADMISSION_MARKER,
+    admit_issue,
     decode_admission_ledger,
     encode_admission_ledger,
     transition_issue_status,
@@ -100,7 +102,7 @@ class ControllerCycle:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "trigger": self.trigger.to_dict(),
             "selected_work": self.selected_work,
             "issue_planning": self.issue_planning,
@@ -134,10 +136,9 @@ def _admission_write(
     comment_id: int | None,
     work: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    if comment_id is None:
-        raise ControllerCompositionError("admission lifecycle has no durable ledger")
     return {
         "schema_version": 1,
+        "method": "POST" if comment_id is None else "PATCH",
         "comment_id": comment_id,
         "body": encode_admission_ledger(work),
     }
@@ -361,14 +362,29 @@ class SamuelController:
         *,
         comments: list[dict[str, Any]],
         pending: list[BootstrapWork],
+        issue: dict[str, Any] | None = None,
     ) -> ControllerCycle:
         if not isinstance(comments, list) or any(
             not isinstance(item, dict) for item in comments
         ):
             raise ControllerCompositionError("comments must be a list of objects")
+        if issue is not None and trigger.kind is not TriggerKind.ISSUES:
+            raise ControllerCompositionError(
+                "issue payload is only valid for an issues trigger"
+            )
 
         state = load_state_comment(comments)
         admitted, admission_comment_id = _admission_state(comments)
+        if issue is not None:
+            labels = {
+                item.get("name")
+                for item in issue.get("labels", [])
+                if isinstance(item, dict)
+            }
+            if ADMISSION_LABEL in labels:
+                admission = admit_issue(comments, issue)
+                admitted = decode_admission_ledger(admission["body"])
+                admission_comment_id = admission["comment_id"]
 
         waiting = sorted(
             work_id for work_id, item in admitted.items()
