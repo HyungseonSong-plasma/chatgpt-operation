@@ -1,6 +1,10 @@
 import unittest
 
+from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.bootstrap import BootstrapKind, BootstrapWork
+from chatgpt_operation.controller.diagnostic import enqueue_suspended_action
+from chatgpt_operation.controller.durable_state import decode_state, encode_state
+from chatgpt_operation.controller.research import ResearchStage, ResearchState
 from chatgpt_operation.controller.decisions import DecisionRegistry
 from chatgpt_operation.controller.issue_ingestion import (
     decode_admission_ledger,
@@ -29,10 +33,11 @@ class Provider:
         raise AssertionError("composition preflight must not invoke semantic provider")
 
 
-def controller(reasoning=None):
+def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
         reasoning=reasoning,
+        now=now,
     )
 
 
@@ -42,6 +47,8 @@ def trigger():
         action="",
         head_sha="a"*40,
         ref="refs/heads/main",
+        executor_ref="main",
+        executor_head_sha="b"*40,
     )
 
 
@@ -71,6 +78,19 @@ def reasoning_comment(action_plan=None):
         "id":8,
         "body":encode_submission(ReasoningSubmission("issue:44",proposal)),
     }
+
+
+def state_comment(state):
+    return {"id":9,"body":encode_state(state)}
+
+
+def queued_state():
+    plan=ActionPlan.from_dict(native_action_plan())
+    state=ResearchState(
+        "issue:44","execute queued work",stage=ResearchStage.EXECUTE
+    )
+    enqueue_suspended_action(state,plan)
+    return plan,state
 
 
 def native_action_plan():
@@ -137,15 +157,18 @@ class ControllerRuntimeTests(unittest.TestCase):
             comments=[admitted_comment(),reasoning_comment(native_action_plan())],
             pending=[],
         )
-        self.assertEqual(result.selected_work["kind"],"reasoning_consumed")
-        self.assertEqual(result.selected_work["outcome"],"planned")
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["reasoning_outcome"],"planned")
         self.assertIsNotNone(result.selected_work["action_id"])
         self.assertIsNotNone(result.admission_write)
         persisted=decode_admission_ledger(result.admission_write["body"])
         self.assertEqual(persisted["issue:44"]["status"],"planned")
         self.assertIsNotNone(result.state_write)
         self.assertEqual(result.state_write["research_id"],"issue:44")
-        self.assertEqual(result.state_write["expected_revision"],1)
+        self.assertEqual(result.state_write["expected_revision"],2)
+        proposed=decode_state(result.state_write["body"])
+        item=proposed.action_queue[result.selected_work["action_id"]]
+        self.assertEqual(item["status"],"dispatch_intent")
 
     def test_analyze_only_submission_remains_reasoning_required(self):
         result=controller().run_cycle(
@@ -166,6 +189,78 @@ class ControllerRuntimeTests(unittest.TestCase):
         })
         self.assertIsNone(result.admission_write)
         self.assertIsNone(result.state_write)
+
+    def test_pending_action_is_promoted_to_dispatch_intent_by_root(self):
+        plan,state=queued_state()
+        result=controller(now=lambda: __import__("datetime").datetime(
+            2026,9,27,19,0,tzinfo=__import__("datetime").timezone.utc
+        )).run_cycle(
+            trigger(),comments=[state_comment(state)],pending=[]
+        )
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["action_id"],plan.idempotency_key)
+        self.assertIsNotNone(result.state_write)
+        proposed=decode_state(result.state_write["body"])
+        item=proposed.action_queue[plan.idempotency_key]
+        self.assertEqual(item["status"],"dispatch_intent")
+        self.assertEqual(item["dispatch_intent"]["ref"],"main")
+        self.assertEqual(item["dispatch_intent"]["expected_head_sha"],"b"*40)
+
+    def test_evidence_work_is_promoted_to_dispatch_intent_by_root(self):
+        action_id="c"*64
+        state=ResearchState(
+            "issue:44","acquire evidence",stage=ResearchStage.EXECUTE,
+            diagnostic_recoveries={
+                action_id:{
+                    "status":"needs_evidence",
+                    "evidence_request":{"fingerprint":"evidence-fingerprint"},
+                }
+            },
+        )
+        result=controller().run_cycle(
+            trigger(),comments=[state_comment(state)],pending=[]
+        )
+        self.assertEqual(result.selected_work["kind"],"evidence")
+        proposed=decode_state(result.state_write["body"])
+        dispatch=proposed.diagnostic_recoveries[action_id]["evidence_dispatch"]
+        self.assertEqual(dispatch["status"],"dispatch_intent")
+        self.assertEqual(dispatch["intent"]["expected_head_sha"],"b"*40)
+
+    def test_diagnostic_work_is_promoted_to_dispatch_intent_by_root(self):
+        action_id="d"*64
+        state=ResearchState(
+            "issue:44","diagnose",stage=ResearchStage.EXECUTE,
+            diagnostic_recoveries={
+                action_id:{
+                    "status":"open",
+                    "fingerprint":["failure"],
+                    "failure":{"details":{"provider":"native","error_type":"HTTPError"}},
+                    "root_cause":None,
+                    "corrective_action":None,
+                    "resolution_evidence":None,
+                }
+            },
+        )
+        result=controller().run_cycle(
+            trigger(),comments=[state_comment(state)],pending=[]
+        )
+        self.assertEqual(result.selected_work["kind"],"diagnostic")
+        proposed=decode_state(result.state_write["body"])
+        dispatch=proposed.diagnostic_recoveries[action_id]["diagnostic_dispatch"]
+        self.assertEqual(dispatch["status"],"dispatch_intent")
+        self.assertEqual(dispatch["intent"]["expected_head_sha"],"b"*40)
+
+    def test_dispatchable_work_requires_executor_identity(self):
+        plan,state=queued_state()
+        missing=ControllerTrigger(
+            TriggerKind.WORKFLOW_DISPATCH,
+            head_sha="a"*40,
+            ref="refs/heads/main",
+        )
+        with self.assertRaisesRegex(ControllerCompositionError,"executor_ref"):
+            controller().run_cycle(
+                missing,comments=[state_comment(state)],pending=[]
+            )
 
     def test_pending_work_is_serialized_by_root(self):
         work=BootstrapWork(
@@ -197,6 +292,7 @@ class ControllerRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ControllerCompositionError,"unsupported"):
             ControllerTrigger.from_dict({
                 "kind":"invented","action":"","head_sha":"","ref":"",
+                "executor_ref":"","executor_head_sha":"",
             })
 
 

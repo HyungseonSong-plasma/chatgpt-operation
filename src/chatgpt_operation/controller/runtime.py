@@ -7,12 +7,19 @@ but never performs repository side effects itself.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+import copy
+from typing import Any, Callable
 
 from .bootstrap import BootstrapWork, select_controller_work
 from .decisions import DecisionRegistry
 from .durable_state import load_state_comment, state_write_request
+from .diagnostic import (
+    record_action_dispatch_intent,
+    record_diagnostic_dispatch_intent,
+    record_evidence_dispatch_intent,
+)
 from .issue_ingestion import (
     ADMISSION_MARKER,
     decode_admission_ledger,
@@ -45,10 +52,15 @@ class ControllerTrigger:
     action: str = ""
     head_sha: str = ""
     ref: str = ""
+    executor_ref: str = ""
+    executor_head_sha: str = ""
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "ControllerTrigger":
-        required = {"kind", "action", "head_sha", "ref"}
+        required = {
+            "kind", "action", "head_sha", "ref",
+            "executor_ref", "executor_head_sha",
+        }
         if not isinstance(raw, dict) or set(raw) != required:
             raise ControllerCompositionError("invalid controller trigger schema")
         try:
@@ -56,7 +68,9 @@ class ControllerTrigger:
         except (TypeError, ValueError) as exc:
             raise ControllerCompositionError("unsupported controller trigger") from exc
         values: dict[str, str] = {}
-        for key in ("action", "head_sha", "ref"):
+        for key in (
+            "action", "head_sha", "ref", "executor_ref", "executor_head_sha",
+        ):
             value = raw[key]
             if not isinstance(value, str):
                 raise ControllerCompositionError(f"trigger {key} must be a string")
@@ -69,6 +83,8 @@ class ControllerTrigger:
             "action": self.action,
             "head_sha": self.head_sha,
             "ref": self.ref,
+            "executor_ref": self.executor_ref,
+            "executor_head_sha": self.executor_head_sha,
         }
 
 
@@ -154,9 +170,81 @@ class SamuelController:
         *,
         decisions: DecisionRegistry,
         reasoning: ReasoningProviderRegistry | None = None,
+        now: Callable[[], datetime] | None = None,
     ):
         self.decisions = decisions
         self.reasoning = reasoning or ReasoningProviderRegistry()
+        self.now = now or (lambda: datetime.now(timezone.utc))
+
+    def _requested_at(self) -> str:
+        value = self.now()
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _require_executor_identity(trigger: ControllerTrigger) -> tuple[str, str]:
+        if not trigger.executor_ref.strip() or not trigger.executor_head_sha.strip():
+            raise ControllerCompositionError(
+                "dispatch intent requires executor_ref and executor_head_sha"
+            )
+        return trigger.executor_ref.strip(), trigger.executor_head_sha.strip()
+
+    def _prepare_dispatch_intent(
+        self,
+        *,
+        trigger: ControllerTrigger,
+        comments: list[dict[str, Any]],
+        state: ResearchState,
+        payload: dict[str, Any],
+        admission_write: dict[str, Any] | None = None,
+        planning: dict[str, Any] | None = None,
+    ) -> ControllerCycle:
+        kind = payload.get("kind")
+        if kind not in {"action", "evidence", "diagnostic"}:
+            return ControllerCycle(
+                trigger, payload, planning, admission_write, None
+            )
+        action_id = payload.get("action_id")
+        if not isinstance(action_id, str) or not action_id:
+            raise ControllerCompositionError("dispatch work has no action_id")
+        executor_ref, executor_head_sha = self._require_executor_identity(trigger)
+        proposed = copy.deepcopy(state)
+        requested_at = self._requested_at()
+        if kind == "action":
+            record_action_dispatch_intent(
+                proposed,
+                action_id,
+                workflow="samuel-native-github.yml",
+                ref=executor_ref,
+                requested_at=requested_at,
+                expected_head_sha=executor_head_sha,
+            )
+        elif kind == "evidence":
+            record_evidence_dispatch_intent(
+                proposed,
+                action_id,
+                workflow="samuel-evidence-acquisition.yml",
+                ref=executor_ref,
+                requested_at=requested_at,
+                expected_head_sha=executor_head_sha,
+            )
+        else:
+            record_diagnostic_dispatch_intent(
+                proposed,
+                action_id,
+                workflow="samuel-diagnostic-recovery.yml",
+                ref=executor_ref,
+                requested_at=requested_at,
+                expected_head_sha=executor_head_sha,
+            )
+        return ControllerCycle(
+            trigger,
+            payload,
+            planning,
+            admission_write,
+            state_write_request(comments, proposed),
+        )
 
     def _consume_waiting_reasoning(
         self,
@@ -191,22 +279,36 @@ class SamuelController:
             )
 
         admission_write = _admission_write(admission_comment_id, result.work)
-        state_write = (
-            state_write_request(comments, result.state)
-            if result.action_id is not None
-            else None
-        )
-        return ControllerCycle(
-            trigger,
-            {
-                "kind": "reasoning_consumed",
-                "work_id": work_id,
-                "outcome": result.outcome,
-                "action_id": result.action_id,
-            },
-            planning,
-            admission_write,
-            state_write,
+        if result.action_id is None:
+            return ControllerCycle(
+                trigger,
+                {
+                    "kind": "reasoning_consumed",
+                    "work_id": work_id,
+                    "outcome": result.outcome,
+                    "action_id": None,
+                },
+                planning,
+                admission_write,
+                None,
+            )
+        queued = result.state.action_queue.get(result.action_id)
+        if not isinstance(queued, dict) or not isinstance(queued.get("plan"), dict):
+            raise ControllerCompositionError("planned reasoning produced no durable queued plan")
+        payload = {
+            "kind": "action",
+            "action_id": result.action_id,
+            "plan": queued["plan"],
+            "reasoning_outcome": result.outcome,
+            "work_id": work_id,
+        }
+        return self._prepare_dispatch_intent(
+            trigger=trigger,
+            comments=comments,
+            state=result.state,
+            payload=payload,
+            admission_write=admission_write,
+            planning=planning,
         )
 
     def run_cycle(
@@ -268,6 +370,17 @@ class SamuelController:
             admitted_work=admitted,
         )
         payload = _selected_payload(selected)
+        if payload["kind"] in {"action", "evidence", "diagnostic"}:
+            if state is None:
+                raise ControllerCompositionError(
+                    "dispatchable work requires durable controller state"
+                )
+            return self._prepare_dispatch_intent(
+                trigger=trigger,
+                comments=comments,
+                state=state,
+                payload=payload,
+            )
         if payload["kind"] != "issue":
             return ControllerCycle(trigger, payload, None)
 

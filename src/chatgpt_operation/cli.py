@@ -413,6 +413,8 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             action=args.event_action or "",
             head_sha=args.head_sha or "",
             ref=args.ref or "",
+            executor_ref=args.executor_ref or "",
+            executor_head_sha=args.executor_head_sha or "",
         )
         controller=SamuelController(
             decisions=DecisionRegistry.load(args.decisions),
@@ -687,6 +689,8 @@ def parser() -> argparse.ArgumentParser:
     crc.add_argument("--event-action",default="")
     crc.add_argument("--head-sha",default="")
     crc.add_argument("--ref",default="")
+    crc.add_argument("--executor-ref",default="")
+    crc.add_argument("--executor-head-sha",default="")
     crc.add_argument("--result")
     crc.add_argument("--selected-work-result")
     crc.add_argument("--planning-result")
