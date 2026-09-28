@@ -19,7 +19,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: samuel-repository-mutation
@@ -109,11 +108,3 @@ jobs:
           path: samuel-execution-result.json
           if-no-files-found: error
           retention-days: 30
-
-      - name: Wake Samuel controller after worker completion
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh workflow run samuel-bootstrap.yml --ref main
