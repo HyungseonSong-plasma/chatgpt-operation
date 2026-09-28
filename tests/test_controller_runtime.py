@@ -337,7 +337,7 @@ class RevisionThenSourceProvider:
                     },
                     "expected":{"absent":True},
                     "desired":{
-                        "content":"CANONICAL_TIMEZONE='UTC'\nBOOTSTRAP_CRON='55 * * * *'\n"
+                        "content":"CANONICAL_TIMEZONE='UTC'\nBOOTSTRAP_CRON='9 * * * *'\n"
                     },
                     "commit_message":"Add code-owned weekly schedule",
                 },
@@ -1552,7 +1552,7 @@ class ControllerRuntimeTests(unittest.TestCase):
             [{
                 "workflow":".github/workflows/samuel-bootstrap.yml",
                 "event":"schedule",
-                "cron":"55 * * * *",
+                "cron":"9 * * * *",
                 "mutation_required":False,
             }],
         )

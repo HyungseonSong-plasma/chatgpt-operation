@@ -35,7 +35,7 @@ class WeeklyScheduleTests(unittest.TestCase):
         self.assertEqual(contract["current_slot"]["phase"],"collect")
         workflow=Path(SCHEDULER_WORKFLOW).read_text(encoding="utf-8")
         self.assertIn("schedule:",workflow)
-        self.assertIn("cron: '55 * * * *'",workflow)
+        self.assertIn("cron: '9 * * * *'",workflow)
 
     def test_naive_time_is_normalized_to_utc_slot(self):
         slot=canonical_slot(datetime(2026,10,4,12,0))

@@ -47,7 +47,7 @@ SCHEDULE_CONTENT=(
     "from datetime import date\n"
     "\n"
     "CANONICAL_TIMEZONE=\"UTC\"\n"
-    "EXISTING_BOOTSTRAP_CRON=\"55 * * * *\"\n"
+    "EXISTING_BOOTSTRAP_CRON=\"9 * * * *\"\n"
     "PHASES=(\"collect\",\"analyze\",\"close\")\n"
     "\n"
     "def phase_for_day(day: date) -> str:\n"
@@ -428,7 +428,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
             [{
                 "workflow":".github/workflows/samuel-bootstrap.yml",
                 "event":"schedule",
-                "cron":"55 * * * *",
+                "cron":"9 * * * *",
                 "mutation_required":False,
             }],
         )
