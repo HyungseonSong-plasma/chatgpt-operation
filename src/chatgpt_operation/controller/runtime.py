@@ -43,6 +43,7 @@ from .merge_recovery import (
     rejected_merge_targets,
 )
 from .preflight import (
+    eligible_acceptance_criteria,
     extract_acceptance_criteria,
     integrated_acceptance_evidence,
     preflight_semantic_plan,
@@ -573,10 +574,11 @@ class SamuelController:
             )
         planned = plan_admitted_issue(item, registry=self.decisions)
         context = planned.envelope.as_reasoning_context()
-        acceptance_criteria=extract_acceptance_criteria(
-            str(item.get("body") or "")
-        )
-        context["acceptance_criteria"]=list(acceptance_criteria)
+        issue_body=str(item.get("body") or "")
+        acceptance_criteria=extract_acceptance_criteria(issue_body)
+        eligible_criteria=eligible_acceptance_criteria(issue_body,state)
+        context["acceptance_criteria"]=list(eligible_criteria)
+        context["eligible_acceptance_criteria"]=list(eligible_criteria)
         integrated_acceptance=integrated_acceptance_evidence(state)
         context["durable_state"] = {
             "research_id": state.research_id,
@@ -767,11 +769,25 @@ class SamuelController:
                         "production semantic provider emitted unsupported executor "
                         + candidate.executor.value
                     )
+                if (
+                    acceptance_criteria
+                    and not (
+                        candidate.executor is ExecutorKind.GITHUB_NATIVE
+                        and candidate.payload.get("action")=="close_issue"
+                    )
+                    and proposal.progress is not None
+                ):
+                    criterion=proposal.progress.get("criterion")
+                    if criterion not in eligible_criteria:
+                        raise ValueError(
+                            "progress.criterion is not controller-eligible; choose exactly "
+                            "one value from context.eligible_acceptance_criteria"
+                        )
                 failure=preflight_semantic_plan(
                     plan=candidate,
                     progress=proposal.progress,
                     completion_claim=proposal.completion_claim,
-                    issue_body=str(item.get("body") or ""),
+                    issue_body=issue_body,
                     state=state,
                     repository_context=context["repository_context"],
                 )
@@ -793,10 +809,13 @@ class SamuelController:
                     f"{work_id}. Continue from durable execution history and "
                     "inherited_evidence. Treat inherited_evidence as verified prior "
                     "work from a terminal predecessor workload; do not repeat it. "
-                    "Compare the Issue observations and acceptance requirements against "
-                    "durable history, inherited_evidence, and "
-                    "repository_context.tracked_paths to identify the first concrete "
-                    "unmet workload criterion. Treat absence from tracked_paths as "
+                    "Treat context.eligible_acceptance_criteria as the controller-owned "
+                    "set of acceptance criteria still eligible for new progress. For a "
+                    "non-close ActionPlan, progress.criterion must be exactly one member "
+                    "of that set; never select a criterion directly from the Issue text "
+                    "or from integrated_acceptance_evidence. Compare repository evidence "
+                    "only to decide how to advance an eligible criterion. Treat absence "
+                    "from tracked_paths as "
                     "evidence only when repository_context.tracked_paths_truncated is "
                     "false. Reuse a workload-owned writable branch proven by a "
                     "completed durable branch-create action and still present in "
@@ -814,8 +833,9 @@ class SamuelController:
                     "After branch creation completes, advance the first unmet artifact "
                     "on that branch instead of repeating branch creation. Do not repeat completed actions. "
                     "Treat durable_state.integrated_acceptance_evidence as code-verified "
-                    "merged progress: never propose new progress for those exact criteria; "
-                    "choose a genuinely unmet criterion or close with complete verified evidence. "
+                    "merged progress excluded by the controller from "
+                    "eligible_acceptance_criteria. If eligible_acceptance_criteria is empty, "
+                    "do not propose new progress; close only with complete verified evidence. "
                     "When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
                     "named gap in implementation_gaps. Follow execution_contracts "
@@ -988,7 +1008,8 @@ class SamuelController:
                     "escalation_constraints", []
                 ),
                 "scheduled_runtime": copy.deepcopy(scheduled_runtime),
-                "acceptance_criteria": list(acceptance_criteria),
+                "acceptance_criteria": list(eligible_criteria),
+                "eligible_acceptance_criteria": list(eligible_criteria),
                 "durable_state": {
                     "research_id": durable_audit.get("research_id"),
                     "revision": durable_audit.get("revision"),
