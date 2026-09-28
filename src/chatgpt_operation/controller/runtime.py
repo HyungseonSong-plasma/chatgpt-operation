@@ -529,11 +529,13 @@ class SamuelController:
                     "Compare the Issue observations and acceptance requirements against "
                     "durable history, inherited_evidence, and "
                     "repository_context.tracked_paths to identify the first concrete "
-                    "unmet workload criterion. A required repository artifact absent "
-                    "from tracked_paths is a concrete gap. For a new repository change, "
-                    "if no workload-owned writable branch is already at "
-                    "repository_context.observed_head_sha, create a fresh samuel/* "
-                    "branch first. Do not repeat completed actions. When implementation_gaps is "
+                    "unmet workload criterion. Treat absence from tracked_paths as "
+                    "evidence only when repository_context.tracked_paths_truncated is "
+                    "false. For a new repository change, if no workload-owned writable "
+                    "branch is already at repository_context.observed_head_sha, create "
+                    "a fresh samuel/* branch first. If durable history already proves "
+                    "such a current-head branch exists, advance the unmet criterion on "
+                    "that branch instead of creating another branch. Do not repeat completed actions. When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
                     "named gap in implementation_gaps. Follow execution_contracts "
                     "exactly. For github_native plans, payload must contain only "
@@ -551,6 +553,85 @@ class SamuelController:
         outcome, plan, reason = compile_guarded_action(
             proposal, planned.envelope
         )
+        reconciled_after_null = False
+        if (
+            plan is None
+            and proposal.operation == "analyze"
+            and outcome is GuardOutcome.CONTINUE
+        ):
+            reconciliation_context = copy.deepcopy(context)
+            reconciliation_context["completion_reconciliation"] = {
+                "required": True,
+                "rules": [
+                    (
+                        "The workload is still open. Null is not a stable controller "
+                        "outcome while a safe bounded action can advance an unmet "
+                        "acceptance criterion."
+                    ),
+                    (
+                        "Close the Issue only when every acceptance criterion is "
+                        "directly supported by durable or inherited verified evidence."
+                    ),
+                    (
+                        "Treat absence from tracked_paths as evidence only when "
+                        "tracked_paths_truncated is false."
+                    ),
+                    (
+                        "Reuse a workload-owned branch already proven at "
+                        "repository_context.observed_head_sha; do not create another "
+                        "branch merely to defer file work."
+                    ),
+                    (
+                        "Prefer the smallest valid repository_mutation or github_native "
+                        "ActionPlan that advances the first unsupported criterion."
+                    ),
+                ],
+            }
+
+            def parse_reconciliation_proposal(
+                raw: dict[str, Any],
+            ) -> IssueReasoningProposal:
+                repaired = parse_provider_proposal(raw)
+                repaired_outcome, repaired_plan, _ = compile_guarded_action(
+                    repaired, planned.envelope
+                )
+                if (
+                    repaired.operation == "analyze"
+                    and repaired_outcome is GuardOutcome.CONTINUE
+                    and repaired_plan is None
+                ):
+                    raise ValueError(
+                        "completion reconciliation for an open workload requires "
+                        "one executable ActionPlan; null cannot be the stable outcome"
+                    )
+                return repaired
+
+            proposal = StructuredReasoningNode(
+                parser=parse_reconciliation_proposal,
+                max_attempts=2,
+            ).run(
+                ReasoningRequest(
+                    task=(
+                        "Reconcile the still-open workload against its Issue acceptance "
+                        "criteria. The first reasoning pass returned no ActionPlan. "
+                        "Using durable execution history, inherited_evidence, and the "
+                        "bounded repository manifest, produce exactly one safe bounded "
+                        "next ActionPlan for the first unsupported criterion. Reuse an "
+                        "existing workload-owned branch at the observed main head before "
+                        "creating another branch. Do not close the Issue unless every "
+                        "acceptance criterion is verified. Follow execution_contracts "
+                        "exactly."
+                    ),
+                    context=reconciliation_context,
+                ),
+                self.reasoning.runner(),
+            )
+            outcome, plan, reason = compile_guarded_action(
+                proposal, planned.envelope
+            )
+            context = reconciliation_context
+            reconciled_after_null = True
+
         repository_audit = context.get("repository_context") or {}
         durable_audit = context.get("durable_state") or {}
         planning = {
@@ -563,6 +644,7 @@ class SamuelController:
                 "available": True,
                 "provider": self.reasoning.status().provider,
                 "mode": "AUTO_WITH_AUDIT",
+                "reconciled_after_null": reconciled_after_null,
             },
             "proposal": {
                 "operation": proposal.operation,
@@ -623,6 +705,9 @@ class SamuelController:
                     ),
                     "tracked_paths": repository_audit.get(
                         "tracked_paths", []
+                    ),
+                    "tracked_paths_truncated": bool(
+                        repository_audit.get("tracked_paths_truncated", False)
                     ),
                     "workflow_files": repository_audit.get(
                         "workflow_files", []
