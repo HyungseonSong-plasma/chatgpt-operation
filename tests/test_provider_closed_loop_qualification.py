@@ -40,27 +40,22 @@ from chatgpt_operation.controller.terminal_ingestion import (
 REPOSITORY="HyungseonSong-plasma/chatgpt-operation"
 HEAD="b"*40
 BRANCH="samuel/issues-24-43-weekly-maintenance-v2"
-WORKFLOW_PATH=".github/workflows/samuel-paul-weekly-maintenance.yml"
-WORKFLOW_CONTENT=(
-    "name: Samuel Paul weekly maintenance\n"
+SCHEDULE_PATH="src/chatgpt_operation/weekly_schedule.py"
+SCHEDULE_CONTENT=(
+    "\"\"\"Code-owned cadence for the existing scheduled Samuel bootstrap.\"\"\"\n"
+    "from __future__ import annotations\n"
+    "from datetime import date\n"
     "\n"
-    "on:\n"
-    "  schedule:\n"
-    "    - cron: '0 17 * * 1-5'\n"
-    "    - cron: '0 17 * * 6'\n"
-    "    - cron: '0 17 * * 0'\n"
-    "  workflow_dispatch:\n"
-    "    inputs:\n"
-    "      phase:\n"
-    "        required: true\n"
-    "        type: choice\n"
-    "        options: [collect, analyze, improve, close]\n"
+    "CANONICAL_TIMEZONE=\"UTC\"\n"
+    "EXISTING_BOOTSTRAP_CRON=\"55 * * * *\"\n"
+    "PHASES=(\"collect\",\"analyze\",\"close\")\n"
     "\n"
-    "jobs:\n"
-    "  weekly-maintenance:\n"
-    "    runs-on: ubuntu-latest\n"
-    "    steps:\n"
-    "      - run: echo \"phase=${{ inputs.phase }}\"\n"
+    "def phase_for_day(day: date) -> str:\n"
+    "    if day.weekday() <= 4:\n"
+    "        return \"collect\"\n"
+    "    if day.weekday() == 5:\n"
+    "        return \"analyze\"\n"
+    "    return \"close\"\n"
 )
 
 
@@ -97,7 +92,7 @@ def trigger():
     )
 
 
-def repository_context(*, issue_open=True, open_pull_requests=None, workflow_present=False):
+def repository_context(*, issue_open=True, open_pull_requests=None, schedule_present=False):
     return {
         "repository":REPOSITORY,
         "observed_head_sha":HEAD,
@@ -105,7 +100,7 @@ def repository_context(*, issue_open=True, open_pull_requests=None, workflow_pre
             [{
                 "number":24,
                 "title":"Weekly telemetry maintenance",
-                "body":"Acceptance requires a durable weekly workflow and reviewable PR.",
+                "body":"Acceptance requires code-owned weekly scheduling on the existing bootstrap and a reviewable PR.",
                 "state":"open",
                 "labels":["samuel"],
             }]
@@ -119,11 +114,11 @@ def repository_context(*, issue_open=True, open_pull_requests=None, workflow_pre
         "tracked_paths_truncated":False,
         "tracked_paths":[
             "src/chatgpt_operation/weekly_maintenance.py",
-            *([WORKFLOW_PATH] if workflow_present else []),
+            *([SCHEDULE_PATH] if schedule_present else []),
         ],
         "workflow_files":[
             ".github/workflows/ci.yml",
-            *([WORKFLOW_PATH] if workflow_present else []),
+            ".github/workflows/samuel-bootstrap.yml",
         ],
     }
 
@@ -190,7 +185,7 @@ def initial_state_and_ledger():
             "work_id":"issue:24",
             "issue_number":24,
             "title":"Weekly telemetry maintenance",
-            "body":"Acceptance requires a durable weekly workflow and reviewable PR.",
+            "body":"Acceptance requires code-owned weekly scheduling on the existing bootstrap and a reviewable PR.",
             "html_url":"https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/24",
             "status":"planned",
         }
@@ -216,12 +211,12 @@ def file_plan():
             "repository":REPOSITORY,
             "resource":"file",
             "action":"create",
-            "target":{"path":WORKFLOW_PATH,"branch":BRANCH},
+            "target":{"path":SCHEDULE_PATH,"branch":BRANCH},
             "expected":{"absent":True},
-            "desired":{"content":WORKFLOW_CONTENT},
-            "commit_message":"Add scheduled Paul weekly maintenance workflow",
+            "desired":{"content":SCHEDULE_CONTENT},
+            "commit_message":"Add code-owned Paul weekly maintenance schedule",
         },
-        "expected_observation":"Scheduled weekly maintenance workflow exists on workload branch.",
+        "expected_observation":"Code-owned weekly schedule integration exists on the workload branch.",
         "decision_risk":None,
     }
 
@@ -386,7 +381,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
         self.assertEqual(final_state.action_queue[action_id]["status"],"complete")
         return final_state,ledger,plan
 
-    def test_provider_to_terminal_rollover_and_idle_with_multiline_workflow(self):
+    def test_provider_to_terminal_rollover_and_idle_with_multiline_schedule_source(self):
         opener=SequencedOpener([
             proposal("malformed-direct-action-plan"),
             proposal(file_plan()),
@@ -431,23 +426,23 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
         self.assertEqual(created.executor,ExecutorKind.REPOSITORY_MUTATION)
         self.assertEqual(
             created.payload["desired"]["content"],
-            WORKFLOW_CONTENT,
+            SCHEDULE_CONTENT,
         )
         self.assertEqual(state.action_queue[denied_id]["status"],"suspended")
 
-        # The same workload continues and produces a reviewable PR.
+        # The same workload continues from an allowed src/** mutation and produces a reviewable PR.
         pr_cycle=controller.run_cycle(
             trigger(),
             comments=comments(ledger,state),
             pending=[],
-            repository_context=repository_context(workflow_present=True),
+            repository_context=repository_context(schedule_present=True),
         )
         self.assertEqual(len(opener.requests),3)
         state,ledger,pr_plan=self._finish_action(
             controller=controller,
             cycle=pr_cycle,
             ledger=ledger,
-            context=repository_context(workflow_present=True),
+            context=repository_context(schedule_present=True),
             run_id=502,
         )
         self.assertEqual(pr_plan.payload["action"],"create_pr")
@@ -467,7 +462,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
             comments=comments(ledger,state),
             pending=[],
             repository_context=repository_context(
-                workflow_present=True,
+                schedule_present=True,
                 open_pull_requests=[ready_pr],
             ),
         )
@@ -481,7 +476,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
             cycle=merge_cycle,
             ledger=ledger,
             context=repository_context(
-                workflow_present=True,
+                schedule_present=True,
                 open_pull_requests=[ready_pr],
             ),
             run_id=503,
@@ -493,14 +488,14 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
             trigger(),
             comments=comments(ledger,state),
             pending=[],
-            repository_context=repository_context(workflow_present=True),
+            repository_context=repository_context(schedule_present=True),
         )
         self.assertEqual(len(opener.requests),4)
         state,ledger,close_plan=self._finish_action(
             controller=controller,
             cycle=close_cycle,
             ledger=ledger,
-            context=repository_context(workflow_present=True),
+            context=repository_context(schedule_present=True),
             run_id=504,
         )
         self.assertEqual(close_plan.payload["action"],"close_issue")
@@ -514,7 +509,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
             pending=[],
             repository_context=repository_context(
                 issue_open=False,
-                workflow_present=True,
+                schedule_present=True,
             ),
         )
         self.assertEqual(stopped.selected_work,{"kind":"idle"})
