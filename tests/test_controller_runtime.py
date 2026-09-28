@@ -89,6 +89,31 @@ class RepairProvider:
             "action_plan":native_action_plan(),
         }
 
+
+class ClosedWorldRepairProvider:
+    name = "closed-world-repair-fixture"
+
+    def __init__(self):
+        self.calls = 0
+        self.validation_errors = []
+        self.contexts = []
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.validation_errors.append(kwargs.get("validation_error"))
+        self.contexts.append(kwargs["context"])
+        plan = native_action_plan()
+        if self.calls == 1:
+            plan["payload"]["body"] = "must-be-under-target"
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":plan,
+        }
+
+
 def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
@@ -552,6 +577,31 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertIn(
             "action plan missing fields",
             provider.validation_errors[1],
+        )
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertIsNotNone(result.execution_command)
+
+    def test_provider_repairs_closed_world_native_payload(self):
+        provider=ClosedWorldRepairProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[admitted_comment()],
+            pending=[],
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertIsNone(provider.validation_errors[0])
+        self.assertIn(
+            "closed-world schema",
+            provider.validation_errors[1],
+        )
+        payload_contract=provider.contexts[0]["execution_contracts"]["github_native"]["payload"]
+        self.assertFalse(payload_contract["additional_fields"])
+        self.assertEqual(
+            set(payload_contract["allowed_fields"]),
+            {
+                "action", "repository", "target",
+                "preconditions", "desired_postcondition",
+            },
         )
         self.assertEqual(result.selected_work["kind"],"action")
         self.assertIsNotNone(result.execution_command)
