@@ -154,10 +154,6 @@ def integrated_acceptance_evidence(
         action=payload.get("action")
         resource=payload.get("resource")
         integrated=False
-        if payload.get("executor") is not None:
-            # Executor lives on the plan, not the payload. This branch is retained
-            # only for compatibility with historical serialized plans.
-            pass
         if action=="create_pr":
             completion=item.get("completion_result")
             details=completion.get("details") if isinstance(completion,dict) else None
