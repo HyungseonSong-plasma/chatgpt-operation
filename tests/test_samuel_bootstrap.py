@@ -59,7 +59,11 @@ class SamuelBootstrapTests(unittest.TestCase):
         self.assertNotIn("resume_dispatched_evidence",text)
         self.assertNotIn("resume_diagnostic_dispatch_intent",text)
         self.assertNotIn("resume_dispatched_diagnostic",text)
-        self.assertEqual(text.count("controller execute-command"),1)
+        self.assertEqual(text.count("controller execute-command"),2)
+        self.assertIn(
+            "- name: Promote completed worker receipt to terminal observation",
+            text,
+        )
 
     def test_legacy_work_still_resolves_repository_provider_outside_runtime(self):
         work=synthetic_pending()[0]
