@@ -50,6 +50,10 @@ from .reasoning_consumption import (
 from .reasoning_provider import ReasoningProviderRegistry
 from .research import ResearchState
 from .rollover_evidence import inherited_evidence_for_issue
+from .trusted_validation import (
+    record_trusted_validation_intent,
+    select_trusted_validation_work,
+)
 from chatgpt_operation.github.native_executor import (
     NativeGitHubCommand,
     native_github_reasoning_contract,
@@ -428,6 +432,97 @@ class SamuelController:
             planning,
             admission_write,
             state_write_request(comments, proposed),
+            command,
+        )
+
+    def _prepare_trusted_validation(
+        self,
+        *,
+        trigger: ControllerTrigger,
+        comments: list[dict[str, Any]],
+        state: ResearchState,
+        work: tuple[str, dict[str, Any]],
+        admission_write: dict[str, Any] | None,
+    ) -> ControllerCycle:
+        kind,payload=work
+        action_id=payload.get("action_id")
+        if not isinstance(action_id,str) or not action_id:
+            raise ControllerCompositionError(
+                "trusted validation work has no action_id"
+            )
+        if kind=="trusted_validation_wait":
+            return ControllerCycle(
+                trigger,
+                {
+                    "kind":"trusted_validation_wait",
+                    "action_id":action_id,
+                    "work_id":state.research_id,
+                },
+                None,
+                admission_write,
+                None,
+                None,
+            )
+        if kind=="trusted_validation_intent":
+            command=ControllerCommand(
+                ControllerCommandKind.RECONCILE_TRUSTED_VALIDATION,
+                action_id,
+                state.research_id,
+                state.revision,
+            )
+            return ControllerCycle(
+                trigger,
+                {
+                    "kind":"trusted_validation_intent",
+                    "action_id":action_id,
+                    "work_id":state.research_id,
+                },
+                None,
+                admission_write,
+                None,
+                command,
+            )
+        if kind!="trusted_validation":
+            raise ControllerCompositionError(
+                "unsupported trusted validation work kind"
+            )
+        pr=payload.get("pr")
+        if not isinstance(pr,dict):
+            raise ControllerCompositionError(
+                "trusted validation work has no PR snapshot"
+            )
+        executor_ref,executor_head_sha=self._require_executor_identity(trigger)
+        proposed=copy.deepcopy(state)
+        record_trusted_validation_intent(
+            proposed,
+            action_id,
+            pr_number=int(pr["number"]),
+            head_sha=str(pr["head_sha"]),
+            head_branch=str(pr["head_ref"]),
+            base_ref=str(pr["base_ref"]),
+            workflow="samuel-trusted-pr-validation.yml",
+            ref=executor_ref,
+            requested_at=self._requested_at(),
+            expected_head_sha=executor_head_sha,
+        )
+        command=ControllerCommand(
+            ControllerCommandKind.DISPATCH_TRUSTED_VALIDATION,
+            action_id,
+            proposed.research_id,
+            proposed.revision,
+        )
+        return ControllerCycle(
+            trigger,
+            {
+                "kind":"trusted_validation",
+                "action_id":action_id,
+                "work_id":state.research_id,
+                "pr_number":int(pr["number"]),
+                "head_sha":str(pr["head_sha"]),
+            },
+            None,
+            admission_write,
+            state_write_request(comments,proposed),
             command,
         )
 
@@ -1160,6 +1255,23 @@ class SamuelController:
         )
 
         if state is not None and actions_quiescent:
+            try:
+                validation_work=select_trusted_validation_work(
+                    state,repository_context
+                )
+            except ValueError as exc:
+                raise ControllerCompositionError(
+                    "trusted validation selection failed: "+str(exc)
+                ) from exc
+            if validation_work is not None:
+                return self._prepare_trusted_validation(
+                    trigger=trigger,
+                    comments=comments,
+                    state=state,
+                    work=validation_work,
+                    admission_write=admission_write,
+                )
+
             ready_pr_plan=_owned_ready_pr_plan(state,repository_context)
             if ready_pr_plan is not None:
                 proposed=copy.deepcopy(state)
