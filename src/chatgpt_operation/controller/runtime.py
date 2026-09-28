@@ -671,18 +671,26 @@ class SamuelController:
                     "implement_gap is invalid because implementation_gaps is empty; "
                     "use analyze for an action within accepted architecture"
                 )
-            if proposal.operation == "propose_revision":
-                locked_ids = {
-                    str(item.get("decision_id"))
-                    for item in context.get("locked_decisions", [])
-                    if isinstance(item, dict) and item.get("decision_id")
-                }
-                if proposal.decision_id not in locked_ids:
-                    raise ValueError(
-                        "propose_revision must reference an existing locked decision; "
-                        "do not invent a governance decision when an executable "
-                        "alternative is available"
-                    )
+            locked_ids = {
+                str(item.get("decision_id"))
+                for item in context.get("locked_decisions", [])
+                if isinstance(item, dict) and item.get("decision_id")
+            }
+            if (
+                proposal.decision_id is not None
+                and proposal.decision_id not in locked_ids
+            ):
+                raise ValueError(
+                    "decision_id must be null or reference an existing locked decision; "
+                    "do not use workload ids or invent governance decisions"
+                )
+            if (
+                proposal.operation == "propose_revision"
+                and proposal.decision_id is None
+            ):
+                raise ValueError(
+                    "propose_revision must reference an existing locked decision"
+                )
             if proposal.action_plan is not None:
                 candidate = ActionPlan.from_dict(proposal.action_plan)
                 if candidate.research_id != work_id:
