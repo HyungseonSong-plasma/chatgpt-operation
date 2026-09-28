@@ -124,7 +124,79 @@ def repository_context():
     }
 
 
+class DecisionRepairProvider:
+    name="decision-repair-fixture"
+
+    def __init__(self):
+        self.calls=0
+        self.validation_errors=[]
+
+    def reason(self,**kwargs):
+        self.calls+=1
+        self.validation_errors.append(kwargs.get("validation_error"))
+        return {
+            "operation":"analyze",
+            "decision_id":(
+                "issue:24"
+                if self.calls==1
+                else "github_execution_authority"
+            ),
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "blocker":None,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":REPOSITORY,
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":"src/chatgpt_operation/decision_probe.py",
+                        "branch":BRANCH,
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"READY=True\n"},
+                    "commit_message":"Add decision repair probe",
+                },
+                "expected_observation":"decision repair probe exists",
+            },
+            "progress":{
+                "criterion":CRITERION,
+                "rationale":"advances the durable scheduler criterion",
+            },
+            "completion_claim":None,
+        }
+
+
 class SemanticPreflightRuntimeTests(unittest.TestCase):
+    def test_invalid_non_null_decision_id_repairs_inside_same_cycle(self):
+        provider=DecisionRepairProvider()
+        controller=SamuelController(
+            decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
+            reasoning=ReasoningProviderRegistry(provider),
+        )
+        cycle=controller.run_cycle(
+            trigger(),
+            comments=[admission()],
+            pending=[],
+            repository_context=repository_context(),
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertIsNone(provider.validation_errors[0])
+        self.assertIn(
+            "decision_id must be null or reference an existing locked decision",
+            provider.validation_errors[1],
+        )
+        self.assertEqual(cycle.selected_work["kind"],"action")
+        self.assertEqual(
+            cycle.issue_planning["proposal"]["decision_id"],
+            "github_execution_authority",
+        )
+
     def test_preflight_failure_repairs_inside_same_reasoning_cycle(self):
         provider=RepairProvider()
         controller=SamuelController(

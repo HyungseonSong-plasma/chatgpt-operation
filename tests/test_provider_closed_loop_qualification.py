@@ -417,7 +417,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
         self.assertEqual(len(opener.requests),2)
         second_prompt=json.loads(opener.requests[1]["input"])
         self.assertIn(
-            "propose_revision must reference an existing locked decision",
+            "decision_id must be null or reference an existing locked decision",
             second_prompt["validation_error"],
         )
         scheduler=second_prompt["reasoning_context"]["repository_context"][

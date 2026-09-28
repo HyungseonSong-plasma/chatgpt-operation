@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 from urllib import error, request
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from typing import Any
+import time
 
 from .native_executor import NativeGitHubAction
 
@@ -164,7 +165,46 @@ class GitHubNativeTransport:
             return state
 
         if action is NativeGitHubAction.DISPATCH_WORKFLOW:
-            return {"dispatched": False, "ref": target.get("ref")}
+            ref=str(target["ref"])
+            expected_head_sha=str(target["expected_head_sha"])
+            branch=self._call(
+                "GET",
+                f"/repos/{repo}/branches/{quote(ref, safe='')}",
+            )
+            head_sha=str(((branch.get("commit") or {}).get("sha")) or "")
+            workflow=str(target["workflow"])
+            meta=self._call(
+                "GET",
+                f"/repos/{repo}/actions/workflows/{quote(workflow, safe='')}",
+            )
+            workflow_id=meta.get("id")
+            if not isinstance(workflow_id,int):
+                raise NativeGitHubRuntimeError(
+                    "workflow lookup returned invalid id"
+                )
+            query=urlencode({
+                "event":"workflow_dispatch",
+                "branch":ref,
+                "per_page":"100",
+            })
+            runs=self._call(
+                "GET",
+                f"/repos/{repo}/actions/workflows/{workflow_id}/runs?{query}",
+            )
+            raw_runs=runs.get("workflow_runs",[]) if isinstance(runs,dict) else []
+            if not isinstance(raw_runs,list):
+                raise NativeGitHubRuntimeError(
+                    "workflow runs lookup returned invalid payload"
+                )
+            started=any(
+                isinstance(item,dict)
+                and item.get("head_sha")==expected_head_sha
+                for item in raw_runs
+            )
+            return {
+                "head_sha":head_sha,
+                "ci_started":started,
+            }
 
         raise NativeGitHubRuntimeError("unsupported action")
 
@@ -214,11 +254,27 @@ class GitHubNativeTransport:
             )
 
         if action is NativeGitHubAction.DISPATCH_WORKFLOW:
+            workflow=quote(str(target["workflow"]),safe="")
             self._call(
                 "POST",
-                f"/repos/{repo}/actions/workflows/{target['workflow']}/dispatches",
-                {"ref":target["ref"],"inputs":target.get("inputs",{})},
+                f"/repos/{repo}/actions/workflows/{workflow}/dispatches",
+                {"ref":target["ref"]},
             )
-            return {"accepted": True}
+            last_state=None
+            for attempt in range(20):
+                last_state=self.read_state(action,target)
+                if last_state.get("ci_started") is True:
+                    return {
+                        "accepted":True,
+                        "verified_visible":True,
+                        "attempts":attempt+1,
+                    }
+                if attempt < 19:
+                    time.sleep(0.5)
+            return {
+                "accepted":True,
+                "verified_visible":False,
+                "after":last_state,
+            }
 
         raise NativeGitHubRuntimeError("unsupported action")

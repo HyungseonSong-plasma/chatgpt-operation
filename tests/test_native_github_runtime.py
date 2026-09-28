@@ -144,5 +144,74 @@ class NativeGitHubRuntimeCreatePrTests(unittest.TestCase):
         )
 
 
+class NativeGitHubRuntimeDispatchWorkflowTests(unittest.TestCase):
+    def target(self):
+        return {
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "workflow":"ci.yml",
+            "ref":"samuel/issues-24-43-weekly-maintenance-v2",
+            "expected_head_sha":"d"*40,
+        }
+
+    def test_read_state_requires_exact_head_workflow_dispatch(self):
+        transport=FakeTransport([
+            {"commit":{"sha":"d"*40}},
+            {"id":123},
+            {"workflow_runs":[
+                {"id":91,"head_sha":"c"*40},
+                {"id":92,"head_sha":"d"*40},
+            ]},
+        ])
+        state=transport.read_state(
+            NativeGitHubAction.DISPATCH_WORKFLOW,self.target()
+        )
+        self.assertEqual(
+            state,
+            {"head_sha":"d"*40,"ci_started":True},
+        )
+        self.assertIn(
+            "/actions/workflows/123/runs?event=workflow_dispatch",
+            transport.calls[2][1],
+        )
+
+    def test_read_state_keeps_stale_branch_head_visible(self):
+        transport=FakeTransport([
+            {"commit":{"sha":"e"*40}},
+            {"id":123},
+            {"workflow_runs":[]},
+        ])
+        state=transport.read_state(
+            NativeGitHubAction.DISPATCH_WORKFLOW,self.target()
+        )
+        self.assertEqual(
+            state,
+            {"head_sha":"e"*40,"ci_started":False},
+        )
+
+    def test_mutate_dispatches_and_waits_until_exact_head_is_visible(self):
+        transport=FakeTransport([
+            {},
+            {"commit":{"sha":"d"*40}},
+            {"id":123},
+            {"workflow_runs":[{"id":92,"head_sha":"d"*40}]},
+        ])
+        result=transport.mutate(
+            NativeGitHubAction.DISPATCH_WORKFLOW,self.target()
+        )
+        self.assertTrue(result["accepted"])
+        self.assertTrue(result["verified_visible"])
+        self.assertEqual(result["attempts"],1)
+        method,path,payload=transport.calls[0]
+        self.assertEqual(method,"POST")
+        self.assertEqual(
+            path,
+            "/repos/HyungseonSong-plasma/chatgpt-operation/actions/workflows/ci.yml/dispatches",
+        )
+        self.assertEqual(
+            payload,
+            {"ref":"samuel/issues-24-43-weekly-maintenance-v2"},
+        )
+
+
 if __name__=="__main__":
     unittest.main()

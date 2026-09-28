@@ -4,8 +4,10 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
   statuses: write
 
@@ -73,3 +75,27 @@ jobs:
             -f state=success \
             -f context='samuel/ci-compat' \
             -f description='CI workflow completed successfully' >/dev/null
+
+      - name: Publish Samuel dispatched CI status
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_STATUS_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$CI_STATUS_SHA"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$CI_STATUS_SHA" \
+            -f state=success \
+            -f context='samuel/ci-compat' \
+            -f description='Samuel dispatched CI completed successfully' >/dev/null
+
+      - name: Wake Samuel after dispatched CI
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run samuel-bootstrap.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main

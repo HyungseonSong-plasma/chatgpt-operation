@@ -1492,7 +1492,7 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(provider.calls,2)
         self.assertIsNone(provider.validation_errors[0])
         self.assertIn(
-            "propose_revision must reference an existing locked decision",
+            "decision_id must be null or reference an existing locked decision",
             provider.validation_errors[1],
         )
         scheduler=provider.contexts[0]["repository_context"]["scheduler_surfaces"]
