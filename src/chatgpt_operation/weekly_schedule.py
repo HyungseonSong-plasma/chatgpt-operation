@@ -7,7 +7,7 @@ from typing import Any
 
 CANONICAL_TIMEZONE = "UTC"
 SCHEDULER_WORKFLOW = ".github/workflows/samuel-bootstrap.yml"
-SCHEDULER_CRON = "9 * * * *"
+SCHEDULER_CRON = "20 13 * * *"
 SCHEDULER_CAPABILITY = "existing_scheduled_runtime"
 PHASES = ("collect", "analyze", "close")
 
