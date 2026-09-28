@@ -33,6 +33,10 @@ class IssueReasoningProposal:
         if decision_id is not None and (not isinstance(decision_id,str) or not decision_id.strip()):
             raise ValueError("decision_id must be null or non-empty")
         plan=raw.get("action_plan")
+        if isinstance(plan,str) and plan.startswith(
+            "__SAMUEL_INVALID_ACTION_PLAN_JSON__:"
+        ):
+            raise ValueError(plan.split(": ",1)[1])
         if plan is not None and not isinstance(plan,dict):
             raise ValueError("action_plan must be null or object")
         return cls(operation,decision_id,compatible,revision,plan)
