@@ -131,6 +131,25 @@ def repository_mutation_reasoning_contract()->dict[str,Any]:
         },
     }
 
+def repository_mutation_policy_reasoning_contract(
+    path: str = "automation/samuel/repository-mutation-policy.json",
+) -> dict[str, Any]:
+    """Expose the exact repository-owned mutation policy to semantic planning."""
+    policy=parse_policy(load_json(path))
+    return {
+        "repository":policy.repository,
+        "file_paths":{
+            "allow":list(policy.file_allow),
+            "deny":list(policy.file_deny),
+            "rule":"deny patterns override allow patterns",
+        },
+        "branch_names":{
+            "allow":list(policy.branch_allow),
+            "deny":list(policy.branch_deny),
+            "rule":"deny patterns override allow patterns",
+        },
+    }
+
 def parse_manifest(raw):
     if not isinstance(raw,dict): raise ManifestError("manifest root must be object")
     _keys(raw,MANIFEST_ALLOWED_FIELDS,MANIFEST_REQUIRED_FIELDS,"manifest")
