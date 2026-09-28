@@ -134,11 +134,3 @@ jobs:
             cat samuel-execution-result.json >> "$GITHUB_STEP_SUMMARY"
             echo '~~~' >> "$GITHUB_STEP_SUMMARY"
           fi
-
-      - name: Wake Samuel controller after worker completion
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh workflow run samuel-bootstrap.yml --ref main
