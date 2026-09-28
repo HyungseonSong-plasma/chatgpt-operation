@@ -96,9 +96,24 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         self.assertIn("action_plan",schema["properties"])
         self.assertNotIn("action_plan_json",schema["properties"])
         action_schema=schema["properties"]["action_plan"]
-        self.assertEqual(action_schema["type"],["object","null"])
-        payload_variants=action_schema["properties"]["payload"]["anyOf"]
-        self.assertGreaterEqual(len(payload_variants),8)
+        variants=action_schema["anyOf"]
+        self.assertEqual(variants[0],{"type":"null"})
+        executable=variants[1:]
+        self.assertGreaterEqual(len(executable),9)
+        executors={
+            item["properties"]["executor"]["enum"][0]
+            for item in executable
+        }
+        self.assertEqual(
+            executors,
+            {"repository_mutation","github_native"},
+        )
+        for item in executable:
+            self.assertFalse(item["additionalProperties"])
+            self.assertEqual(
+                item["properties"]["executor"]["enum"],
+                [item["properties"]["executor"]["enum"][0]],
+            )
 
     def test_production_mode_preserves_multiline_workflow_content_without_double_encoding(self):
         content=(
