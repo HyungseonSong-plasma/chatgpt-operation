@@ -193,21 +193,6 @@ def _native_payload_schemas() -> list[dict[str, Any]]:
                 "merged": {"type": "boolean", "enum": [True]},
             }),
         }),
-        _closed_object({
-            **common,
-            "action": {"type": "string", "enum": ["dispatch_workflow"]},
-            "target": _closed_object({
-                "workflow": {"type": "string"},
-                "ref": {"type": "string"},
-            }),
-            "preconditions": _closed_object({
-                "dispatched": {"type": "boolean", "enum": [False]},
-                "ref": {"type": "string"},
-            }),
-            "desired_postcondition": _closed_object({
-                "dispatched": {"type": "boolean", "enum": [True]},
-            }),
-        }),
     ]
 
 
