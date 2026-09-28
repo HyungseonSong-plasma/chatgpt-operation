@@ -58,7 +58,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["action_plan"]["type"], "null")
 
 
-    def test_production_mode_decodes_one_typed_action_plan_json(self):
+    def test_production_mode_returns_nested_structured_action_plan(self):
         plan = {
             "schema_version":1,
             "research_id":"issue:44",
@@ -72,13 +72,14 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
                 "desired_postcondition":{"issue_state":"closed"},
             },
             "expected_observation":"issue is closed",
+            "decision_risk":None,
         }
         raw = {
             "operation":"analyze",
             "decision_id":"github_execution_authority",
             "compatible_with_locked_decisions":True,
             "revision_requested":False,
-            "action_plan_json":json.dumps(plan),
+            "action_plan":plan,
         }
         seen={}
         def opener(req, timeout):
@@ -92,16 +93,53 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         )
         self.assertEqual(result["action_plan"],plan)
         schema=seen["body"]["text"]["format"]["schema"]
-        self.assertIn("action_plan_json",schema["properties"])
-        self.assertNotIn("action_plan",schema["properties"])
+        self.assertIn("action_plan",schema["properties"])
+        self.assertNotIn("action_plan_json",schema["properties"])
+        action_schema=schema["properties"]["action_plan"]
+        self.assertEqual(action_schema["type"],["object","null"])
+        payload_variants=action_schema["properties"]["payload"]["anyOf"]
+        self.assertGreaterEqual(len(payload_variants),8)
 
-    def test_production_mode_exposes_invalid_embedded_action_plan_to_repair(self):
-        raw = {
+    def test_production_mode_preserves_multiline_workflow_content_without_double_encoding(self):
+        content=(
+            "name: Samuel Weekly Maintenance\n"
+            "on:\n"
+            "  workflow_dispatch:\n"
+            "  schedule:\n"
+            "    - cron: '0 8 * * 1-5'\n"
+            "jobs:\n"
+            "  collect:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: echo \"weekday collection\"\n"
+        )
+        plan={
+            "schema_version":1,
+            "research_id":"issue:24",
+            "stage":"implement",
+            "executor":"repository_mutation",
+            "payload":{
+                "schema_version":1,
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "resource":"file",
+                "action":"create",
+                "target":{
+                    "path":".github/workflows/samuel-paul-weekly-maintenance.yml",
+                    "branch":"samuel/issues-24-43-weekly-maintenance-v2",
+                },
+                "expected":{"absent":True},
+                "desired":{"content":content},
+                "commit_message":"Add scheduled weekly maintenance",
+            },
+            "expected_observation":"scheduled workflow exists",
+            "decision_risk":None,
+        }
+        raw={
             "operation":"analyze",
-            "decision_id":None,
+            "decision_id":"github_execution_authority",
             "compatible_with_locked_decisions":True,
             "revision_requested":False,
-            "action_plan_json":"not-json",
+            "action_plan":plan,
         }
         provider=OpenAIReasoningProvider(
             "secret",
@@ -111,7 +149,10 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         result=provider.reason(
             task="next",context={},attempt=1,validation_error=None
         )
-        self.assertEqual(result["action_plan"],"not-json")
+        self.assertEqual(
+            result["action_plan"]["payload"]["desired"]["content"],
+            content,
+        )
 
     def test_non_json_fails_closed(self):
         p = OpenAIReasoningProvider(
