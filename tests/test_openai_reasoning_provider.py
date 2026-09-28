@@ -95,7 +95,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         self.assertIn("action_plan_json",schema["properties"])
         self.assertNotIn("action_plan",schema["properties"])
 
-    def test_production_mode_rejects_invalid_embedded_action_plan_json(self):
+    def test_production_mode_exposes_invalid_embedded_action_plan_to_repair(self):
         raw = {
             "operation":"analyze",
             "decision_id":None,
@@ -108,10 +108,10 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
             opener=lambda req,timeout:Response({"output_text":json.dumps(raw)}),
             allow_action_plan=True,
         )
-        with self.assertRaises(ProviderUnavailable):
-            provider.reason(
-                task="next",context={},attempt=1,validation_error=None
-            )
+        result=provider.reason(
+            task="next",context={},attempt=1,validation_error=None
+        )
+        self.assertEqual(result["action_plan"],"not-json")
 
     def test_non_json_fails_closed(self):
         p = OpenAIReasoningProvider(
