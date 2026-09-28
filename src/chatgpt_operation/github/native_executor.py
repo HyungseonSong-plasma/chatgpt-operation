@@ -162,6 +162,35 @@ class NativeGitHubCommand:
                 raise NativeGitHubError(
                     "merge_pr desired_postcondition must be merged=true"
                 )
+        if action is NativeGitHubAction.DISPATCH_WORKFLOW:
+            required = {"workflow", "ref", "expected_head_sha"}
+            if set(target) != required:
+                raise NativeGitHubError(
+                    "dispatch_workflow target must contain workflow, ref, and expected_head_sha"
+                )
+            if any(
+                not isinstance(target[key], str) or not target[key].strip()
+                for key in required
+            ):
+                raise NativeGitHubError(
+                    "dispatch_workflow target values must be non-empty strings"
+                )
+            mandatory_preconditions = {
+                "head_sha": target["expected_head_sha"],
+                "ci_started": False,
+            }
+            if preconditions != mandatory_preconditions:
+                raise NativeGitHubError(
+                    "dispatch_workflow preconditions must pin exact head and require ci_started=false"
+                )
+            mandatory_postcondition = {
+                "head_sha": target["expected_head_sha"],
+                "ci_started": True,
+            }
+            if raw["desired_postcondition"] != mandatory_postcondition:
+                raise NativeGitHubError(
+                    "dispatch_workflow desired_postcondition must verify exact head and ci_started=true"
+                )
         if action is NativeGitHubAction.CREATE_PR:
             required = {"head", "base", "title", "body"}
             if set(target) != required:
