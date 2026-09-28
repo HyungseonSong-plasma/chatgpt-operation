@@ -69,14 +69,26 @@ def can_rollover_state(state: ResearchState) -> bool:
     if not state.action_queue:
         return False
     if any(
-        item.get("status") not in {"complete", "rejected"}
-        for item in state.action_queue.values()
-    ):
-        return False
-    return not any(
         recovery.get("status") in {"open", "needs_evidence"}
         for recovery in state.diagnostic_recoveries.values()
-    )
+    ):
+        return False
+    for action_id, item in state.action_queue.items():
+        status = item.get("status")
+        if status in {"complete", "rejected"}:
+            continue
+        if status != "suspended":
+            return False
+        failure = state.execution_results.get(action_id)
+        details = {} if not isinstance(failure, dict) else failure.get("details", {})
+        if (
+            not isinstance(failure, dict)
+            or failure.get("status") != "failed"
+            or not isinstance(details, dict)
+            or details.get("governance_retryable") is not False
+        ):
+            return False
+    return True
 
 
 def require_fresh_write(current: ResearchState | None, proposed: ResearchState) -> None:
