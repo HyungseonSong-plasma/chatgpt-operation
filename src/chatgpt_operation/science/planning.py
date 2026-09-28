@@ -7,6 +7,8 @@ from typing import Callable, Iterable
 from .ontology import (
     ActionSpec,
     CapabilityDescriptor,
+    DevelopmentState,
+    ExperimentIntent,
     ScientificPolicy,
     SearchDecision,
 )
