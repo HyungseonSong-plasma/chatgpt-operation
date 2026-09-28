@@ -247,6 +247,52 @@ class NullThenFilePlanProvider:
         }
 
 
+class PolicyRepairProvider:
+    name = "policy-repair-fixture"
+
+    def __init__(self):
+        self.calls = 0
+        self.validation_errors = []
+        self.contexts = []
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.validation_errors.append(kwargs.get("validation_error"))
+        self.contexts.append(kwargs["context"])
+        repository=kwargs["context"]["repository_context"]
+        path=(
+            ".github/workflows/paul-weekly-maintenance.yml"
+            if self.calls == 1
+            else ".github/workflows/samuel-paul-weekly-maintenance.yml"
+        )
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":repository["repository"],
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":path,
+                        "branch":"samuel/issues-24-43-weekly-maintenance-v2",
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"name: Samuel Paul weekly maintenance\n"},
+                    "commit_message":"Add scheduled Paul weekly maintenance workflow",
+                },
+                "expected_observation":"Allowed scheduled workflow exists on workload branch.",
+            },
+        }
+
+
 class ReuseWorkloadBranchProvider:
     name = "reuse-workload-branch-fixture"
 
@@ -1084,6 +1130,119 @@ class ControllerRuntimeTests(unittest.TestCase):
             result.execution_command.kind,
             ControllerCommandKind.DISPATCH_ACTION,
         )
+
+    def test_suspended_action_reasons_on_same_workload_and_repairs_policy(self):
+        denied_plan={
+            "schema_version":1,
+            "research_id":"issue:24",
+            "stage":"implement",
+            "executor":"repository_mutation",
+            "payload":{
+                "schema_version":1,
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "resource":"file",
+                "action":"create",
+                "target":{
+                    "path":".github/workflows/paul-weekly-maintenance.yml",
+                    "branch":"samuel/issues-24-43-weekly-maintenance-v2",
+                },
+                "expected":{"absent":True},
+                "desired":{"content":"name: invalid policy path\n"},
+                "commit_message":"Attempt denied workflow",
+            },
+            "expected_observation":"workflow exists",
+        }
+        state=ResearchState("issue:24","Weekly telemetry maintenance",revision=17)
+        state.action_queue["failed-policy-action"]={
+            "status":"suspended",
+            "plan":denied_plan,
+        }
+        state.execution_results["failed-policy-action"]={
+            "schema_version":1,
+            "research_id":"issue:24",
+            "action_id":"failed-policy-action",
+            "executor":"repository_mutation",
+            "status":"failed",
+            "observation":"repository mutation failed closed",
+            "retryable":False,
+            "details":{
+                "error_type":"PolicyError",
+                "error":"file path denied: .github/workflows/paul-weekly-maintenance.yml",
+            },
+        }
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Weekly telemetry maintenance",
+                "body":"Acceptance requires a durable scheduled workflow.",
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"planned",
+            },
+            "issue:43":{
+                "work_id":"issue:43",
+                "issue_number":43,
+                "title":"Telemetry",
+                "body":"Monitor skill utilization.",
+                "html_url":"https://github.com/o/r/issues/43",
+                "status":"admitted",
+            },
+        }
+        provider=PolicyRepairProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[
+                    {
+                        "number":24,
+                        "title":"Weekly telemetry maintenance",
+                        "body":"Acceptance requires a durable scheduled workflow.",
+                        "state":"open",
+                        "labels":["samuel"],
+                    },
+                    {
+                        "number":43,
+                        "title":"Telemetry",
+                        "body":"Monitor skill utilization.",
+                        "state":"open",
+                        "labels":["samuel"],
+                    },
+                ],
+                "open_pull_requests":[],
+                "samuel_branches":[{
+                    "head_sha":"a"*40,
+                    "ref":"refs/heads/samuel/issues-24-43-weekly-maintenance-v2",
+                }],
+                "tracked_paths_truncated":False,
+                "tracked_paths":["src/chatgpt_operation/weekly_maintenance.py"],
+                "workflow_files":[".github/workflows/ci.yml"],
+            },
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertIsNone(provider.validation_errors[0])
+        self.assertIn("file path denied",provider.validation_errors[1])
+        policy=provider.contexts[0]["execution_contracts"]["repository_mutation"]["policy"]
+        self.assertIn(".github/workflows/samuel-*.yml",policy["file_paths"]["allow"])
+        self.assertIn(
+            "failed-policy-action",
+            provider.contexts[0]["durable_state"]["execution_results"],
+        )
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["work_id"],"issue:24")
+        self.assertEqual(
+            result.selected_work["plan"]["payload"]["target"]["path"],
+            ".github/workflows/samuel-paul-weekly-maintenance.yml",
+        )
+        ledger=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(ledger["issue:24"]["status"],"planned")
+        self.assertEqual(ledger["issue:43"]["status"],"admitted")
 
     def test_existing_submission_is_consumed_in_same_root_cycle(self):
         result=controller().run_cycle(
