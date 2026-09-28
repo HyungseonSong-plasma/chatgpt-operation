@@ -319,6 +319,28 @@ def _preflight_native_target(
     return None
 
 
+def deterministic_completion_claim(
+    issue_body: str,
+    state: ResearchState,
+) -> dict[str, Any] | None:
+    """Build exact completion coverage only when every acceptance criterion is integrated."""
+    criteria=extract_acceptance_criteria(issue_body)
+    if not criteria:
+        return None
+    integrated=integrated_acceptance_evidence(state)
+    if any(criterion not in integrated for criterion in criteria):
+        return None
+    return {
+        "criteria":[
+            {
+                "criterion":criterion,
+                "evidence_action_ids":list(integrated[criterion]),
+            }
+            for criterion in criteria
+        ]
+    }
+
+
 def preflight_semantic_plan(
     *,
     plan: ActionPlan,
