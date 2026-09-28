@@ -131,6 +131,23 @@ def test_worker_authority_stays_narrow():
     assert "actions: write" not in diagnostic_worker
 
 
+def test_bootstrap_waits_for_dispatched_worker_before_terminal_ingestion():
+    text=Path(
+        ".github/workflows/samuel-bootstrap.yml"
+    ).read_text(encoding="utf-8")
+    wait_marker="- name: Wait for dispatched bounded worker terminal state"
+    persist_marker="- name: Persist execution gateway state write"
+    terminal_marker="- name: Persist terminal controller artifact"
+    assert text.count(wait_marker)==1
+    assert text.index(persist_marker) < text.index(wait_marker) < text.index(terminal_marker)
+    wait=text.split(wait_marker,1)[1].split(terminal_marker,1)[0]
+    assert 'actions/runs/$run_id' in wait
+    assert 'status" = "completed"' in wait
+    assert "SECONDS+360" in wait
+    assert "sleep 5" in wait
+    assert "SAMUEL_WORKER_WAIT=HARD_STOP timeout" in wait
+
+
 def test_terminal_persistence_triggers_exactly_one_continuation_wake():
     text=Path(
         ".github/workflows/samuel-bootstrap.yml"
