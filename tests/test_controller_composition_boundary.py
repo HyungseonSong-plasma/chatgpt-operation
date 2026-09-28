@@ -119,17 +119,24 @@ def test_bootstrap_runs_only_from_trusted_default_branch_event_surfaces():
     assert "--input samuel-planning-comment-payload.json" in workflow
 
 
-def test_trusted_pr_validation_is_default_branch_workflow_run_gate():
+def test_trusted_pr_validation_is_default_branch_controller_gate():
     workflow=Path(
         ".github/workflows/samuel-trusted-pr-validation.yml"
     ).read_text(encoding="utf-8")
     assert "workflow_run:" in workflow
     assert 'workflows: ["CI"]' in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "samuel_validation_id:" in workflow
+    assert "pr_number:" in workflow
+    assert "head_sha:" in workflow
+    assert "head_branch:" in workflow
     assert "conclusion == 'action_required'" in workflow
     assert "actor.login == 'github-actions[bot]'" in workflow
     assert "startsWith(github.event.workflow_run.head_branch, 'samuel/')" in workflow
+    assert "trusted validation PR head SHA is stale" in workflow
     assert "samuel/trusted-validation" in workflow
-    assert "gh workflow run samuel-bootstrap.yml --ref main" in workflow
+    assert "gh workflow run samuel-bootstrap.yml" in workflow
+    assert '--ref main' in workflow
 
 
 def test_native_executor_has_only_bounded_merge_required_write_authority():
