@@ -303,6 +303,60 @@ jobs:
             --token-env GH_TOKEN \
             --result samuel-gateway-state-persist-result.json
 
+      - name: Materialize dispatched worker run identity
+        if: ${{ hashFiles('samuel-execution-gateway-result.json') != '' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          raw=json.load(open("samuel-execution-gateway-result.json"))
+          if raw.get("status") != "receipt":
+              print(
+                  "SAMUEL_WORKER_ID=NOT_REQUIRED status="
+                  +str(raw.get("status") or "")
+              )
+              raise SystemExit(0)
+          surface=raw.get("surface")
+          outputs={
+              "action":"samuel-action-run-id.txt",
+              "evidence":"samuel-evidence-run-id.txt",
+              "diagnostic":"samuel-diagnostic-run-id.txt",
+              "corrective":"samuel-corrective-run-id.txt",
+          }
+          output=outputs.get(surface)
+          if output is None:
+              raise SystemExit(
+                  "SAMUEL_WORKER_ID=HARD_STOP unsupported receipt surface"
+              )
+          receipt=raw.get("receipt")
+          if not isinstance(receipt,dict):
+              raise SystemExit("SAMUEL_WORKER_ID=HARD_STOP receipt missing")
+          run_id=receipt.get("workflow_run_id")
+          if not isinstance(run_id,int) or isinstance(run_id,bool) or run_id < 1:
+              raise SystemExit("SAMUEL_WORKER_ID=HARD_STOP invalid workflow_run_id")
+          existing=[
+              path for path in outputs.values()
+              if Path(path).exists()
+          ]
+          if existing:
+              if existing != [output]:
+                  raise SystemExit(
+                      "SAMUEL_WORKER_ID=HARD_STOP conflicting run-id surface"
+                  )
+              current=Path(output).read_text(encoding="utf-8").strip()
+              if current != str(run_id):
+                  raise SystemExit(
+                      "SAMUEL_WORKER_ID=HARD_STOP conflicting run identity"
+                  )
+          else:
+              Path(output).write_text(str(run_id)+"\n",encoding="utf-8")
+          print(
+              f"SAMUEL_WORKER_ID=MATERIALIZED surface={surface} run_id={run_id}"
+          )
+          PY
+
       - name: Wait for dispatched bounded worker terminal state
         if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
         env:
