@@ -121,16 +121,38 @@ class NullPlanCapturingProvider:
     def __init__(self):
         self.calls = 0
         self.context = None
+        self.tasks = []
 
     def reason(self, **kwargs):
         self.calls += 1
         self.context = kwargs["context"]
+        self.tasks.append(kwargs["task"])
         return {
             "operation":"analyze",
             "decision_id":None,
             "compatible_with_locked_decisions":True,
             "revision_requested":False,
             "action_plan":None,
+        }
+
+
+class NullThenPlanProvider:
+    name = "null-then-plan-fixture"
+
+    def __init__(self, plan):
+        self.plan = plan
+        self.calls = 0
+        self.tasks = []
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.tasks.append(kwargs["task"])
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":None if self.calls == 1 else self.plan,
         }
 
 
@@ -657,15 +679,21 @@ class ControllerRuntimeTests(unittest.TestCase):
                 "samuel_branches":[],
             },
         )
-        self.assertEqual(provider.calls,1)
+        self.assertEqual(provider.calls,2)
+        self.assertIn("Completion reconciliation",provider.tasks[1])
         inherited=provider.context["durable_state"]["inherited_evidence"]
         self.assertEqual(
             [item["source_action_id"] for item in inherited],
             ["create-pr","merge-pr"],
         )
         self.assertEqual(result.selected_work,{
-            "kind":"reasoning_required","work_id":"issue:24"
+            "kind":"reasoning_consumed",
+            "work_id":"issue:24",
+            "outcome":"blocked",
+            "action_id":None,
         })
+        blocked=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(blocked["issue:24"]["status"],"blocked")
         self.assertIsNotNone(result.state_write)
         self.assertEqual(result.state_write["expected_previous_revision"],7)
         proposed=decode_state(result.state_write["body"])
@@ -673,6 +701,59 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(proposed.revision,0)
         self.assertEqual(proposed.inherited_evidence,inherited)
         self.assertEqual(proposed.action_queue,{})
+
+    def test_null_analysis_gets_one_completion_reconciliation_pass(self):
+        provider=NullThenPlanProvider(native_action_plan())
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[admitted_comment()],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[repository_issue(44)],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+                "tracked_paths":[],
+                "workflow_files":[],
+            },
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertIn("Completion reconciliation",provider.tasks[1])
+        self.assertTrue(result.issue_planning["reconciliation_attempted"])
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertIsNotNone(result.execution_command)
+
+    def test_double_null_blocks_instead_of_silent_idle(self):
+        provider=NullPlanCapturingProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[admitted_comment()],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[repository_issue(44)],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+                "tracked_paths":[],
+                "workflow_files":[],
+            },
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertTrue(result.issue_planning["reconciliation_attempted"])
+        self.assertEqual(
+            result.selected_work,
+            {
+                "kind":"reasoning_consumed",
+                "work_id":"issue:44",
+                "outcome":"blocked",
+                "action_id":None,
+            },
+        )
+        blocked=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(blocked["issue:44"]["status"],"blocked")
+        self.assertIsNone(result.execution_command)
 
     def test_issue_trigger_admission_is_owned_by_root(self):
         issue_trigger=ControllerTrigger(
