@@ -101,24 +101,52 @@ class Tests(unittest.TestCase):
             contract["file_paths"]["deny"],
             [".github/workflows/samuel-native-github.yml"],
         )
+        self.assertFalse(
+            contract["runtime_capabilities"]["workflow_file_mutation"]
+        )
         self.assertEqual(contract["branch_names"]["allow"],["samuel/*"])
         allowed=mf(
+            "create",
+            path="src/chatgpt_operation/weekly_schedule.py",
+            branch="samuel/work",
+        )
+        authorize_manifest(allowed,policy=policy,repository="o/r")
+        credential_denied=mf(
             "create",
             path=".github/workflows/samuel-weekly.yml",
             branch="samuel/work",
         )
-        authorize_manifest(allowed,policy=policy,repository="o/r")
-        denied=mf(
-            "create",
-            path=".github/workflows/paul-weekly.yml",
-            branch="samuel/work",
-        )
-        with self.assertRaises(PolicyError):
-            authorize_manifest(denied,policy=policy,repository="o/r")
+        with self.assertRaisesRegex(
+            PolicyError,
+            "workflow file mutation is unavailable",
+        ):
+            authorize_manifest(
+                credential_denied,
+                policy=policy,
+                repository="o/r",
+            )
 
     def test_closed_world(self):
         with self.assertRaises(ManifestError):
             parse_manifest({"schema_version":1,"repository":"o/r","resource":"issue","action":"update","target":{},"expected":{},"desired":{}})
+    def test_workflow_file_surface_is_denied_even_by_broad_policy(self):
+        broad=pol(
+            file_allow=["**"],
+            file_deny=["docs/private/**"],
+            branch_allow=["*"],
+            branch_deny=["main"],
+        )
+        manifest=mf(
+            "create",
+            path=".github/workflows/samuel-new.yml",
+            branch="issue-1-x",
+        )
+        with self.assertRaisesRegex(
+            PolicyError,
+            "workflow file mutation is unavailable",
+        ):
+            authorize_manifest(manifest,policy=broad,repository="o/r")
+
     def test_path_policy(self):
         f=Fake(); e=self.engine(f,pol(file_allow=["**"],file_deny=["docs/private/**"]))
         with self.assertRaises(PolicyError): e.execute(mf("create",path="docs/private/x.txt"))
