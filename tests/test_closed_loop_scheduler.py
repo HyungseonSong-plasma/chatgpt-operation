@@ -179,6 +179,9 @@ def test_post_worker_terminal_is_observed_through_root_and_gateway():
     assert "controller run-cycle" in observe
     assert "--event-name bootstrap" in observe
     assert "controller execute-command" in observe
+    assert 'current_status" = "terminal"' in observe
+    assert "SAMUEL_POST_WORKER=ALREADY_TERMINAL" in observe
+    assert "--token-env GH_TOKEN" in observe
     assert 'result.get("status") != "terminal"' in observe
     assert "SAMUEL_POST_WORKER=TERMINAL" in observe
     assert "samuel-execution-gateway-result.json" in observe
