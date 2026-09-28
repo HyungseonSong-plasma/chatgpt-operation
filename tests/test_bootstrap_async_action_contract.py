@@ -5,13 +5,15 @@ def bootstrap_workflow() -> str:
     return Path(".github/workflows/samuel-bootstrap.yml").read_text(encoding="utf-8")
 
 
-def test_bootstrap_native_action_path_is_non_blocking_and_gateway_owned():
+def test_bootstrap_native_action_path_is_gateway_owned():
     workflow=bootstrap_workflow()
     assert "dispatch_native_plan(" not in workflow
     assert "dispatch_native_plan_async" not in workflow
     assert "observe_native_intent" not in workflow
     assert "observe_native_plan" not in workflow
-    assert workflow.count("controller execute-command")==1
+    assert workflow.count("controller execute-command")==2
+    assert "Wait for dispatched bounded worker terminal state" in workflow
+    assert "Observe completed bounded worker through composition root" in workflow
 
 
 def test_execution_gateway_owns_native_action_runtime():
