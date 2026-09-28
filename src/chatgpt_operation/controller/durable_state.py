@@ -61,6 +61,11 @@ def decode_state(body: str) -> ResearchState:
         action_queue=dict(raw.get("action_queue", {})),
         revision=int(raw.get("revision", 0)),
         inherited_evidence=list(raw.get("inherited_evidence", [])),
+        last_reasoning_head_sha=(
+            str(raw["last_reasoning_head_sha"])
+            if raw.get("last_reasoning_head_sha") is not None
+            else None
+        ),
     )
 
 
