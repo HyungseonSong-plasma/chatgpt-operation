@@ -49,10 +49,52 @@ SHADOW_ISSUE_REASONING_SCHEMA = {
                 },
             ],
         },
+        "progress": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "criterion": {"type": "string"},
+                        "rationale": {"type": "string"},
+                    },
+                    "required": ["criterion", "rationale"],
+                    "additionalProperties": False,
+                },
+            ],
+        },
+        "completion_claim": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "criteria": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "criterion": {"type": "string"},
+                                    "evidence_action_ids": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                                "required": ["criterion", "evidence_action_ids"],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["criteria"],
+                    "additionalProperties": False,
+                },
+            ],
+        },
     },
     "required": [
         "operation", "decision_id", "compatible_with_locked_decisions",
-        "revision_requested", "action_plan", "blocker",
+        "revision_requested", "action_plan", "blocker", "progress",
+        "completion_claim",
     ],
     "additionalProperties": False,
 }
@@ -269,6 +311,32 @@ PRODUCTION_ISSUE_REASONING_SCHEMA = {
                 }),
             ],
         },
+        "progress": {
+            "anyOf": [
+                {"type": "null"},
+                _closed_object({
+                    "criterion": {"type": "string"},
+                    "rationale": {"type": "string"},
+                }),
+            ],
+        },
+        "completion_claim": {
+            "anyOf": [
+                {"type": "null"},
+                _closed_object({
+                    "criteria": {
+                        "type": "array",
+                        "items": _closed_object({
+                            "criterion": {"type": "string"},
+                            "evidence_action_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        }),
+                    },
+                }),
+            ],
+        },
     },
     "required": [
         "operation",
@@ -277,6 +345,8 @@ PRODUCTION_ISSUE_REASONING_SCHEMA = {
         "revision_requested",
         "action_plan",
         "blocker",
+        "progress",
+        "completion_claim",
     ],
     "additionalProperties": False,
 }
@@ -320,7 +390,8 @@ class OpenAIReasoningProvider:
                 "allowed_fields": [
                     "operation", "decision_id",
                     "compatible_with_locked_decisions",
-                    "revision_requested", "action_plan", "blocker",
+                    "revision_requested", "action_plan", "blocker", "progress",
+                    "completion_claim",
                 ],
                 "action_plan": (
                     "null or exactly one structured ActionPlan object; use only "
@@ -332,6 +403,14 @@ class OpenAIReasoningProvider:
                     "blocked capability, enumerate equivalent capabilities considered, "
                     "and mark exhausted only after those alternatives are unusable"
                 ),
+                "progress": (
+                    "null or the exact ## Acceptance bullet advanced by this action, "
+                    "with a concise rationale"
+                ),
+                "completion_claim": (
+                    "null except when closing a workload with ## Acceptance bullets; "
+                    "then map every exact criterion to terminal-success evidence action ids"
+                ),
                 "no_direct_execution": True,
                 "one_action_maximum": True,
             }
@@ -342,12 +421,15 @@ class OpenAIReasoningProvider:
                 "allowed_fields": [
                     "operation", "decision_id",
                     "compatible_with_locked_decisions",
-                    "revision_requested", "action_plan", "blocker",
+                    "revision_requested", "action_plan", "blocker", "progress",
+                    "completion_claim",
                 ],
                 "blocker": (
                     "null or typed blocker with capability, alternatives_considered, "
                     "and exhausted"
                 ),
+                "progress": "null or typed acceptance-progress claim",
+                "completion_claim": "null or typed acceptance completion claim",
                 "no_execution": True,
             }
             schema = SHADOW_ISSUE_REASONING_SCHEMA
