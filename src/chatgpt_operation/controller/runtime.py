@@ -636,6 +636,20 @@ class SamuelController:
                         "production semantic provider emitted unsupported executor "
                         + candidate.executor.value
                     )
+                failure=preflight_semantic_plan(
+                    plan=candidate,
+                    progress=proposal.progress,
+                    completion_claim=proposal.completion_claim,
+                    issue_body=str(item.get("body") or ""),
+                    state=state,
+                    repository_context=context["repository_context"],
+                )
+                if failure is not None:
+                    raise ValueError(failure.as_validation_error())
+            elif proposal.progress is not None or proposal.completion_claim is not None:
+                raise ValueError(
+                    "progress and completion_claim require an executable ActionPlan"
+                )
             return proposal
 
         proposal = StructuredReasoningNode(
