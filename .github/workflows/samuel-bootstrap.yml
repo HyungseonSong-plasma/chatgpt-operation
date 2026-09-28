@@ -395,3 +395,12 @@ jobs:
               +" revision="+str(persisted["revision"])
           )
           PY
+      - name: Continue Samuel closed loop after terminal persistence
+        if: ${{ hashFiles('samuel-terminal-state-persist-result.json') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run samuel-bootstrap.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main
