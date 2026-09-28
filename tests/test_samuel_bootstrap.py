@@ -37,6 +37,14 @@ class SamuelBootstrapTests(unittest.TestCase):
         self.assertIn("controller execute-command", text)
         self.assertNotIn("plan_json", text)
 
+    def test_bootstrap_exposes_bounded_repository_manifest_to_reasoning(self):
+        text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
+        self.assertIn('["git","ls-files"]',text)
+        self.assertIn('"tracked_paths":tracked_paths',text)
+        self.assertIn('"workflow_files":workflow_files',text)
+        self.assertIn('".github/workflows/"',text)
+        self.assertIn("[:500]",text)
+
     def test_workflow_has_no_direct_evidence_or_diagnostic_dispatch_runtime(self):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
         self.assertNotIn("dispatch_and_wait",text)
