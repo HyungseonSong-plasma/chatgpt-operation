@@ -27,10 +27,32 @@ SHADOW_ISSUE_REASONING_SCHEMA = {
         "compatible_with_locked_decisions": {"type": "boolean"},
         "revision_requested": {"type": "boolean"},
         "action_plan": {"type": "null"},
+        "blocker": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "capability": {"type": "string"},
+                        "alternatives_considered": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "exhausted": {"type": "boolean"},
+                    },
+                    "required": [
+                        "capability",
+                        "alternatives_considered",
+                        "exhausted",
+                    ],
+                    "additionalProperties": False,
+                },
+            ],
+        },
     },
     "required": [
         "operation", "decision_id", "compatible_with_locked_decisions",
-        "revision_requested", "action_plan",
+        "revision_requested", "action_plan", "blocker",
     ],
     "additionalProperties": False,
 }
@@ -265,6 +287,19 @@ PRODUCTION_ISSUE_REASONING_SCHEMA = {
         "compatible_with_locked_decisions": {"type": "boolean"},
         "revision_requested": {"type": "boolean"},
         "action_plan": ACTION_PLAN_SCHEMA,
+        "blocker": {
+            "anyOf": [
+                {"type": "null"},
+                _closed_object({
+                    "capability": {"type": "string"},
+                    "alternatives_considered": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "exhausted": {"type": "boolean"},
+                }),
+            ],
+        },
     },
     "required": [
         "operation",
@@ -272,6 +307,7 @@ PRODUCTION_ISSUE_REASONING_SCHEMA = {
         "compatible_with_locked_decisions",
         "revision_requested",
         "action_plan",
+        "blocker",
     ],
     "additionalProperties": False,
 }
@@ -315,12 +351,17 @@ class OpenAIReasoningProvider:
                 "allowed_fields": [
                     "operation", "decision_id",
                     "compatible_with_locked_decisions",
-                    "revision_requested", "action_plan",
+                    "revision_requested", "action_plan", "blocker",
                 ],
                 "action_plan": (
                     "null or exactly one structured ActionPlan object; use only "
                     "executors and payload shapes present in "
                     "reasoning_context.execution_contracts"
+                ),
+                "blocker": (
+                    "null unless progress is impossible; when non-null identify the "
+                    "blocked capability, enumerate equivalent capabilities considered, "
+                    "and mark exhausted only after those alternatives are unusable"
                 ),
                 "no_direct_execution": True,
                 "one_action_maximum": True,
@@ -332,8 +373,12 @@ class OpenAIReasoningProvider:
                 "allowed_fields": [
                     "operation", "decision_id",
                     "compatible_with_locked_decisions",
-                    "revision_requested", "action_plan",
+                    "revision_requested", "action_plan", "blocker",
                 ],
+                "blocker": (
+                    "null or typed blocker with capability, alternatives_considered, "
+                    "and exhausted"
+                ),
                 "no_execution": True,
             }
             schema = SHADOW_ISSUE_REASONING_SCHEMA
