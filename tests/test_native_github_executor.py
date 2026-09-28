@@ -106,6 +106,77 @@ class NativeGitHubExecutorTests(unittest.TestCase):
             )
 
 
+def dispatch_ci_plan(**target_changes):
+    target={
+        "workflow":"ci.yml",
+        "ref":"samuel/issues-24-43-weekly-maintenance-v2",
+        "expected_head_sha":"d"*40,
+    }
+    target.update(target_changes)
+    return ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"issue:24",
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"dispatch_workflow",
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "target":target,
+            "preconditions":{
+                "head_sha":"d"*40,
+                "ci_started":False,
+            },
+            "desired_postcondition":{
+                "head_sha":"d"*40,
+                "ci_started":True,
+            },
+        },
+        "expected_observation":"CI started for exact PR head",
+    })
+
+
+def test_dispatch_workflow_requires_exact_head_liveness_contract():
+    states=iter([
+        {"head_sha":"d"*40,"ci_started":False},
+        {"head_sha":"d"*40,"ci_started":True},
+    ])
+    seen=[]
+    result=execute_native_github(
+        dispatch_ci_plan(),
+        read_state=lambda action,target: next(states),
+        mutate=lambda action,target: seen.append(target) or {"accepted":True},
+    )
+    assert result.status is ExecutionStatus.PASS
+    assert seen and seen[0]["workflow"]=="ci.yml"
+
+
+def test_dispatch_workflow_rejects_stale_head_before_mutation():
+    seen=[]
+    result=execute_native_github(
+        dispatch_ci_plan(),
+        read_state=lambda action,target: {
+            "head_sha":"e"*40,
+            "ci_started":False,
+        },
+        mutate=lambda action,target: seen.append(target) or {"accepted":True},
+    )
+    assert result.status is ExecutionStatus.REJECTED
+    assert not seen
+
+
+def test_dispatch_workflow_target_schema_is_closed_world():
+    try:
+        execute_native_github(
+            dispatch_ci_plan(extra="not-allowed"),
+            read_state=lambda action,target:{},
+            mutate=lambda action,target:{},
+        )
+    except NativeGitHubError as exc:
+        assert "workflow, ref, and expected_head_sha" in str(exc)
+    else:
+        raise AssertionError("unexpected dispatch_workflow target field must fail closed")
+
+
 if __name__ == "__main__":
     unittest.main()
 
