@@ -60,14 +60,6 @@ def native_github_reasoning_contract() -> dict[str, Any]:
                 "preconditions": {"issue_state": "open"},
                 "desired_postcondition": {"issue_state": "closed"},
             },
-            "comment_issue": {
-                "target_required_exactly": ["number", "body", "marker"],
-                "preconditions": {
-                    "issue_state": "open",
-                    "comment_present": False,
-                },
-                "desired_postcondition": {"comment_present": True},
-            },
             "merge_pr": {
                 "target_required": ["number", "expected_head_sha"],
                 "target_optional": ["merge_method"],
@@ -77,12 +69,18 @@ def native_github_reasoning_contract() -> dict[str, Any]:
                 ),
                 "desired_postcondition": {"merged": True},
             },
-            "dispatch_workflow": {
-                "target_required": ["workflow", "ref"],
-                "target_optional": ["inputs"],
-                "preconditions_required": True,
-                "desired_postcondition_required": True,
-            },
+        },
+        "controller_only_actions": {
+            "comment_issue": (
+                "status and audit comments are controller-owned side effects, not "
+                "semantic implementation progress"
+            ),
+        },
+        "unqualified_actions": {
+            "dispatch_workflow": (
+                "not exposed to semantic planning until authoritative "
+                "post-dispatch readback can verify the desired postcondition"
+            ),
         },
     }
 
