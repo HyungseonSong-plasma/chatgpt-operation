@@ -37,6 +37,17 @@ def test_issue_ledger_round_trip_preserves_open_diagnosis():
     assert restored.diagnostic_recoveries == original.diagnostic_recoveries
 
 
+def test_round_trip_preserves_last_reasoning_head_sha():
+    current=ResearchState(
+        "issue:24",
+        "blocked semantic work",
+        revision=6,
+        last_reasoning_head_sha="c"*40,
+    )
+    restored=decode_state(encode_state(current))
+    assert restored.last_reasoning_head_sha=="c"*40
+
+
 def test_stale_scheduled_cycle_cannot_overwrite_newer_state():
     try:
         require_fresh_write(state(5), state(5))
