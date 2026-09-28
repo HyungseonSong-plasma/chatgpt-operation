@@ -97,10 +97,12 @@ jobs:
               "automation/samuel/",
               "skills/",
           )
-          tracked_paths=sorted(
+          relevant_tracked_paths=sorted(
               path for path in tracked
               if path.startswith(prefixes)
-          )[:500]
+          )
+          tracked_paths_truncated=len(relevant_tracked_paths)>500
+          tracked_paths=relevant_tracked_paths[:500]
           workflow_files=[
               path for path in tracked_paths
               if path.startswith(".github/workflows/")
@@ -158,6 +160,7 @@ jobs:
               "open_pull_requests":pull_requests,
               "samuel_branches":branches,
               "tracked_paths":tracked_paths,
+              "tracked_paths_truncated":tracked_paths_truncated,
               "workflow_files":workflow_files,
           }
           open("samuel-repository-context.json","w").write(
