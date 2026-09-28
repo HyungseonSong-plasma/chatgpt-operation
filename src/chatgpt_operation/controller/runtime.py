@@ -37,6 +37,12 @@ from .issue_ingestion import (
     transition_issue_status,
 )
 from .issue_planning import plan_admitted_issue
+from .merge_recovery import (
+    conflict_recovery_branch_name,
+    conflict_recovery_branch_plan,
+    conflicted_workload_pull_requests,
+    rejected_merge_targets,
+)
 from .preflight import extract_acceptance_criteria, preflight_semantic_plan
 from .issue_reasoning import (
     IssueReasoningProposal,
@@ -280,6 +286,9 @@ def _owned_ready_pr_plan(
         and not bool(item.get("draft"))
         and item.get("ci_state")=="success"
         and item.get("head_ref") in owned_branches
+        and (
+            item.get("number"),item.get("head_sha")
+        ) not in rejected_merge_targets(state)
         and isinstance(item.get("number"),int)
         and isinstance(item.get("head_sha"),str)
         and item.get("head_sha")
@@ -1263,6 +1272,35 @@ class SamuelController:
         )
 
         if state is not None and actions_quiescent:
+            recovery_branch_plan=conflict_recovery_branch_plan(
+                state,repository_context
+            )
+            if recovery_branch_plan is not None:
+                proposed=copy.deepcopy(state)
+                enqueue_suspended_action(proposed,recovery_branch_plan)
+                if state.research_id in admitted:
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"planned"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                return self._prepare_dispatch_intent(
+                    trigger=trigger,
+                    comments=comments,
+                    state=proposed,
+                    payload={
+                        "kind":"action",
+                        "action_id":recovery_branch_plan.idempotency_key,
+                        "plan":proposed.action_queue[
+                            recovery_branch_plan.idempotency_key
+                        ]["plan"],
+                        "reasoning_outcome":"deterministic_merge_conflict_recovery",
+                        "work_id":state.research_id,
+                    },
+                    admission_write=admission_write,
+                )
+
             try:
                 validation_work=select_trusted_validation_work(
                     state,repository_context
