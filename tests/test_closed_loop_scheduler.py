@@ -111,9 +111,30 @@ def test_worker_completion_wake_is_bounded_and_non_recursive():
         assert f'- "{name}"' in text
     observed=text.split("workflows:",1)[1].split("types:",1)[0]
     assert "Samuel Bootstrap" not in observed
+    assert "workflow_dispatch:" in text
+    assert "worker_run_id:" in text
     assert "actions: write" in text
+    assert 'gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id"' in text
+    assert "seq 1 72" in text
+    assert "SAMUEL_WORKER_WAKE=HARD_STOP untrusted workflow path" in text
     assert "gh workflow run samuel-bootstrap.yml" in text
     assert '--ref main' in text
+
+
+def test_bootstrap_arms_completion_watcher_from_bound_receipt():
+    text=Path(
+        ".github/workflows/samuel-bootstrap.yml"
+    ).read_text(encoding="utf-8")
+    marker="- name: Arm bounded worker completion wake"
+    assert text.count(marker)==1
+    arm=text.split(marker,1)[1].split(
+        "- name: Wait for dispatched bounded worker terminal state",1
+    )[0]
+    assert "samuel-execution-gateway-result.json" in arm
+    assert 'status" != "receipt"' in arm
+    assert 'receipt.get("workflow_run_id")' in arm
+    assert "gh workflow run samuel-worker-completion-wake.yml" in arm
+    assert '-f worker_run_id="$worker_run_id"' in arm
 
 
 def test_worker_authority_stays_narrow():
@@ -137,9 +158,16 @@ def test_bootstrap_waits_for_dispatched_worker_before_terminal_ingestion():
     ).read_text(encoding="utf-8")
     wait_marker="- name: Wait for dispatched bounded worker terminal state"
     persist_marker="- name: Persist execution gateway state write"
+    arm_marker="- name: Arm bounded worker completion wake"
     terminal_marker="- name: Persist terminal controller artifact"
     assert text.count(wait_marker)==1
-    assert text.index(persist_marker) < text.index(wait_marker) < text.index(terminal_marker)
+    assert text.count(arm_marker)==1
+    assert (
+        text.index(persist_marker)
+        < text.index(arm_marker)
+        < text.index(wait_marker)
+        < text.index(terminal_marker)
+    )
     wait=text.split(wait_marker,1)[1].split(terminal_marker,1)[0]
     assert 'actions/runs/$run_id' in wait
     assert 'status" = "completed"' in wait
