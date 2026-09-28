@@ -182,6 +182,7 @@ def test_post_worker_terminal_is_observed_through_root_and_gateway():
     assert 'result.get("status") != "terminal"' in observe
     assert "SAMUEL_POST_WORKER=TERMINAL" in observe
     assert "samuel-execution-gateway-result.json" in observe
+    assert "--token-env GH_TOKEN" in observe
 
 
 def test_terminal_persistence_triggers_exactly_one_continuation_wake():
