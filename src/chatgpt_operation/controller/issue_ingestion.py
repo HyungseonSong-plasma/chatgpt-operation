@@ -65,6 +65,8 @@ def _upsert_admitted_issue(
     existing=updated.get(item.work_id)
     encoded=asdict(item)
     if existing is not None:
+        if not encoded.get("html_url") and existing.get("html_url"):
+            encoded["html_url"]=existing["html_url"]
         immutable=("work_id","issue_number","title","body","html_url")
         if any(existing.get(key) != encoded.get(key) for key in immutable):
             raise AdmissionError("admitted issue identity changed")
