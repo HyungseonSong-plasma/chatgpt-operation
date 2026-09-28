@@ -131,6 +131,19 @@ def terminal_gateway_result_from_completed_run(
     elif status == GatewayStatus.TERMINAL.value:
         if gateway_result.get("terminal_run_id") != run_id:
             raise ExecutionGatewayError("terminal gateway run id changed")
+        existing_observation = gateway_result.get("observation")
+        if not isinstance(existing_observation, dict):
+            raise ExecutionGatewayError(
+                "terminal gateway result is missing typed observation"
+            )
+        return GatewayResult(
+            surface=surface,
+            action_id=action_id,
+            status=GatewayStatus.TERMINAL,
+            receipt=receipt if isinstance(receipt, dict) else None,
+            observation=dict(existing_observation),
+            terminal_run_id=run_id,
+        )
     else:
         raise ExecutionGatewayError(
             "only receipt or terminal gateway results can bind completed workers"
@@ -153,7 +166,7 @@ def terminal_gateway_result_from_completed_run(
         surface=surface,
         action_id=action_id,
         status=GatewayStatus.TERMINAL,
-        receipt=receipt if isinstance(receipt, dict) else None,
+        receipt=receipt,
         observation=observation,
         terminal_run_id=run_id,
     )
