@@ -19,7 +19,7 @@
       "canonical_paths": [
         "src/chatgpt_operation/science/ontology.py"
       ],
-      "phase": "centralized",
+      "phase": "consumer_cutover",
       "consumers": [
         {
           "repository": "HyungseonSong-plasma/moose-test-repo",
@@ -27,11 +27,13 @@
             "physics_harness/ontology/records.py"
           ],
           "status": "pending_cutover",
-          "canonical_revision": null,
+          "canonical_revision": "d7e5d16e1ed1b9d3561c25cc3b2f0d3533de4a87",
           "verification": {
-            "compatibility_verified": false,
-            "consumer_ci_success": false,
-            "remaining_local_imports": 1
+            "compatibility_verified": true,
+            "consumer_ci_success": true,
+            "remaining_local_imports": 1,
+            "consumer_revision": "e279affc26d2563987d78fc4cd1915b4e0a5eeb3",
+            "compatibility_pull_request": 352
           }
         }
       ]
@@ -47,7 +49,7 @@
       "canonical_paths": [
         "src/chatgpt_operation/science/planning.py"
       ],
-      "phase": "centralized",
+      "phase": "consumer_cutover",
       "consumers": [
         {
           "repository": "HyungseonSong-plasma/moose-test-repo",
@@ -56,11 +58,13 @@
             "physics_harness/planning/synthesizer.py"
           ],
           "status": "pending_cutover",
-          "canonical_revision": null,
+          "canonical_revision": "d7e5d16e1ed1b9d3561c25cc3b2f0d3533de4a87",
           "verification": {
-            "compatibility_verified": false,
-            "consumer_ci_success": false,
-            "remaining_local_imports": 2
+            "compatibility_verified": true,
+            "consumer_ci_success": true,
+            "remaining_local_imports": 2,
+            "consumer_revision": "e279affc26d2563987d78fc4cd1915b4e0a5eeb3",
+            "compatibility_pull_request": 352
           }
         }
       ]
@@ -76,7 +80,7 @@
       "canonical_paths": [
         "src/chatgpt_operation/science/execution.py"
       ],
-      "phase": "centralized",
+      "phase": "consumer_cutover",
       "consumers": [
         {
           "repository": "HyungseonSong-plasma/moose-test-repo",
@@ -85,11 +89,13 @@
             "physics_harness/execution/compiler.py"
           ],
           "status": "pending_cutover",
-          "canonical_revision": null,
+          "canonical_revision": "d7e5d16e1ed1b9d3561c25cc3b2f0d3533de4a87",
           "verification": {
-            "compatibility_verified": false,
-            "consumer_ci_success": false,
-            "remaining_local_imports": 2
+            "compatibility_verified": true,
+            "consumer_ci_success": true,
+            "remaining_local_imports": 2,
+            "consumer_revision": "e279affc26d2563987d78fc4cd1915b4e0a5eeb3",
+            "compatibility_pull_request": 352
           }
         }
       ]
@@ -104,7 +110,7 @@
       "canonical_paths": [
         "src/chatgpt_operation/science/contract.py"
       ],
-      "phase": "centralized",
+      "phase": "consumer_cutover",
       "consumers": [
         {
           "repository": "HyungseonSong-plasma/moose-test-repo",
@@ -112,11 +118,13 @@
             "physics_harness/execution/contract.py"
           ],
           "status": "pending_cutover",
-          "canonical_revision": null,
+          "canonical_revision": "d7e5d16e1ed1b9d3561c25cc3b2f0d3533de4a87",
           "verification": {
-            "compatibility_verified": false,
-            "consumer_ci_success": false,
-            "remaining_local_imports": 1
+            "compatibility_verified": true,
+            "consumer_ci_success": true,
+            "remaining_local_imports": 1,
+            "consumer_revision": "e279affc26d2563987d78fc4cd1915b4e0a5eeb3",
+            "compatibility_pull_request": 352
           }
         }
       ]
@@ -131,7 +139,7 @@
       "canonical_paths": [
         "src/chatgpt_operation/science/provenance.py"
       ],
-      "phase": "centralized",
+      "phase": "consumer_cutover",
       "consumers": [
         {
           "repository": "HyungseonSong-plasma/moose-test-repo",
@@ -139,11 +147,13 @@
             "physics_harness/provenance/envelope.py"
           ],
           "status": "pending_cutover",
-          "canonical_revision": null,
+          "canonical_revision": "d7e5d16e1ed1b9d3561c25cc3b2f0d3533de4a87",
           "verification": {
-            "compatibility_verified": false,
-            "consumer_ci_success": false,
-            "remaining_local_imports": 1
+            "compatibility_verified": true,
+            "consumer_ci_success": true,
+            "remaining_local_imports": 1,
+            "consumer_revision": "e279affc26d2563987d78fc4cd1915b4e0a5eeb3",
+            "compatibility_pull_request": 352
           }
         }
       ]
@@ -158,7 +168,7 @@
       "canonical_paths": [
         "src/chatgpt_operation/science/errors.py"
       ],
-      "phase": "centralized",
+      "phase": "consumer_cutover",
       "consumers": [
         {
           "repository": "HyungseonSong-plasma/moose-test-repo",
@@ -166,11 +176,13 @@
             "physics_harness/evidence/error_ledger.py"
           ],
           "status": "pending_cutover",
-          "canonical_revision": null,
+          "canonical_revision": "d7e5d16e1ed1b9d3561c25cc3b2f0d3533de4a87",
           "verification": {
-            "compatibility_verified": false,
-            "consumer_ci_success": false,
-            "remaining_local_imports": 1
+            "compatibility_verified": true,
+            "consumer_ci_success": true,
+            "remaining_local_imports": 1,
+            "consumer_revision": "e279affc26d2563987d78fc4cd1915b4e0a5eeb3",
+            "compatibility_pull_request": 352
           }
         }
       ]
