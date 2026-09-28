@@ -83,6 +83,35 @@ def test_terminal_state_can_roll_to_next_workload():
     assert can_rollover_state(state) is True
 
 
+def test_nonretryable_suspended_failure_is_terminal_for_rollover():
+    state=ResearchState("issue:24","superseded failed attempt")
+    action_id="a"*64
+    state.action_queue={action_id:{"status":"suspended"}}
+    state.execution_results={
+        action_id:{
+            "status":"failed",
+            "details":{"governance_retryable":False},
+        }
+    }
+    assert can_rollover_state(state) is True
+
+
+def test_retryable_suspension_with_open_recovery_cannot_rollover():
+    state=ResearchState("issue:24","recovery still active")
+    action_id="a"*64
+    state.action_queue={action_id:{"status":"suspended"}}
+    state.execution_results={
+        action_id:{
+            "status":"failed",
+            "details":{"governance_retryable":True},
+        }
+    }
+    state.diagnostic_recoveries={
+        action_id:{"status":"open"}
+    }
+    assert can_rollover_state(state) is False
+
+
 def test_nonterminal_state_cannot_roll_to_next_workload():
     state=ResearchState("issue:44","still running")
     state.action_queue={"pending":{"status":"pending"}}
