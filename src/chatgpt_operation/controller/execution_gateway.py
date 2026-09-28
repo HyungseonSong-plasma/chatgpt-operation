@@ -21,6 +21,9 @@ from .diagnostic import (
 )
 from .durable_state import encode_state
 from .research import ResearchState
+from .trusted_validation import (
+    resume_trusted_validation_intent,
+)
 from chatgpt_operation.github.actions_runtime import (
     ActionsTransport,
     dispatch_workflow,
@@ -100,6 +103,12 @@ class ExecutionGateway:
             ControllerCommandKind.DISPATCH_CORRECTIVE: self._dispatch_corrective,
             ControllerCommandKind.RECONCILE_CORRECTIVE: self._reconcile_corrective,
             ControllerCommandKind.OBSERVE_CORRECTIVE: self._observe_corrective,
+            ControllerCommandKind.DISPATCH_TRUSTED_VALIDATION: (
+                self._dispatch_trusted_validation
+            ),
+            ControllerCommandKind.RECONCILE_TRUSTED_VALIDATION: (
+                self._reconcile_trusted_validation
+            ),
         }
         try:
             handler = dispatch[command.kind]
@@ -276,6 +285,77 @@ class ExecutionGateway:
                 "action", action_id, GatewayStatus.WAIT, observation=observation
             )
         raise ExecutionGatewayError("unsupported action observation: " + str(status))
+
+    def _dispatch_trusted_validation(
+        self, state: ResearchState, action_id: str
+    ) -> GatewayResult:
+        record,intent=resume_trusted_validation_intent(state,action_id)
+        validation_id=str(record["validation_id"])
+        receipt=dispatch_workflow(
+            self.transport,
+            workflow=intent.workflow,
+            ref=intent.ref,
+            inputs={
+                "samuel_validation_id":validation_id,
+                "pr_number":str(record["pr_number"]),
+                "head_sha":str(record["head_sha"]),
+                "head_branch":str(record["head_branch"]),
+            },
+            correlation_id=validation_id,
+            correlation_input="samuel_validation_id",
+            correlation_run_name_prefix="Samuel Trusted PR Validation dispatch:",
+        )
+        if isinstance(receipt.get("workflow_run_id"),int):
+            return GatewayResult(
+                "trusted_validation",action_id,GatewayStatus.RECEIPT,receipt=receipt
+            )
+        return GatewayResult(
+            "trusted_validation",action_id,GatewayStatus.WAIT
+        )
+
+    def _reconcile_trusted_validation(
+        self, state: ResearchState, action_id: str
+    ) -> GatewayResult:
+        record,intent=resume_trusted_validation_intent(state,action_id)
+        validation_id=str(record["validation_id"])
+        receipt=observation_receipt_from_identity(
+            self.transport,
+            workflow=intent.workflow,
+            ref=intent.ref,
+            correlation_id=validation_id,
+            requested_at=intent.requested_at,
+            correlation_input="samuel_validation_id",
+            correlation_run_name_prefix="Samuel Trusted PR Validation dispatch:",
+        )
+        observation=observe_dispatch_once(
+            self.transport,
+            receipt,
+            expected_head_sha=intent.expected_head_sha,
+        )
+        status=observation.get("status")
+        matched=observation.get("matched_run_ids") or []
+        if status in {"MATCHED_ACTIVE","MATCHED_TERMINAL"}:
+            if len(matched)!=1:
+                raise ExecutionGatewayError(
+                    "trusted validation dispatch match is not unique"
+                )
+            bound=dict(receipt)
+            bound["workflow_run_id"]=int(matched[0])
+            bound["recovered_from_intent"]=True
+            return GatewayResult(
+                "trusted_validation",action_id,GatewayStatus.RECEIPT,
+                receipt=bound,observation=observation,
+            )
+        if status in {"PENDING_VISIBILITY","OBSERVATION_INCOMPLETE"}:
+            return GatewayResult(
+                "trusted_validation",action_id,GatewayStatus.WAIT,
+                observation=observation,
+            )
+        if status=="NO_MATCH":
+            return self._dispatch_trusted_validation(state,action_id)
+        raise ExecutionGatewayError(
+            "trusted validation intent cannot continue: "+str(status)
+        )
 
     def _dispatch_corrective(
         self, state: ResearchState, action_id: str
