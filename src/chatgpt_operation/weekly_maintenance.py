@@ -10,6 +10,7 @@ from datetime import date, datetime
 from typing import Any
 
 from chatgpt_operation.telemetry import aggregate as aggregate_skill_activations
+from chatgpt_operation.weekly_schedule import phase_for_day
 
 FAILURE_CLASSES = {
     "REPOSITORY_TEST_FAILURE",
@@ -28,14 +29,6 @@ ACTIONABLE_FAILURE_CLASSES = {
 
 class WeeklyMaintenanceError(ValueError):
     pass
-
-
-def phase_for_day(day: date) -> str:
-    if day.weekday() <= 4:
-        return "collect"
-    if day.weekday() == 5:
-        return "analyze"
-    return "close"
 
 
 def classify_failure(raw: dict[str, Any]) -> str:
