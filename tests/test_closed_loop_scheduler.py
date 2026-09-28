@@ -166,6 +166,34 @@ def test_bootstrap_waits_for_dispatched_worker_before_terminal_ingestion():
     assert "SAMUEL_WORKER_WAIT=HARD_STOP timeout" in wait
 
 
+def test_completed_worker_is_reobserved_before_terminal_ingestion():
+    text=Path(
+        ".github/workflows/samuel-bootstrap.yml"
+    ).read_text(encoding="utf-8")
+    wait_marker="- name: Wait for dispatched bounded worker terminal state"
+    promote_marker="- name: Promote completed worker receipt to terminal observation"
+    terminal_marker="- name: Persist terminal controller artifact"
+    assert text.count(promote_marker)==1
+    assert (
+        text.index(wait_marker)
+        < text.index(promote_marker)
+        < text.index(terminal_marker)
+    )
+    promote=text.split(promote_marker,1)[1].split(terminal_marker,1)[0]
+    assert "controller run-cycle" in promote
+    assert "--event-name workflow_dispatch" in promote
+    assert "SAMUEL_REASONING_MODE: OFF" in promote
+    assert "action_observation" in promote
+    assert "evidence_observation" in promote
+    assert "diagnostic_observation" in promote
+    assert "corrective_observation" in promote
+    assert "controller execute-command" in promote
+    assert "samuel-terminal-gateway-result.json" in promote
+    terminal=text.split(terminal_marker,1)[1]
+    assert "--gateway-result samuel-terminal-gateway-result.json" in terminal
+    assert "--gateway-result samuel-execution-gateway-result.json" not in terminal
+
+
 def test_terminal_persistence_triggers_exactly_one_continuation_wake():
     text=Path(
         ".github/workflows/samuel-bootstrap.yml"
