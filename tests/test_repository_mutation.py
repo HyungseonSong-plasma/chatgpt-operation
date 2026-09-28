@@ -2,7 +2,7 @@ from __future__ import annotations
 import base64, os, unittest
 from unittest.mock import patch
 from chatgpt_operation.cli import main as cli_main
-from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy,repository_mutation_reasoning_contract
+from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy,repository_mutation_policy_reasoning_contract,repository_mutation_reasoning_contract,validate_manifest_policy
 from chatgpt_operation.source import canonical_github_repository
 
 OLD="a"*40; NEW="b"*40
@@ -79,6 +79,55 @@ class Tests(unittest.TestCase):
         branch=contract["branch_create"]
         self.assertEqual(branch["target_exactly"],["name"])
         self.assertEqual(branch["expected"],{"absent":True})
+
+    def test_reasoning_policy_contract_matches_repository_policy(self):
+        contract=repository_mutation_policy_reasoning_contract()
+        self.assertIn(".github/workflows/samuel-*.yml",contract["file_paths"]["allow"])
+        self.assertIn(
+            ".github/workflows/samuel-native-github.yml",
+            contract["file_paths"]["deny"],
+        )
+        self.assertIn("samuel/*",contract["branch_names"]["allow"])
+        self.assertIn("main",contract["branch_names"]["deny"])
+
+    def test_reasoning_manifest_policy_rejects_non_samuel_workflow_path(self):
+        denied=parse_manifest({
+            "schema_version":1,
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "resource":"file",
+            "action":"create",
+            "target":{
+                "path":".github/workflows/paul-weekly-maintenance.yml",
+                "branch":"samuel/issue-24",
+            },
+            "expected":{"absent":True},
+            "desired":{"content":"name: Paul Weekly Maintenance\n"},
+            "commit_message":"add workflow",
+        })
+        with self.assertRaisesRegex(PolicyError,"file path denied"):
+            validate_manifest_policy(
+                denied,
+                repository="HyungseonSong-plasma/chatgpt-operation",
+            )
+
+    def test_reasoning_manifest_policy_allows_bounded_samuel_workflow_path(self):
+        allowed=parse_manifest({
+            "schema_version":1,
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "resource":"file",
+            "action":"create",
+            "target":{
+                "path":".github/workflows/samuel-paul-weekly-maintenance.yml",
+                "branch":"samuel/issue-24",
+            },
+            "expected":{"absent":True},
+            "desired":{"content":"name: Samuel Paul Weekly Maintenance\n"},
+            "commit_message":"add bounded workflow",
+        })
+        validate_manifest_policy(
+            allowed,
+            repository="HyungseonSong-plasma/chatgpt-operation",
+        )
 
     def test_closed_world(self):
         with self.assertRaises(ManifestError):
