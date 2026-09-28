@@ -46,6 +46,12 @@ class NativeGitHubExecutorTests(unittest.TestCase):
             contract["actions"]["comment_issue"]["target_required_exactly"],
             ["number", "body", "marker"],
         )
+        self.assertNotIn("dispatch_workflow",contract["actions"])
+        self.assertIn("dispatch_workflow",contract["unqualified_actions"])
+        self.assertIn(
+            "post-dispatch readback",
+            contract["unqualified_actions"]["dispatch_workflow"],
+        )
 
     def test_replay_is_noop_when_postcondition_already_holds(self):
         result = execute_native_github(
