@@ -17,7 +17,7 @@ from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
 from .decisions import DecisionRegistry, GuardOutcome
-from .durable_state import load_state_comment, state_write_request
+from .durable_state import can_rollover_state, load_state_comment, state_write_request
 from .diagnostic import (
     enqueue_suspended_action,
     record_action_dispatch_intent,
@@ -30,6 +30,7 @@ from .issue_ingestion import (
     ADMISSION_MARKER,
     admit_issue,
     decode_admission_ledger,
+    discover_admissible_issues,
     encode_admission_ledger,
     transition_issue_status,
 )
@@ -700,6 +701,43 @@ class SamuelController:
                 admitted = decode_admission_ledger(admission["body"])
                 admission_comment_id = admission["comment_id"]
 
+        admission_write = None
+        if repository_context is not None:
+            open_issues = repository_context.get("open_issues", [])
+            if not isinstance(open_issues, list):
+                raise ControllerCompositionError(
+                    "repository context open_issues must be a list"
+                )
+            discovered = discover_admissible_issues(admitted, open_issues)
+            if discovered != admitted:
+                admitted = discovered
+                admission_write = _admission_write(
+                    admission_comment_id, admitted
+                )
+
+            if state is not None and can_rollover_state(state):
+                current = admitted.get(state.research_id)
+                open_numbers = {
+                    item.get("number")
+                    for item in open_issues
+                    if isinstance(item, dict)
+                    and item.get("state") in {None, "open"}
+                    and isinstance(item.get("number"), int)
+                }
+                if (
+                    isinstance(current, dict)
+                    and isinstance(current.get("issue_number"), int)
+                    and current["issue_number"] not in open_numbers
+                ):
+                    if current.get("status") != "complete":
+                        admitted = transition_issue_status(
+                            admitted, state.research_id, "complete"
+                        )
+                    admission_write = _admission_write(
+                        admission_comment_id, admitted
+                    )
+                    state = None
+
         if state is not None and self.reasoning.status().available:
             current = admitted.get(state.research_id)
             if (
@@ -768,6 +806,7 @@ class SamuelController:
                 work_id=waiting[0],
                 state=state,
                 admission_comment_id=admission_comment_id,
+                prior_admission_write=admission_write,
                 repository_context=repository_context,
             )
 
@@ -845,6 +884,7 @@ class SamuelController:
                 comments=comments,
                 state=state,
                 payload=payload,
+                admission_write=admission_write,
             )
         if payload["kind"] == "pending":
             raise ControllerCompositionError(
@@ -855,7 +895,7 @@ class SamuelController:
                 payload, state
             )
             return ControllerCycle(
-                trigger, payload, None, None, None, command
+                trigger, payload, None, admission_write, None, command
             )
 
         result = plan_admitted_issue(payload, registry=self.decisions)
