@@ -230,19 +230,7 @@ def _initial_state(
     )
 
 
-def _owned_ready_pr_plan(
-    state: ResearchState,
-    repository_context: dict[str, Any] | None,
-) -> ActionPlan | None:
-    """Promote exactly one ready PR owned by the active workload into the action queue."""
-    if repository_context is None or not can_rollover_state(state):
-        return None
-    if any(
-        recovery.get("status") in {"open", "needs_evidence"}
-        for recovery in state.diagnostic_recoveries.values()
-    ):
-        return None
-
+def _owned_workload_branches(state: ResearchState) -> set[str]:
     owned_branches: set[str] = set()
     for item in state.action_queue.values():
         plan_raw=item.get("plan")
@@ -261,6 +249,91 @@ def _owned_ready_pr_plan(
             head=target.get("head")
             if isinstance(head,str) and head.startswith("samuel/"):
                 owned_branches.add(head)
+    return owned_branches
+
+
+def _owned_pr_ci_plan(
+    state: ResearchState,
+    repository_context: dict[str, Any] | None,
+) -> ActionPlan | None:
+    """Start CI exactly once for one open workload-owned PR with no CI signal."""
+    if repository_context is None or not can_rollover_state(state):
+        return None
+    if any(
+        recovery.get("status") in {"open", "needs_evidence"}
+        for recovery in state.diagnostic_recoveries.values()
+    ):
+        return None
+    owned_branches=_owned_workload_branches(state)
+    if not owned_branches:
+        return None
+    repository=str(repository_context.get("repository") or "").strip()
+    prs=repository_context.get("open_pull_requests",[])
+    if not repository or not isinstance(prs,list):
+        return None
+    candidates=[
+        item for item in prs
+        if isinstance(item,dict)
+        and item.get("state")=="open"
+        and not bool(item.get("draft"))
+        and item.get("ci_state")=="unknown"
+        and item.get("head_ref") in owned_branches
+        and isinstance(item.get("number"),int)
+        and isinstance(item.get("head_sha"),str)
+        and item.get("head_sha")
+    ]
+    if len(candidates)>1:
+        raise ControllerCompositionError(
+            "multiple CI-unknown pull requests belong to active workload"
+        )
+    if not candidates:
+        return None
+    pr=candidates[0]
+    plan=ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":state.research_id,
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"dispatch_workflow",
+            "repository":repository,
+            "target":{
+                "workflow":"ci.yml",
+                "ref":pr["head_ref"],
+                "expected_head_sha":pr["head_sha"],
+            },
+            "preconditions":{
+                "head_sha":pr["head_sha"],
+                "ci_started":False,
+            },
+            "desired_postcondition":{
+                "head_sha":pr["head_sha"],
+                "ci_started":True,
+            },
+        },
+        "expected_observation":(
+            f"CI workflow dispatch is visible for pull request #{pr['number']} "
+            f"at exact head {pr['head_sha']}."
+        ),
+    })
+    NativeGitHubCommand.from_plan(plan)
+    return plan
+
+
+def _owned_ready_pr_plan(
+    state: ResearchState,
+    repository_context: dict[str, Any] | None,
+) -> ActionPlan | None:
+    """Promote exactly one ready PR owned by the active workload into the action queue."""
+    if repository_context is None or not can_rollover_state(state):
+        return None
+    if any(
+        recovery.get("status") in {"open", "needs_evidence"}
+        for recovery in state.diagnostic_recoveries.values()
+    ):
+        return None
+
+    owned_branches=_owned_workload_branches(state)
 
     if not owned_branches:
         return None
@@ -1168,6 +1241,33 @@ class SamuelController:
         )
 
         if state is not None and actions_quiescent:
+            pr_ci_plan=_owned_pr_ci_plan(state,repository_context)
+            if pr_ci_plan is not None:
+                proposed=copy.deepcopy(state)
+                enqueue_suspended_action(proposed,pr_ci_plan)
+                if state.research_id in admitted:
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"planned"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                return self._prepare_dispatch_intent(
+                    trigger=trigger,
+                    comments=comments,
+                    state=proposed,
+                    payload={
+                        "kind":"action",
+                        "action_id":pr_ci_plan.idempotency_key,
+                        "plan":proposed.action_queue[
+                            pr_ci_plan.idempotency_key
+                        ]["plan"],
+                        "reasoning_outcome":"deterministic_pr_ci",
+                        "work_id":state.research_id,
+                    },
+                    admission_write=admission_write,
+                )
+
             ready_pr_plan=_owned_ready_pr_plan(state,repository_context)
             if ready_pr_plan is not None:
                 proposed=copy.deepcopy(state)
