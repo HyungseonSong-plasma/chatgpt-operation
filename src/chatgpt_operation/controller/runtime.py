@@ -54,6 +54,10 @@ from chatgpt_operation.github.native_executor import (
     native_github_reasoning_contract,
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
+from chatgpt_operation.weekly_schedule import (
+    SCHEDULER_CAPABILITY,
+    scheduled_runtime_reasoning_contract,
+)
 from chatgpt_operation.repository.mutation import (
     PolicyError,
     authorize_manifest,
@@ -482,6 +486,10 @@ class SamuelController:
         context["repository_context"]["scheduler_surfaces"] = (
             _existing_scheduler_surfaces()
         )
+        scheduled_runtime = scheduled_runtime_reasoning_contract(
+            self.now(),
+            scheduler_surfaces=context["repository_context"]["scheduler_surfaces"],
+        )
         mutation_policy = parse_policy(
             load_repository_json("automation/samuel/repository-mutation-policy.json")
         )
@@ -518,11 +526,40 @@ class SamuelController:
                 },
             },
             "github_native": native_github_reasoning_contract(),
+            "scheduled_runtime": scheduled_runtime,
         }
         def parse_provider_proposal(
             raw: dict[str, Any],
         ) -> IssueReasoningProposal:
             proposal = IssueReasoningProposal.from_dict(raw)
+            blocker=proposal.blocker
+            if proposal.action_plan is not None and blocker is not None:
+                raise ValueError(
+                    "blocker must be null when an executable ActionPlan is produced"
+                )
+            if blocker is not None:
+                capability=blocker["capability"].lower()
+                scheduler_blockers={
+                    "workflow_file_mutation",
+                    "durable_scheduler",
+                    "scheduled_workflow",
+                }
+                if (
+                    scheduled_runtime.get("existing_durable_scheduler") is True
+                    and capability in scheduler_blockers
+                ):
+                    considered=set(blocker["alternatives_considered"])
+                    if SCHEDULER_CAPABILITY not in considered:
+                        raise ValueError(
+                            "known alternative existing_scheduled_runtime must be "
+                            "considered before scheduler-related blocking or revision"
+                        )
+                    if blocker["exhausted"] is True:
+                        raise ValueError(
+                            "scheduler alternative is not exhausted: observed "
+                            "samuel-bootstrap scheduling can drive code-owned UTC phase "
+                            "routing under allowed src/** paths"
+                        )
             if (
                 proposal.operation == "implement_gap"
                 and not planned.envelope.implementation_gaps
@@ -630,6 +667,10 @@ class SamuelController:
                     "as an existing durable scheduler and implement cadence/integration "
                     "under an executable allowed source path rather than requesting a "
                     "policy revision solely because workflow-file mutation is unavailable. "
+                    "When blocking or requesting revision, populate blocker with the "
+                    "capability, alternatives_considered, and exhausted status. A known "
+                    "scheduler alternative cannot be marked exhausted while "
+                    "execution_contracts.scheduled_runtime.existing_durable_scheduler is true. "
                     "Status/audit comments are controller-owned and are not valid "
                     "semantic implementation progress. A suspended action is verified failure "
                     "evidence: inspect durable_state.execution_results and do not repeat "
@@ -672,6 +713,11 @@ class SamuelController:
                         "completed durable branch-create action and still present in "
                         "repository_context.samuel_branches, even when main has advanced; "
                         "do not create another branch merely to defer file work."
+                    ),
+                    (
+                        "Before declaring a scheduler capability exhausted, inspect "
+                        "execution_contracts.scheduled_runtime and reuse an observed existing "
+                        "scheduler with code-owned src/** phase routing when available."
                     ),
                     (
                         "Prefer the smallest valid repository_mutation or github_native "
@@ -747,6 +793,7 @@ class SamuelController:
                     proposal.compatible_with_locked_decisions
                 ),
                 "revision_requested": proposal.revision_requested,
+                "blocker": copy.deepcopy(proposal.blocker),
             },
             "action_plan": proposal.action_plan,
             "reasoning_context": {
@@ -759,6 +806,7 @@ class SamuelController:
                 "escalation_constraints": context.get(
                     "escalation_constraints", []
                 ),
+                "scheduled_runtime": copy.deepcopy(scheduled_runtime),
                 "durable_state": {
                     "research_id": durable_audit.get("research_id"),
                     "revision": durable_audit.get("revision"),
