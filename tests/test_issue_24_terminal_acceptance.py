@@ -3,9 +3,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from chatgpt_operation.weekly_analysis import analyze_snapshot
-from chatgpt_operation.weekly_schedule import phase_for_date
+from chatgpt_operation.weekly_schedule import phase_for_day
 from chatgpt_operation.workflow_failure_ingestion import WorkflowFailureIngestor
-from chatgpt_operation.weekly_raw_evidence import RawEvidenceStore
 
 
 def test_issue_24_acceptance_boundaries() -> None:
@@ -32,7 +31,7 @@ def test_issue_24_acceptance_boundaries() -> None:
     assert first.failure_category == "EXTERNAL_DEPENDENCY_FAILURE"
 
     monday = date(2026, 9, 28)
-    phases = [phase_for_date(monday + timedelta(days=i)) for i in range(7)]
+    phases = [phase_for_day(monday + timedelta(days=i)) for i in range(7)]
     assert phases == ["collect"] * 5 + ["analyze", "close"]
 
     observations = [
