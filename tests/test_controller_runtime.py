@@ -12,6 +12,7 @@ from chatgpt_operation.controller.issue_ingestion import (
     encode_admission_ledger,
 )
 from chatgpt_operation.controller.issue_reasoning import IssueReasoningProposal
+from chatgpt_operation.controller.reasoning import ReasoningNodeError
 from chatgpt_operation.controller.reasoning_provider import ReasoningProviderRegistry
 from chatgpt_operation.controller.reasoning_submission import (
     ReasoningSubmission,
@@ -973,6 +974,42 @@ class ControllerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.selected_work["kind"],"action")
         self.assertIsNotNone(result.execution_command)
+
+    def test_semantic_provider_cannot_select_unqualified_workflow_dispatch(self):
+        provider=StaticPlanProvider({
+            "schema_version":1,
+            "research_id":"issue:44",
+            "stage":"execute",
+            "executor":"github_native",
+            "payload":{
+                "action":"dispatch_workflow",
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "target":{
+                    "workflow":"samuel-bootstrap.yml",
+                    "ref":"main",
+                },
+                "preconditions":{
+                    "dispatched":False,
+                    "ref":"main",
+                },
+                "desired_postcondition":{"dispatched":True},
+            },
+            "expected_observation":"workflow dispatch is verified",
+        })
+        with self.assertRaisesRegex(
+            ReasoningNodeError,
+            "not qualified for semantic planning: dispatch_workflow",
+        ):
+            controller(ReasoningProviderRegistry(provider)).run_cycle(
+                trigger(),
+                comments=[admitted_comment()],
+                pending=[],
+                repository_context={
+                    "repository":"HyungseonSong-plasma/chatgpt-operation",
+                    "open_issues":[{"number":44}],
+                },
+            )
+        self.assertEqual(provider.calls,2)
 
     def test_tracked_repository_gap_can_plan_fresh_workload_branch(self):
         work={
