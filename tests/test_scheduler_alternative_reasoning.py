@@ -163,7 +163,7 @@ class SchedulerAlternativeReasoningTests(unittest.TestCase):
         self.assertFalse(contract["workflow_file_mutation_required"])
         self.assertEqual(contract["capability"],SCHEDULER_CAPABILITY)
         self.assertEqual(contract["current_slot"]["phase"],"collect")
-        self.assertIn("Before proposing revision",provider.tasks[0])
+        self.assertIn("When blocking or requesting revision",provider.tasks[0])
         self.assertEqual(cycle.selected_work["kind"],"action")
         self.assertEqual(cycle.selected_work["work_id"],"issue:24")
         self.assertEqual(
