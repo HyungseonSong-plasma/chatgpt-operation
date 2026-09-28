@@ -577,8 +577,12 @@ class SamuelController:
         issue_body=str(item.get("body") or "")
         acceptance_criteria=extract_acceptance_criteria(issue_body)
         eligible_criteria=eligible_acceptance_criteria(issue_body,state)
+        target_acceptance_criterion=(
+            eligible_criteria[0] if eligible_criteria else None
+        )
         context["acceptance_criteria"]=list(eligible_criteria)
         context["eligible_acceptance_criteria"]=list(eligible_criteria)
+        context["target_acceptance_criterion"]=target_acceptance_criterion
         integrated_acceptance=integrated_acceptance_evidence(state)
         context["durable_state"] = {
             "research_id": state.research_id,
@@ -778,10 +782,15 @@ class SamuelController:
                     and proposal.progress is not None
                 ):
                     criterion=proposal.progress.get("criterion")
-                    if criterion not in eligible_criteria:
+                    if target_acceptance_criterion is None:
                         raise ValueError(
-                            "progress.criterion is not controller-eligible; choose exactly "
-                            "one value from context.eligible_acceptance_criteria"
+                            "no controller-eligible acceptance criterion remains; "
+                            "non-close progress is forbidden"
+                        )
+                    if criterion != target_acceptance_criterion:
+                        raise ValueError(
+                            "progress.criterion must equal the controller-selected "
+                            "context.target_acceptance_criterion exactly"
                         )
                 failure=preflight_semantic_plan(
                     plan=candidate,
@@ -810,10 +819,11 @@ class SamuelController:
                     "inherited_evidence. Treat inherited_evidence as verified prior "
                     "work from a terminal predecessor workload; do not repeat it. "
                     "Treat context.eligible_acceptance_criteria as the controller-owned "
-                    "set of acceptance criteria still eligible for new progress. For a "
-                    "non-close ActionPlan, progress.criterion must be exactly one member "
-                    "of that set; never select a criterion directly from the Issue text "
-                    "or from integrated_acceptance_evidence. Compare repository evidence "
+                    "set of acceptance criteria still eligible for new progress. The "
+                    "controller has selected context.target_acceptance_criterion as the "
+                    "single current target. For a non-close ActionPlan, progress.criterion "
+                    "must equal that target exactly; never select a criterion directly "
+                    "from the Issue text or from integrated_acceptance_evidence. Compare repository evidence "
                     "only to decide how to advance an eligible criterion. Treat absence "
                     "from tracked_paths as "
                     "evidence only when repository_context.tracked_paths_truncated is "
@@ -834,7 +844,7 @@ class SamuelController:
                     "on that branch instead of repeating branch creation. Do not repeat completed actions. "
                     "Treat durable_state.integrated_acceptance_evidence as code-verified "
                     "merged progress excluded by the controller from "
-                    "eligible_acceptance_criteria. If eligible_acceptance_criteria is empty, "
+                    "eligible_acceptance_criteria. If target_acceptance_criterion is null, "
                     "do not propose new progress; close only with complete verified evidence. "
                     "When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
@@ -914,9 +924,10 @@ class SamuelController:
                         "scheduler with code-owned src/** phase routing when available."
                     ),
                     (
-                        "For Issues with ## Acceptance bullets, attach progress to the "
-                        "exact criterion advanced by non-close work; close_issue requires "
-                        "a completion_claim backed only by terminal-success durable evidence."
+                        "For Issues with ## Acceptance bullets, non-close progress must "
+                        "advance exactly context.target_acceptance_criterion. Never choose "
+                        "another criterion from the Issue body. close_issue requires a "
+                        "completion_claim backed only by terminal-success durable evidence."
                     ),
                     (
                         "Prefer the smallest valid repository_mutation or github_native "
@@ -953,7 +964,9 @@ class SamuelController:
                         "criteria. The first reasoning pass returned no ActionPlan. "
                         "Using durable execution history, inherited_evidence, and the "
                         "bounded repository manifest, produce exactly one safe bounded "
-                        "next ActionPlan for the first unsupported criterion. Reuse an "
+                        "next ActionPlan for the controller-selected "
+                        f"target_acceptance_criterion={target_acceptance_criterion!r}. "
+                        "Do not choose a different acceptance criterion. Reuse an "
                         "existing workload-owned branch proven by completed durable history "
                         "and still visible in repository_context.samuel_branches before "
                         "creating another branch, even if main advanced later. Do not close "
@@ -1010,6 +1023,7 @@ class SamuelController:
                 "scheduled_runtime": copy.deepcopy(scheduled_runtime),
                 "acceptance_criteria": list(eligible_criteria),
                 "eligible_acceptance_criteria": list(eligible_criteria),
+                "target_acceptance_criterion": target_acceptance_criterion,
                 "durable_state": {
                     "research_id": durable_audit.get("research_id"),
                     "revision": durable_audit.get("revision"),
