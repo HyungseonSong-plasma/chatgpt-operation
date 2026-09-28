@@ -17,7 +17,12 @@ from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
 from .decisions import DecisionRegistry, GuardOutcome
-from .durable_state import can_rollover_state, load_state_comment, state_write_request
+from .durable_state import (
+    can_rollover_state,
+    load_state_comment,
+    retire_orphaned_repository_policy_failures,
+    state_write_request,
+)
 from .diagnostic import (
     enqueue_suspended_action,
     record_action_dispatch_intent,
@@ -52,7 +57,11 @@ from chatgpt_operation.github.native_executor import (
     native_github_reasoning_contract,
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
-from chatgpt_operation.repository.mutation import repository_mutation_reasoning_contract
+from chatgpt_operation.repository.mutation import (
+    MutationError,
+    repository_mutation_policy_reasoning_contract,
+    repository_mutation_reasoning_contract,
+)
 
 
 class ControllerCompositionError(ValueError):
@@ -448,6 +457,14 @@ class SamuelController:
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
+        try:
+            repository_policy_contract = (
+                repository_mutation_policy_reasoning_contract()
+            )
+        except MutationError as exc:
+            raise ControllerCompositionError(
+                "repository mutation policy could not be loaded for reasoning"
+            ) from exc
         context["execution_contracts"] = {
             "action_plan": {
                 "required_fields": [
@@ -468,6 +485,7 @@ class SamuelController:
             "repository_mutation": {
                 **repository_mutation_reasoning_contract(),
                 "policy": {
+                    **repository_policy_contract,
                     "branch_rule": "never mutate main; use samuel/* or issue-*",
                     "new_branch_base": (
                         "for branch create, desired.sha must equal "
@@ -545,7 +563,11 @@ class SamuelController:
                     "fields listed in execution_contracts.github_native.payload."
                     "allowed_fields; action-specific data belongs under target. For "
                     "repository_mutation plans, follow "
-                    "execution_contracts.repository_mutation exactly. "
+                    "execution_contracts.repository_mutation exactly, including "
+                    "execution_contracts.repository_mutation.policy.file_paths "
+                    "and branch_names. Never propose a path denied by policy; "
+                    "when creating a workflow, choose a filename matching an allowed "
+                    "workflow pattern such as the repository's samuel-* namespace. "
                     "Prefer the smallest verifiable next step; return null only "
                     "when no safe executable step exists."
                 ),
@@ -626,7 +648,8 @@ class SamuelController:
                         "creating another branch, even if main advanced later. Do not close "
                         "the Issue unless every "
                         "acceptance criterion is verified. Follow execution_contracts "
-                        "exactly."
+                        "exactly, including repository_mutation policy file allow/deny "
+                        "and branch allow/deny patterns."
                     ),
                     context=reconciliation_context,
                 ),
@@ -945,6 +968,41 @@ class SamuelController:
             )
 
         if state is not None:
+            migrated = retire_orphaned_repository_policy_failures(state)
+            if migrated is not None:
+                state = migrated
+                current = admitted.get(state.research_id)
+                if isinstance(current, dict) and current.get("status") != "complete":
+                    admitted = transition_issue_status(
+                        admitted, state.research_id, "reasoning_required"
+                    )
+                    admission_write = _admission_write(
+                        admission_comment_id, admitted
+                    )
+                if self.reasoning_enabled and self.reasoning.status().available:
+                    return self._consume_waiting_reasoning(
+                        trigger=trigger,
+                        comments=comments,
+                        work=admitted,
+                        work_id=state.research_id,
+                        state=state,
+                        admission_comment_id=admission_comment_id,
+                        prior_admission_write=admission_write,
+                        repository_context=repository_context,
+                    )
+                return ControllerCycle(
+                    trigger,
+                    {
+                        "kind":"reasoning_required",
+                        "work_id":state.research_id,
+                        "reason":"retired deterministic repository policy failure",
+                    },
+                    None,
+                    admission_write,
+                    state_write_request(comments,state),
+                    None,
+                )
+
             ready_pr_plan=_owned_ready_pr_plan(state,repository_context)
             if ready_pr_plan is not None:
                 proposed=copy.deepcopy(state)
