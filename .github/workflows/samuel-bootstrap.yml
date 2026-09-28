@@ -303,6 +303,46 @@ jobs:
             --token-env GH_TOKEN \
             --result samuel-gateway-state-persist-result.json
 
+      - name: Wait for dispatched bounded worker terminal state
+        if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          count=0
+          run_file=""
+          for candidate in \
+            samuel-action-run-id.txt \
+            samuel-evidence-run-id.txt \
+            samuel-diagnostic-run-id.txt \
+            samuel-corrective-run-id.txt
+          do
+            if [ -f "$candidate" ]; then
+              count=$((count+1))
+              run_file="$candidate"
+            fi
+          done
+          if [ "$count" -ne 1 ]; then
+            echo "SAMUEL_WORKER_WAIT=HARD_STOP expected exactly one worker run id, found $count" >&2
+            exit 2
+          fi
+          run_id="$(cat "$run_file")"
+          deadline=$((SECONDS+360))
+          while true; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > samuel-worker-run.json
+            status="$(python3 -c 'import json; print(json.load(open("samuel-worker-run.json"))["status"])')"
+            if [ "$status" = "completed" ]; then
+              conclusion="$(python3 -c 'import json; print(json.load(open("samuel-worker-run.json")).get("conclusion") or "")')"
+              echo "SAMUEL_WORKER_WAIT=TERMINAL run_id=$run_id conclusion=$conclusion"
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "SAMUEL_WORKER_WAIT=HARD_STOP timeout run_id=$run_id status=$status" >&2
+              exit 2
+            fi
+            sleep 5
+          done
+
       - name: Persist terminal controller artifact
         if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
         env:
