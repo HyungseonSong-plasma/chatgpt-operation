@@ -114,9 +114,8 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 12); do
-            gh api               "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&per_page=100"               > ordinary-ci-runs.json
-            read -r run_id run_status run_conclusion run_actor <<EOF
-          $(python3 - <<'PY'
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&per_page=100" > ordinary-ci-runs.json
+            python3 - <<'PY' > ordinary-ci-route.txt
           import json, os
           runs=json.load(open("ordinary-ci-runs.json")).get("workflow_runs",[])
           matches=[
@@ -135,14 +134,13 @@ jobs:
                   (run.get("actor") or {}).get("login") or "NONE",
               )
           PY
-          )
-          EOF
+            read -r run_id run_status run_conclusion run_actor < ordinary-ci-route.txt
             if [ "$run_id" = "NONE" ] || [ "$run_status" != "completed" ]; then
               sleep 5
               continue
             fi
-            gh api               "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100"               > ordinary-ci-jobs.json
-            CI_RUN_ID="$run_id"             CI_RUN_CONCLUSION="$run_conclusion"             CI_RUN_ACTOR="$run_actor"             python3 - <<'PY'
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" > ordinary-ci-jobs.json
+            CI_RUN_ID="$run_id" CI_RUN_CONCLUSION="$run_conclusion" CI_RUN_ACTOR="$run_actor" python3 - <<'PY'
           import json, os
           jobs=json.load(open("ordinary-ci-jobs.json")).get("jobs",[])
           conclusion=os.environ["CI_RUN_CONCLUSION"]
