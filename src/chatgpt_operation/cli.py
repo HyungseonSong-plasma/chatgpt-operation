@@ -32,6 +32,7 @@ from chatgpt_operation.controller.execution_gateway import (
     ExecutionGateway,
     ExecutionGatewayError,
     GatewayStatus,
+    terminal_gateway_result_from_completed_run,
 )
 from chatgpt_operation.controller.research import ResearchState
 from chatgpt_operation.controller.bootstrap import load_pending
@@ -722,6 +723,35 @@ def controller_persist_state(args: argparse.Namespace) -> int:
     return 0
 
 
+def controller_finalize_gateway(args: argparse.Namespace) -> int:
+    try:
+        gateway_result=json.loads(
+            Path(args.gateway_result).read_text(encoding="utf-8")
+        )
+        completed_run=json.loads(
+            Path(args.worker_run).read_text(encoding="utf-8")
+        )
+        result=terminal_gateway_result_from_completed_run(
+            gateway_result, completed_run
+        ).to_dict()
+    except (
+        OSError,json.JSONDecodeError,ValueError,ExecutionGatewayError,
+    ) as exc:
+        print(f"CONTROLLER_GATEWAY_FINALIZE=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_GATEWAY_FINALIZE=TERMINAL")
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(
+            f"CONTROLLER_GATEWAY_FINALIZE=HARD_STOP result persistence: {exc}",
+            file=sys.stderr,
+        )
+        return 3
+    return 0
+
+
 def controller_ingest_terminal(args: argparse.Namespace) -> int:
     try:
         comments=json.loads(Path(args.comments).read_text(encoding="utf-8"))
@@ -1051,6 +1081,12 @@ def parser() -> argparse.ArgumentParser:
     cec.add_argument("--corrective-run-id-result")
     cec.add_argument("--action-terminal-observation-result")
     cec.set_defaults(func=controller_execute_command)
+
+    cfg=ctls.add_parser("finalize-gateway")
+    cfg.add_argument("--gateway-result",required=True)
+    cfg.add_argument("--worker-run",required=True)
+    cfg.add_argument("--result",required=True)
+    cfg.set_defaults(func=controller_finalize_gateway)
 
     cps=ctls.add_parser("persist-state")
     cps.add_argument("--request",required=True)
