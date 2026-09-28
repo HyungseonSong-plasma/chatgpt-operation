@@ -47,6 +47,7 @@ from .preflight import (
     eligible_acceptance_criteria,
     extract_acceptance_criteria,
     integrated_acceptance_evidence,
+    is_observability_only_workload,
     preflight_semantic_plan,
 )
 from .issue_reasoning import (
@@ -632,6 +633,7 @@ class SamuelController:
         context = planned.envelope.as_reasoning_context()
         issue_body=str(item.get("body") or "")
         acceptance_criteria=extract_acceptance_criteria(issue_body)
+        observability_only=is_observability_only_workload(issue_body)
         eligible_criteria=eligible_acceptance_criteria(issue_body,state)
         target_acceptance_criterion=(
             eligible_criteria[0] if eligible_criteria else None
@@ -639,6 +641,9 @@ class SamuelController:
         context["acceptance_criteria"]=list(eligible_criteria)
         context["eligible_acceptance_criteria"]=list(eligible_criteria)
         context["target_acceptance_criterion"]=target_acceptance_criterion
+        context["workload_mode"]=(
+            "observability_only" if observability_only else "actionable"
+        )
         integrated_acceptance=integrated_acceptance_evidence(state)
         context["durable_state"] = {
             "research_id": state.research_id,
@@ -947,6 +952,7 @@ class SamuelController:
             plan is None
             and proposal.operation == "analyze"
             and outcome is GuardOutcome.CONTINUE
+            and not observability_only
         ):
             reconciliation_context = copy.deepcopy(context)
             reconciliation_context["completion_reconciliation"] = {
@@ -1080,6 +1086,7 @@ class SamuelController:
                 "acceptance_criteria": list(eligible_criteria),
                 "eligible_acceptance_criteria": list(eligible_criteria),
                 "target_acceptance_criterion": target_acceptance_criterion,
+                "workload_mode": context.get("workload_mode"),
                 "durable_state": {
                     "research_id": durable_audit.get("research_id"),
                     "revision": durable_audit.get("revision"),
