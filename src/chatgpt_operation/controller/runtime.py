@@ -37,6 +37,7 @@ from .issue_ingestion import (
     transition_issue_status,
 )
 from .issue_planning import plan_admitted_issue
+from .preflight import extract_acceptance_criteria, preflight_semantic_plan
 from .issue_reasoning import (
     IssueReasoningProposal,
     compile_guarded_action,
@@ -473,6 +474,10 @@ class SamuelController:
             )
         planned = plan_admitted_issue(item, registry=self.decisions)
         context = planned.envelope.as_reasoning_context()
+        acceptance_criteria=extract_acceptance_criteria(
+            str(item.get("body") or "")
+        )
+        context["acceptance_criteria"]=list(acceptance_criteria)
         context["durable_state"] = {
             "research_id": state.research_id,
             "revision": state.revision,
