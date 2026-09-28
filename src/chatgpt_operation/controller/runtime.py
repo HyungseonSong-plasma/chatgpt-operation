@@ -61,6 +61,7 @@ from chatgpt_operation.repository.mutation import (
     MutationError,
     repository_mutation_policy_reasoning_contract,
     repository_mutation_reasoning_contract,
+    validate_manifest_policy,
 )
 
 
@@ -523,10 +524,19 @@ class SamuelController:
                         str((repository_context or {}).get("repository") or "")
                         or None
                     )
-                    to_repository_manifest(
+                    manifest = to_repository_manifest(
                         candidate,
                         expected_repository=expected_repository,
                     )
+                    try:
+                        validate_manifest_policy(
+                            manifest,
+                            repository=manifest.repository,
+                        )
+                    except MutationError as exc:
+                        raise ValueError(
+                            "repository mutation plan violates policy: " + str(exc)
+                        ) from exc
                 else:
                     raise ValueError(
                         "production semantic provider emitted unsupported executor "
