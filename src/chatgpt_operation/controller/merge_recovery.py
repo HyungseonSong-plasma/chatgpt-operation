@@ -122,7 +122,7 @@ def conflict_recovery_branch_plan(
     repository=str(repository_context.get("repository") or "").strip()
     if not repository:
         return None
-    return ActionPlan.from_dict({
+    plan=ActionPlan.from_dict({
         "schema_version":1,
         "research_id":state.research_id,
         "stage":"implement",
@@ -141,6 +141,9 @@ def conflict_recovery_branch_plan(
             f"head {observed}."
         ),
     })
+    if plan.idempotency_key in state.action_queue:
+        return None
+    return plan
 
 
 def conflict_main_file_snapshots(
