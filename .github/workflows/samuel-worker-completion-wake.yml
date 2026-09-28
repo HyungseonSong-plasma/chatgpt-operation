@@ -1,6 +1,7 @@
 name: Samuel Worker Completion Wake
 
 on:
+  # Fallback for worker runs not created through a repository GITHUB_TOKEN.
   workflow_run:
     workflows:
       - "Samuel Native GitHub Executor"
@@ -8,20 +9,80 @@ on:
       - "Samuel Evidence Acquisition"
       - "Samuel Diagnostic Recovery"
     types: [completed]
+  # Production path for workers dispatched by Samuel Bootstrap. GitHub suppresses
+  # workflow_run chaining for runs created through GITHUB_TOKEN, while an explicit
+  # workflow_dispatch is allowed to create a new run.
+  workflow_dispatch:
+    inputs:
+      worker_run_id:
+        description: Exact bounded-worker workflow run to observe before waking Samuel
+        required: true
+        type: string
 
 permissions:
   contents: read
   actions: write
 
 concurrency:
-  group: samuel-worker-completion-wake
+  group: samuel-worker-completion-wake-${{ github.event.workflow_run.id || inputs.worker_run_id || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   wake:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
+      - name: Verify bounded worker completion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHED_RUN_ID: ${{ inputs.worker_run_id }}
+          WORKFLOW_RUN_EVENT_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            run_id="$DISPATCHED_RUN_ID"
+          else
+            run_id="$WORKFLOW_RUN_EVENT_ID"
+          fi
+          case "$run_id" in
+            ''|*[!0-9]*)
+              echo "SAMUEL_WORKER_WAKE=HARD_STOP invalid worker run id" >&2
+              exit 2
+              ;;
+          esac
+
+          allowed_paths='
+          .github/workflows/samuel-native-github.yml
+          .github/workflows/samuel-repository-mutation.yml
+          .github/workflows/samuel-evidence-acquisition.yml
+          .github/workflows/samuel-diagnostic-recovery.yml
+          '
+
+          for attempt in $(seq 1 72); do
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            path="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("path",""))' <<<"$run")"
+            event="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("event",""))' <<<"$run")"
+            status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' <<<"$run")"
+            if ! grep -Fxq "$path" <<<"$allowed_paths"; then
+              echo "SAMUEL_WORKER_WAKE=HARD_STOP untrusted workflow path: $path" >&2
+              exit 2
+            fi
+            if [ "$event" != "workflow_dispatch" ]; then
+              echo "SAMUEL_WORKER_WAKE=HARD_STOP unexpected worker event: $event" >&2
+              exit 2
+            fi
+            if [ "$status" = "completed" ]; then
+              conclusion="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion",""))' <<<"$run")"
+              echo "SAMUEL_WORKER_WAKE=COMPLETED run_id=$run_id conclusion=$conclusion"
+              break
+            fi
+            if [ "$attempt" -eq 72 ]; then
+              echo "SAMUEL_WORKER_WAKE=HARD_STOP worker did not complete inside bound" >&2
+              exit 2
+            fi
+            sleep 5
+          done
+
       - name: Wake Samuel after bounded worker completion
         env:
           GH_TOKEN: ${{ github.token }}
