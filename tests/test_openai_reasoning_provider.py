@@ -38,6 +38,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
             "compatible_with_locked_decisions": True,
             "revision_requested": False,
             "action_plan": None,
+            "blocker": None,
         }
         seen = {}
         def opener(req, timeout):
@@ -80,6 +81,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
             "compatible_with_locked_decisions":True,
             "revision_requested":False,
             "action_plan":plan,
+            "blocker":None,
         }
         seen={}
         def opener(req, timeout):
@@ -94,7 +96,14 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         self.assertEqual(result["action_plan"],plan)
         schema=seen["body"]["text"]["format"]["schema"]
         self.assertIn("action_plan",schema["properties"])
+        self.assertIn("blocker",schema["properties"])
         self.assertNotIn("action_plan_json",schema["properties"])
+        blocker_schema=schema["properties"]["blocker"]["anyOf"]
+        self.assertEqual(blocker_schema[0],{"type":"null"})
+        self.assertEqual(
+            set(blocker_schema[1]["required"]),
+            {"capability","alternatives_considered","exhausted"},
+        )
         action_schema=schema["properties"]["action_plan"]
         variants=action_schema["anyOf"]
         self.assertEqual(variants[0],{"type":"null"})
@@ -160,6 +169,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
             "compatible_with_locked_decisions":True,
             "revision_requested":False,
             "action_plan":plan,
+            "blocker":None,
         }
         provider=OpenAIReasoningProvider(
             "secret",
