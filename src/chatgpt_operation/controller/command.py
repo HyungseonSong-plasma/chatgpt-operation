@@ -23,6 +23,8 @@ class ControllerCommandKind(str, Enum):
     DISPATCH_CORRECTIVE = "dispatch_corrective"
     RECONCILE_CORRECTIVE = "reconcile_corrective"
     OBSERVE_CORRECTIVE = "observe_corrective"
+    DISPATCH_TRUSTED_VALIDATION = "dispatch_trusted_validation"
+    RECONCILE_TRUSTED_VALIDATION = "reconcile_trusted_validation"
 
 
 @dataclass(frozen=True)
