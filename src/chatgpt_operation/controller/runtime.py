@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import copy
+from pathlib import Path
+import re
 from typing import Any, Callable
 
 from .action_lifecycle import ActionLifecycle, DispatchIntent
@@ -187,6 +189,27 @@ def _selected_payload(selected: tuple[str, Any] | None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ControllerCompositionError("selected work payload must be an object")
     return {"kind": kind, **value}
+
+
+def _existing_scheduler_surfaces() -> list[dict[str, Any]]:
+    """Expose checked-in schedule triggers as read-only planning capabilities."""
+    path=Path(".github/workflows/samuel-bootstrap.yml")
+    try:
+        text=path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    if "schedule:" not in text:
+        return []
+    crons=re.findall(r"""cron:\s*['"]([^'"]+)['"]""",text)
+    return [
+        {
+            "workflow":str(path),
+            "event":"schedule",
+            "cron":cron,
+            "mutation_required":False,
+        }
+        for cron in crons
+    ]
 
 
 def _initial_state(
@@ -456,6 +479,9 @@ class SamuelController:
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
+        context["repository_context"]["scheduler_surfaces"] = (
+            _existing_scheduler_surfaces()
+        )
         mutation_policy = parse_policy(
             load_repository_json("automation/samuel/repository-mutation-policy.json")
         )
@@ -577,8 +603,13 @@ class SamuelController:
                     "allowed_fields; action-specific data belongs under target. For "
                     "repository_mutation plans, follow "
                     "execution_contracts.repository_mutation exactly, including "
-                    "execution_contracts.repository_mutation.policy file-path and "
-                    "branch allow/deny patterns. A suspended action is verified failure "
+                    "execution_contracts.repository_mutation.policy file-path, branch "
+                    "allow/deny patterns, and runtime_capabilities. When "
+                    "workflow_file_mutation is false, never propose a path under "
+                    ".github/workflows/. Reuse repository_context.scheduler_surfaces "
+                    "and prefer code-owned integration under an executable allowed path "
+                    "instead of inventing another workflow file. A suspended action is "
+                    "verified failure "
                     "evidence: inspect durable_state.execution_results and do not repeat "
                     "the same policy-invalid plan unchanged. "
                     "Prefer the smallest verifiable next step; return null only "
@@ -755,6 +786,9 @@ class SamuelController:
                     ),
                     "workflow_files": repository_audit.get(
                         "workflow_files", []
+                    ),
+                    "scheduler_surfaces": copy.deepcopy(
+                        repository_audit.get("scheduler_surfaces") or []
                     ),
                 },
             },
