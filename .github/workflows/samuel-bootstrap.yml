@@ -86,6 +86,25 @@ jobs:
               {"head_sha":line.split()[0],"ref":line.split()[1]}
               for line in refs[:20] if len(line.split())==2
           ]
+          tracked=subprocess.run(
+              ["git","ls-files"],
+              check=True,capture_output=True,text=True,
+          ).stdout.splitlines()
+          prefixes=(
+              ".github/workflows/",
+              "src/chatgpt_operation/",
+              "tests/",
+              "automation/samuel/",
+              "skills/",
+          )
+          tracked_paths=sorted(
+              path for path in tracked
+              if path.startswith(prefixes)
+          )[:500]
+          workflow_files=[
+              path for path in tracked_paths
+              if path.startswith(".github/workflows/")
+          ]
           pull_requests=[]
           for item in json.load(open("samuel-open-prs.json"))[:30]:
               head_sha=item["head"]["sha"]
@@ -138,6 +157,8 @@ jobs:
               "open_issues":issues,
               "open_pull_requests":pull_requests,
               "samuel_branches":branches,
+              "tracked_paths":tracked_paths,
+              "workflow_files":workflow_files,
           }
           open("samuel-repository-context.json","w").write(
               json.dumps(context,sort_keys=True,separators=(",",":"))+"\n"

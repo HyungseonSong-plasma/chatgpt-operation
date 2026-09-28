@@ -15,6 +15,14 @@ BRANCH=re.compile(r"^(?!/)(?!.*//)(?!.*\.\.)[A-Za-z0-9._/-]+(?<!/)$")
 FILE_ACTIONS=frozenset({"create","update","delete"})
 BRANCH_ACTIONS=frozenset({"create"})
 RESOURCES={"file":FILE_ACTIONS,"branch":BRANCH_ACTIONS}
+MANIFEST_ALLOWED_FIELDS=frozenset({
+    "schema_version","repository","resource","action",
+    "target","expected","desired","commit_message",
+})
+MANIFEST_REQUIRED_FIELDS=frozenset({
+    "schema_version","repository","resource","action",
+    "target","expected","desired",
+})
 
 class MutationError(RuntimeError): pass
 class ManifestError(MutationError): pass
@@ -76,9 +84,56 @@ class Policy:
     branch_allow:tuple[str,...]; branch_deny:tuple[str,...]
     gate_mode:str; gate_workflows:frozenset[str]; ignore_current_run:bool
 
+def repository_mutation_reasoning_contract()->dict[str,Any]:
+    """Closed-world manifest contract exposed to Samuel semantic reasoning."""
+    return {
+        "rule":"payload must match this closed-world manifest schema exactly",
+        "payload":{
+            "schema_version":1,
+            "required_fields":sorted(MANIFEST_REQUIRED_FIELDS),
+            "allowed_fields":sorted(MANIFEST_ALLOWED_FIELDS),
+            "additional_fields":False,
+            "repository":"owner/name",
+        },
+        "branch_create":{
+            "resource":"branch",
+            "action":"create",
+            "target_exactly":["name"],
+            "expected":{"absent":True},
+            "desired":{
+                "sha":"repository_context.observed_head_sha (lowercase 40-hex)"
+            },
+            "commit_message":"must be omitted",
+        },
+        "file_create":{
+            "resource":"file",
+            "action":"create",
+            "target_exactly":["path","branch"],
+            "expected":{"absent":True},
+            "desired":{"content":"complete UTF-8 file content"},
+            "commit_message":"required non-empty string",
+        },
+        "file_update":{
+            "resource":"file",
+            "action":"update",
+            "target_exactly":["path","branch"],
+            "expected":{"sha":"exact current lowercase 40-hex blob SHA"},
+            "desired":{"content":"complete UTF-8 replacement content"},
+            "commit_message":"required non-empty string",
+        },
+        "file_delete":{
+            "resource":"file",
+            "action":"delete",
+            "target_exactly":["path","branch"],
+            "expected":{"sha":"exact current lowercase 40-hex blob SHA"},
+            "desired":{},
+            "commit_message":"required non-empty string",
+        },
+    }
+
 def parse_manifest(raw):
     if not isinstance(raw,dict): raise ManifestError("manifest root must be object")
-    _keys(raw,{"schema_version","repository","resource","action","target","expected","desired","commit_message"},{"schema_version","repository","resource","action","target","expected","desired"},"manifest")
+    _keys(raw,MANIFEST_ALLOWED_FIELDS,MANIFEST_REQUIRED_FIELDS,"manifest")
     if raw["schema_version"]!=1: raise ManifestError("schema_version must be 1")
     repo=raw["repository"]
     if not isinstance(repo,str) or not REPOSITORY.fullmatch(repo): raise ManifestError("repository must be owner/name")
