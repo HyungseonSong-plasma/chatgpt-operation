@@ -193,44 +193,64 @@ def _native_payload_schemas() -> list[dict[str, Any]]:
                 "merged": {"type": "boolean", "enum": [True]},
             }),
         }),
+        _closed_object({
+            **common,
+            "action": {"type": "string", "enum": ["dispatch_workflow"]},
+            "target": _closed_object({
+                "workflow": {"type": "string"},
+                "ref": {"type": "string"},
+            }),
+            "preconditions": _closed_object({
+                "dispatched": {"type": "boolean", "enum": [False]},
+                "ref": {"type": "string"},
+            }),
+            "desired_postcondition": _closed_object({
+                "dispatched": {"type": "boolean", "enum": [True]},
+            }),
+        }),
     ]
 
 
-ACTION_PLAN_SCHEMA = {
-    "type": ["object", "null"],
-    "properties": {
-        "schema_version": {"type": "integer", "enum": [1]},
-        "research_id": {"type": "string"},
-        "stage": {"type": "string", "enum": _NON_TERMINAL_STAGES},
-        "executor": {
-            "type": "string",
-            "enum": ["repository_mutation", "github_native"],
-        },
-        "payload": {
-            "anyOf": _repository_payload_schemas() + _native_payload_schemas(),
-        },
-        "expected_observation": {"type": "string"},
-        "decision_risk": {
-            "type": ["object", "null"],
-            "properties": {
+def _decision_risk_schema() -> dict[str, Any]:
+    return {
+        "anyOf": [
+            {"type": "null"},
+            _closed_object({
                 "impact": {"type": "number"},
                 "uncertainty": {"type": "number"},
                 "irreversibility": {"type": "number"},
-            },
-            "required": ["impact", "uncertainty", "irreversibility"],
-            "additionalProperties": False,
-        },
-    },
-    "required": [
-        "schema_version",
-        "research_id",
-        "stage",
-        "executor",
-        "payload",
-        "expected_observation",
-        "decision_risk",
+            }),
+        ],
+    }
+
+
+def _action_plan_variant(
+    executor: str,
+    payload_schema: dict[str, Any],
+) -> dict[str, Any]:
+    return _closed_object({
+        "schema_version": {"type": "integer", "enum": [1]},
+        "research_id": {"type": "string"},
+        "stage": {"type": "string", "enum": _NON_TERMINAL_STAGES},
+        "executor": {"type": "string", "enum": [executor]},
+        "payload": payload_schema,
+        "expected_observation": {"type": "string"},
+        "decision_risk": _decision_risk_schema(),
+    })
+
+
+ACTION_PLAN_SCHEMA = {
+    "anyOf": [
+        {"type": "null"},
+        *[
+            _action_plan_variant("repository_mutation", payload)
+            for payload in _repository_payload_schemas()
+        ],
+        *[
+            _action_plan_variant("github_native", payload)
+            for payload in _native_payload_schemas()
+        ],
     ],
-    "additionalProperties": False,
 }
 
 
