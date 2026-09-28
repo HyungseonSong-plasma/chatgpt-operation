@@ -137,14 +137,17 @@ def test_bootstrap_waits_for_dispatched_worker_before_terminal_ingestion():
     ).read_text(encoding="utf-8")
     materialize_marker="- name: Materialize dispatched worker run identity"
     wait_marker="- name: Wait for dispatched bounded worker terminal state"
+    finalize_marker="- name: Finalize completed worker gateway evidence"
     persist_marker="- name: Persist execution gateway state write"
     terminal_marker="- name: Persist terminal controller artifact"
     assert text.count(materialize_marker)==1
     assert text.count(wait_marker)==1
+    assert text.count(finalize_marker)==1
     assert (
         text.index(persist_marker)
         < text.index(materialize_marker)
         < text.index(wait_marker)
+        < text.index(finalize_marker)
         < text.index(terminal_marker)
     )
     materialize=text.split(materialize_marker,1)[1].split(wait_marker,1)[0]
@@ -158,7 +161,13 @@ def test_bootstrap_waits_for_dispatched_worker_before_terminal_ingestion():
     ):
         assert filename in materialize
     assert "SAMUEL_WORKER_ID=MATERIALIZED" in materialize
-    wait=text.split(wait_marker,1)[1].split(terminal_marker,1)[0]
+    wait=text.split(wait_marker,1)[1].split(finalize_marker,1)[0]
+    finalize=text.split(finalize_marker,1)[1].split(terminal_marker,1)[0]
+    terminal=text.split(terminal_marker,1)[1]
+    assert "controller finalize-gateway" in finalize
+    assert "--worker-run samuel-worker-run.json" in finalize
+    assert "--result samuel-terminal-gateway-result.json" in finalize
+    assert "--gateway-result samuel-terminal-gateway-result.json" in terminal
     assert 'actions/runs/$run_id' in wait
     assert 'status" = "completed"' in wait
     assert "SECONDS+360" in wait
