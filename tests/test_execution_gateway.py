@@ -110,6 +110,38 @@ class ExecutionGatewayTests(unittest.TestCase):
         ):
             terminal_gateway_result_from_completed_run(raw,completed)
 
+    def test_existing_terminal_identity_mismatch_observation_is_preserved(self):
+        raw={
+            "schema_version":1,
+            "surface":"action",
+            "action_id":ACTION,
+            "status":"terminal",
+            "receipt":None,
+            "observation":{
+                "status":"BOUND_RUN_IDENTITY_MISMATCH",
+                "run_status":"completed",
+                "conclusion":"success",
+                "identity_mismatches":{
+                    "head_sha":{"expected":HEAD,"observed":"c"*40}
+                },
+            },
+            "terminal_run_id":99,
+        }
+        completed={
+            "id":99,
+            "workflow_id":123,
+            "path":".github/workflows/samuel-repository-mutation.yml",
+            "event":"workflow_dispatch",
+            "status":"completed",
+            "conclusion":"success",
+            "head_sha":"c"*40,
+        }
+        result=terminal_gateway_result_from_completed_run(raw,completed)
+        self.assertEqual(
+            result.observation["status"],"BOUND_RUN_IDENTITY_MISMATCH"
+        )
+        self.assertIn("identity_mismatches",result.observation)
+
     def test_stale_command_is_rejected_before_runtime_access(self):
         state=ResearchState("r","work",revision=3)
         gateway=ExecutionGateway(object())
