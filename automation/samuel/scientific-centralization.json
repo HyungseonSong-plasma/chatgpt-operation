@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "canonical_repository": "HyungseonSong-plasma/chatgpt-operation",
+  "retirement_policy": {
+    "require_exact_canonical_revision": true,
+    "require_compatibility_verification": true,
+    "require_consumer_ci_success": true,
+    "require_no_remaining_local_imports": true,
+    "delete_only_through_consumer_policy": true
+  },
+  "components": [
+    {
+      "id": "scientific-semantic-ir",
+      "origin_repository": "HyungseonSong-plasma/moose-test-repo",
+      "origin_revision": "3c6e91a039600ceb4c152c8fd787e03160ad7c72",
+      "origin_paths": [
+        "physics_harness/ontology/records.py"
+      ],
+      "canonical_paths": [
+        "src/chatgpt_operation/science/ontology.py"
+      ],
+      "phase": "centralized",
+      "consumers": [
+        {
+          "repository": "HyungseonSong-plasma/moose-test-repo",
+          "duplicate_paths": [
+            "physics_harness/ontology/records.py"
+          ],
+          "status": "pending_cutover",
+          "canonical_revision": null,
+          "verification": {
+            "compatibility_verified": false,
+            "consumer_ci_success": false,
+            "remaining_local_imports": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "scientific-policy-synthesis",
+      "origin_repository": "HyungseonSong-plasma/moose-test-repo",
+      "origin_revision": "3c6e91a039600ceb4c152c8fd787e03160ad7c72",
+      "origin_paths": [
+        "physics_harness/planning/policy.py",
+        "physics_harness/planning/synthesizer.py"
+      ],
+      "canonical_paths": [
+        "src/chatgpt_operation/science/planning.py"
+      ],
+      "phase": "centralized",
+      "consumers": [
+        {
+          "repository": "HyungseonSong-plasma/moose-test-repo",
+          "duplicate_paths": [
+            "physics_harness/planning/policy.py",
+            "physics_harness/planning/synthesizer.py"
+          ],
+          "status": "pending_cutover",
+          "canonical_revision": null,
+          "verification": {
+            "compatibility_verified": false,
+            "consumer_ci_success": false,
+            "remaining_local_imports": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "scientific-execution-plan",
+      "origin_repository": "HyungseonSong-plasma/moose-test-repo",
+      "origin_revision": "3c6e91a039600ceb4c152c8fd787e03160ad7c72",
+      "origin_paths": [
+        "physics_harness/execution/plan.py",
+        "physics_harness/execution/compiler.py"
+      ],
+      "canonical_paths": [
+        "src/chatgpt_operation/science/execution.py"
+      ],
+      "phase": "centralized",
+      "consumers": [
+        {
+          "repository": "HyungseonSong-plasma/moose-test-repo",
+          "duplicate_paths": [
+            "physics_harness/execution/plan.py",
+            "physics_harness/execution/compiler.py"
+          ],
+          "status": "pending_cutover",
+          "canonical_revision": null,
+          "verification": {
+            "compatibility_verified": false,
+            "consumer_ci_success": false,
+            "remaining_local_imports": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "scientific-execution-contract",
+      "origin_repository": "HyungseonSong-plasma/moose-test-repo",
+      "origin_revision": "3c6e91a039600ceb4c152c8fd787e03160ad7c72",
+      "origin_paths": [
+        "physics_harness/execution/contract.py"
+      ],
+      "canonical_paths": [
+        "src/chatgpt_operation/science/contract.py"
+      ],
+      "phase": "centralized",
+      "consumers": [
+        {
+          "repository": "HyungseonSong-plasma/moose-test-repo",
+          "duplicate_paths": [
+            "physics_harness/execution/contract.py"
+          ],
+          "status": "pending_cutover",
+          "canonical_revision": null,
+          "verification": {
+            "compatibility_verified": false,
+            "consumer_ci_success": false,
+            "remaining_local_imports": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "scientific-run-provenance",
+      "origin_repository": "HyungseonSong-plasma/moose-test-repo",
+      "origin_revision": "3c6e91a039600ceb4c152c8fd787e03160ad7c72",
+      "origin_paths": [
+        "physics_harness/provenance/envelope.py"
+      ],
+      "canonical_paths": [
+        "src/chatgpt_operation/science/provenance.py"
+      ],
+      "phase": "centralized",
+      "consumers": [
+        {
+          "repository": "HyungseonSong-plasma/moose-test-repo",
+          "duplicate_paths": [
+            "physics_harness/provenance/envelope.py"
+          ],
+          "status": "pending_cutover",
+          "canonical_revision": null,
+          "verification": {
+            "compatibility_verified": false,
+            "consumer_ci_success": false,
+            "remaining_local_imports": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "scientific-error-attribution",
+      "origin_repository": "HyungseonSong-plasma/moose-test-repo",
+      "origin_revision": "3c6e91a039600ceb4c152c8fd787e03160ad7c72",
+      "origin_paths": [
+        "physics_harness/evidence/error_ledger.py"
+      ],
+      "canonical_paths": [
+        "src/chatgpt_operation/science/errors.py"
+      ],
+      "phase": "centralized",
+      "consumers": [
+        {
+          "repository": "HyungseonSong-plasma/moose-test-repo",
+          "duplicate_paths": [
+            "physics_harness/evidence/error_ledger.py"
+          ],
+          "status": "pending_cutover",
+          "canonical_revision": null,
+          "verification": {
+            "compatibility_verified": false,
+            "consumer_ci_success": false,
+            "remaining_local_imports": 1
+          }
+        }
+      ]
+    }
+  ]
+}
