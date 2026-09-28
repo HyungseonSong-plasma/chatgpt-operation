@@ -400,6 +400,91 @@ jobs:
             sleep 5
           done
 
+      - name: Observe completed bounded worker through composition root
+        if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-post-worker-comments.json
+          python3 -m chatgpt_operation.cli controller run-cycle \
+            --comments samuel-post-worker-comments.json \
+            --pending automation/samuel/bootstrap.json \
+            --decisions automation/samuel/decisions.json \
+            --event-name bootstrap \
+            --event-action terminal-observation \
+            --issue-json null \
+            --repository-context samuel-repository-context.json \
+            --head-sha "$GITHUB_SHA" \
+            --ref "$GITHUB_REF" \
+            --executor-ref "${{ github.ref_name }}" \
+            --executor-head-sha "${{ github.sha }}" \
+            --result samuel-post-worker-cycle.json \
+            --selected-work-result samuel-post-worker-selected.json \
+            --planning-result samuel-post-worker-planning.json \
+            --admission-write-result samuel-post-worker-admission-write.json \
+            --state-write-result samuel-post-worker-state-write.json \
+            --execution-command-result samuel-post-worker-command.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          selected=json.load(open("samuel-post-worker-selected.json"))
+          kind=str(selected.get("kind") or "")
+          if kind not in {
+              "action_observation",
+              "evidence_observation",
+              "diagnostic_observation",
+              "corrective_observation",
+          }:
+              raise SystemExit(
+                  "SAMUEL_POST_WORKER=HARD_STOP expected observation work, got "+kind
+              )
+          for forbidden in (
+              "samuel-post-worker-planning.json",
+              "samuel-post-worker-admission-write.json",
+              "samuel-post-worker-state-write.json",
+          ):
+              if Path(forbidden).exists():
+                  raise SystemExit(
+                      "SAMUEL_POST_WORKER=HARD_STOP observation cycle emitted unexpected write"
+                  )
+          if not Path("samuel-post-worker-command.json").exists():
+              raise SystemExit(
+                  "SAMUEL_POST_WORKER=HARD_STOP observation command missing"
+              )
+          print("SAMUEL_POST_WORKER=OBSERVATION_COMMAND kind="+kind)
+          PY
+          python3 -m chatgpt_operation.cli controller execute-command \
+            --command samuel-post-worker-command.json \
+            --comments samuel-post-worker-comments.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --result samuel-execution-gateway-result.json \
+            --state-write-result samuel-post-worker-gateway-state-write.json \
+            --action-run-id-result samuel-action-run-id.txt \
+            --evidence-run-id-result samuel-evidence-run-id.txt \
+            --diagnostic-run-id-result samuel-diagnostic-run-id.txt \
+            --corrective-run-id-result samuel-corrective-run-id.txt \
+            --action-terminal-observation-result samuel-action-terminal-observation.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result=json.load(open("samuel-execution-gateway-result.json"))
+          if result.get("status") != "terminal":
+              raise SystemExit(
+                  "SAMUEL_POST_WORKER=HARD_STOP gateway did not confirm terminal state"
+              )
+          if Path("samuel-post-worker-gateway-state-write.json").exists():
+              raise SystemExit(
+                  "SAMUEL_POST_WORKER=HARD_STOP terminal observation attempted state mutation"
+              )
+          print(
+              "SAMUEL_POST_WORKER=TERMINAL surface="
+              +str(result.get("surface") or "")
+              +" run_id="+str(result.get("terminal_run_id") or "")
+          )
+          PY
+
       - name: Persist terminal controller artifact
         if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
         env:
