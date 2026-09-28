@@ -150,6 +150,49 @@ def repository_mutation_policy_reasoning_contract(
         },
     }
 
+def validate_manifest_policy(
+    manifest: Manifest,
+    *,
+    repository: str,
+    path: str = "automation/samuel/repository-mutation-policy.json",
+) -> None:
+    """Validate one manifest against the exact repository-owned mutation policy."""
+    policy=parse_policy(load_json(path))
+    _authorize_manifest(manifest,repository=repository,policy=policy)
+
+
+def _authorize_manifest(
+    manifest: Manifest,
+    *,
+    repository: str,
+    policy: Policy,
+) -> None:
+    if manifest.repository!=repository or policy.repository!=repository:
+        raise PolicyError("repository binding mismatch")
+    if manifest.resource=="file":
+        if manifest.action not in policy.allow_file_actions:
+            raise PolicyError(f"file action denied: {manifest.action}")
+        if not _allowed(
+            manifest.target["path"],policy.file_allow,policy.file_deny
+        ):
+            raise PolicyError(f"file path denied: {manifest.target['path']}")
+        if not _allowed(
+            manifest.target["branch"],policy.branch_allow,policy.branch_deny
+        ):
+            raise PolicyError(
+                f"branch target denied: {manifest.target['branch']}"
+            )
+    else:
+        if manifest.action not in policy.allow_branch_actions:
+            raise PolicyError(f"branch action denied: {manifest.action}")
+        if not _allowed(
+            manifest.target["name"],policy.branch_allow,policy.branch_deny
+        ):
+            raise PolicyError(
+                f"branch name denied: {manifest.target['name']}"
+            )
+
+
 def parse_manifest(raw):
     if not isinstance(raw,dict): raise ManifestError("manifest root must be object")
     _keys(raw,MANIFEST_ALLOWED_FIELDS,MANIFEST_REQUIRED_FIELDS,"manifest")
@@ -255,14 +298,9 @@ class Engine:
             if exc.status==404: return None
             raise
     def _authorize(self,m):
-        if m.repository!=self.repository or self.policy.repository!=self.repository: raise PolicyError("repository binding mismatch")
-        if m.resource=="file":
-            if m.action not in self.policy.allow_file_actions: raise PolicyError(f"file action denied: {m.action}")
-            if not _allowed(m.target["path"],self.policy.file_allow,self.policy.file_deny): raise PolicyError(f"file path denied: {m.target['path']}")
-            if not _allowed(m.target["branch"],self.policy.branch_allow,self.policy.branch_deny): raise PolicyError(f"branch target denied: {m.target['branch']}")
-        else:
-            if m.action not in self.policy.allow_branch_actions: raise PolicyError(f"branch action denied: {m.action}")
-            if not _allowed(m.target["name"],self.policy.branch_allow,self.policy.branch_deny): raise PolicyError(f"branch name denied: {m.target['name']}")
+        _authorize_manifest(
+            m,repository=self.repository,policy=self.policy
+        )
     def _runs(self,status):
         page=1
         while True:
