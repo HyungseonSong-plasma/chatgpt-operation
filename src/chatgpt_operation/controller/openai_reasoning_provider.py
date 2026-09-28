@@ -35,21 +35,227 @@ SHADOW_ISSUE_REASONING_SCHEMA = {
     "additionalProperties": False,
 }
 
-PRODUCTION_ISSUE_REASONING_SCHEMA = {
-    "type": "object",
+_NON_TERMINAL_STAGES = [
+    "define_problem",
+    "acquire_knowledge",
+    "generate_hypothesis",
+    "design_validation",
+    "design_experiment",
+    "implement",
+    "execute",
+    "analyze",
+    "decide",
+]
+
+
+def _closed_object(
+    properties: dict[str, Any],
+    *,
+    required: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties) if required is None else required,
+        "additionalProperties": False,
+    }
+
+
+def _repository_payload_schemas() -> list[dict[str, Any]]:
+    common = {
+        "schema_version": {"type": "integer", "enum": [1]},
+        "repository": {"type": "string"},
+    }
+    return [
+        _closed_object({
+            **common,
+            "resource": {"type": "string", "enum": ["branch"]},
+            "action": {"type": "string", "enum": ["create"]},
+            "target": _closed_object({
+                "name": {"type": "string"},
+            }),
+            "expected": _closed_object({
+                "absent": {"type": "boolean", "enum": [True]},
+            }),
+            "desired": _closed_object({
+                "sha": {"type": "string"},
+            }),
+            "commit_message": {"type": "null"},
+        }),
+        _closed_object({
+            **common,
+            "resource": {"type": "string", "enum": ["file"]},
+            "action": {"type": "string", "enum": ["create"]},
+            "target": _closed_object({
+                "path": {"type": "string"},
+                "branch": {"type": "string"},
+            }),
+            "expected": _closed_object({
+                "absent": {"type": "boolean", "enum": [True]},
+            }),
+            "desired": _closed_object({
+                "content": {"type": "string"},
+            }),
+            "commit_message": {"type": "string"},
+        }),
+        _closed_object({
+            **common,
+            "resource": {"type": "string", "enum": ["file"]},
+            "action": {"type": "string", "enum": ["update"]},
+            "target": _closed_object({
+                "path": {"type": "string"},
+                "branch": {"type": "string"},
+            }),
+            "expected": _closed_object({
+                "sha": {"type": "string"},
+            }),
+            "desired": _closed_object({
+                "content": {"type": "string"},
+            }),
+            "commit_message": {"type": "string"},
+        }),
+        _closed_object({
+            **common,
+            "resource": {"type": "string", "enum": ["file"]},
+            "action": {"type": "string", "enum": ["delete"]},
+            "target": _closed_object({
+                "path": {"type": "string"},
+                "branch": {"type": "string"},
+            }),
+            "expected": _closed_object({
+                "sha": {"type": "string"},
+            }),
+            "desired": _closed_object({}),
+            "commit_message": {"type": "string"},
+        }),
+    ]
+
+
+def _native_payload_schemas() -> list[dict[str, Any]]:
+    common = {
+        "repository": {"type": "string"},
+    }
+    return [
+        _closed_object({
+            **common,
+            "action": {"type": "string", "enum": ["create_pr"]},
+            "target": _closed_object({
+                "head": {"type": "string"},
+                "base": {"type": "string"},
+                "title": {"type": "string"},
+                "body": {"type": "string"},
+            }),
+            "preconditions": _closed_object({
+                "pr_present": {"type": "boolean", "enum": [False]},
+            }),
+            "desired_postcondition": _closed_object({
+                "pr_present": {"type": "boolean", "enum": [True]},
+            }),
+        }),
+        _closed_object({
+            **common,
+            "action": {"type": "string", "enum": ["close_issue"]},
+            "target": _closed_object({
+                "number": {"type": "integer"},
+            }),
+            "preconditions": _closed_object({
+                "issue_state": {"type": "string", "enum": ["open"]},
+            }),
+            "desired_postcondition": _closed_object({
+                "issue_state": {"type": "string", "enum": ["closed"]},
+            }),
+        }),
+        _closed_object({
+            **common,
+            "action": {"type": "string", "enum": ["comment_issue"]},
+            "target": _closed_object({
+                "number": {"type": "integer"},
+                "body": {"type": "string"},
+                "marker": {"type": "string"},
+            }),
+            "preconditions": _closed_object({
+                "issue_state": {"type": "string", "enum": ["open"]},
+                "comment_present": {"type": "boolean", "enum": [False]},
+            }),
+            "desired_postcondition": _closed_object({
+                "comment_present": {"type": "boolean", "enum": [True]},
+            }),
+        }),
+        _closed_object({
+            **common,
+            "action": {"type": "string", "enum": ["merge_pr"]},
+            "target": _closed_object({
+                "number": {"type": "integer"},
+                "expected_head_sha": {"type": "string"},
+            }),
+            "preconditions": _closed_object({}),
+            "desired_postcondition": _closed_object({
+                "merged": {"type": "boolean", "enum": [True]},
+            }),
+        }),
+    ]
+
+
+ACTION_PLAN_SCHEMA = {
+    "type": ["object", "null"],
     "properties": {
-        "operation": {"type": "string", "enum": ["analyze", "implement_gap", "propose_revision"]},
-        "decision_id": {"type": ["string", "null"]},
-        "compatible_with_locked_decisions": {"type": "boolean"},
-        "revision_requested": {"type": "boolean"},
-        "action_plan_json": {"type": ["string", "null"]},
+        "schema_version": {"type": "integer", "enum": [1]},
+        "research_id": {"type": "string"},
+        "stage": {"type": "string", "enum": _NON_TERMINAL_STAGES},
+        "executor": {
+            "type": "string",
+            "enum": ["repository_mutation", "github_native"],
+        },
+        "payload": {
+            "anyOf": _repository_payload_schemas() + _native_payload_schemas(),
+        },
+        "expected_observation": {"type": "string"},
+        "decision_risk": {
+            "type": ["object", "null"],
+            "properties": {
+                "impact": {"type": "number"},
+                "uncertainty": {"type": "number"},
+                "irreversibility": {"type": "number"},
+            },
+            "required": ["impact", "uncertainty", "irreversibility"],
+            "additionalProperties": False,
+        },
     },
     "required": [
-        "operation", "decision_id", "compatible_with_locked_decisions",
-        "revision_requested", "action_plan_json",
+        "schema_version",
+        "research_id",
+        "stage",
+        "executor",
+        "payload",
+        "expected_observation",
+        "decision_risk",
     ],
     "additionalProperties": False,
 }
+
+
+PRODUCTION_ISSUE_REASONING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "operation": {
+            "type": "string",
+            "enum": ["analyze", "implement_gap", "propose_revision"],
+        },
+        "decision_id": {"type": ["string", "null"]},
+        "compatible_with_locked_decisions": {"type": "boolean"},
+        "revision_requested": {"type": "boolean"},
+        "action_plan": ACTION_PLAN_SCHEMA,
+    },
+    "required": [
+        "operation",
+        "decision_id",
+        "compatible_with_locked_decisions",
+        "revision_requested",
+        "action_plan",
+    ],
+    "additionalProperties": False,
+}
+
 
 # Backward-compatible name for non-executing qualification callers.
 ISSUE_REASONING_SCHEMA = SHADOW_ISSUE_REASONING_SCHEMA
@@ -89,12 +295,12 @@ class OpenAIReasoningProvider:
                 "allowed_fields": [
                     "operation", "decision_id",
                     "compatible_with_locked_decisions",
-                    "revision_requested", "action_plan_json",
+                    "revision_requested", "action_plan",
                 ],
-                "action_plan_json": (
-                    "null or a JSON-encoded ActionPlan object for exactly one "
-                    "bounded next action; use only executors and payload shapes "
-                    "present in reasoning_context.execution_contracts"
+                "action_plan": (
+                    "null or exactly one structured ActionPlan object; use only "
+                    "executors and payload shapes present in "
+                    "reasoning_context.execution_contracts"
                 ),
                 "no_direct_execution": True,
                 "one_action_maximum": True,
@@ -164,24 +370,12 @@ class OpenAIReasoningProvider:
         if not isinstance(decoded, dict):
             raise ProviderUnavailable("OpenAI reasoning provider returned non-object JSON")
         if self.allow_action_plan:
-            encoded_plan = decoded.pop("action_plan_json", None)
-            if encoded_plan is None:
-                decoded["action_plan"] = None
-            elif isinstance(encoded_plan, str):
-                try:
-                    action_plan = json.loads(encoded_plan)
-                except json.JSONDecodeError:
-                    # Preserve malformed embedded ActionPlan text as typed-invalid
-                    # proposal data. StructuredReasoningNode owns bounded validation
-                    # repair; malformed plan JSON is not provider unavailability.
-                    decoded["action_plan"] = encoded_plan
-                else:
-                    decoded["action_plan"] = action_plan
-            else:
-                # Strict provider schema should make this unreachable, but preserve
-                # it as parser-visible invalid data so the bounded repair loop owns
-                # the failure semantics.
-                decoded["action_plan"] = encoded_plan
+            action_plan = decoded.get("action_plan")
+            if action_plan is not None and not isinstance(action_plan, dict):
+                # Strict structured output should make this unreachable. Keep it
+                # parser-visible so StructuredReasoningNode owns bounded repair.
+                decoded["action_plan"] = action_plan
+
         return decoded
 
     @staticmethod
