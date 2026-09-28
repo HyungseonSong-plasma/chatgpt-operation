@@ -604,7 +604,13 @@ class ControllerRuntimeTests(unittest.TestCase):
             pending=[],
             repository_context={
                 "repository":"HyungseonSong-plasma/chatgpt-operation",
-                "open_issues":[repository_issue(24)],
+                "open_issues":[{
+                    "number":24,
+                    "title":"Weekly telemetry",
+                    "body":"finish weekly telemetry",
+                    "state":"open",
+                    "labels":["samuel"],
+                }],
                 "open_pull_requests":[],
                 "samuel_branches":[],
             },
