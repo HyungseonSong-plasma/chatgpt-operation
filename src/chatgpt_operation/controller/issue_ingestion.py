@@ -64,15 +64,21 @@ def _upsert_admitted_issue(
     item=AdmittedIssueWork.from_issue(issue)
     existing=updated.get(item.work_id)
     encoded=asdict(item)
+    changed=existing is None
     if existing is not None:
-        if not encoded.get("html_url") and existing.get("html_url"):
-            encoded["html_url"]=existing["html_url"]
-        immutable=("work_id","issue_number","title","body","html_url")
+        immutable=("work_id","issue_number","title","body")
         if any(existing.get(key) != encoded.get(key) for key in immutable):
             raise AdmissionError("admitted issue identity changed")
+        existing_url=str(existing.get("html_url") or "")
+        incoming_url=str(encoded.get("html_url") or "")
+        if existing_url and incoming_url and existing_url != incoming_url:
+            raise AdmissionError("admitted issue identity changed")
+        if existing_url:
+            encoded["html_url"]=existing_url
         encoded["status"]=existing.get("status","admitted")
+        changed=encoded != existing
     updated[item.work_id]=encoded
-    return updated,item.work_id,existing is None
+    return updated,item.work_id,changed
 
 
 def discover_admissible_issues(
