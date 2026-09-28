@@ -312,6 +312,18 @@ def _owned_ready_pr_plan(
         ),
     })
     NativeGitHubCommand.from_plan(plan)
+    existing=state.action_queue.get(plan.idempotency_key)
+    if existing is not None:
+        status=existing.get("status")
+        if status in {
+            ActionLifecycle.COMPLETE.value,
+            ActionLifecycle.REJECTED.value,
+            ActionLifecycle.SUSPENDED.value,
+        }:
+            return None
+        raise ControllerCompositionError(
+            "ready PR merge action already exists in non-terminal lifecycle"
+        )
     return plan
 
 
