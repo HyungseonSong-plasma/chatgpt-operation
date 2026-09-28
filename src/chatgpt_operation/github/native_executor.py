@@ -77,12 +77,12 @@ def native_github_reasoning_contract() -> dict[str, Any]:
                 ),
                 "desired_postcondition": {"merged": True},
             },
-            "dispatch_workflow": {
-                "target_required": ["workflow", "ref"],
-                "target_optional": ["inputs"],
-                "preconditions_required": True,
-                "desired_postcondition_required": True,
-            },
+        },
+        "unqualified_actions": {
+            "dispatch_workflow": (
+                "not exposed to semantic planning until authoritative "
+                "post-dispatch readback can verify the desired postcondition"
+            ),
         },
     }
 
