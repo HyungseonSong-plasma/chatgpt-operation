@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.decisions import DecisionRegistry
@@ -501,12 +502,32 @@ class SemanticPreflightRuntimeTests(unittest.TestCase):
             decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
             reasoning=ReasoningProviderRegistry(provider),
         )
-        cycle=controller.run_cycle(
-            trigger(),
-            comments=[admission(),fully_integrated_state_comment()],
-            pending=[],
-            repository_context=repository_context(),
-        )
+        with (
+            patch(
+                "chatgpt_operation.controller.runtime.conflict_recovery_branch_plan",
+                side_effect=AssertionError(
+                    "terminal close must precede conflict recovery"
+                ),
+            ),
+            patch(
+                "chatgpt_operation.controller.runtime.select_trusted_validation_work",
+                side_effect=AssertionError(
+                    "terminal close must precede trusted validation"
+                ),
+            ),
+            patch(
+                "chatgpt_operation.controller.runtime._owned_ready_pr_plan",
+                side_effect=AssertionError(
+                    "terminal close must precede ready-PR promotion"
+                ),
+            ),
+        ):
+            cycle=controller.run_cycle(
+                trigger(),
+                comments=[admission(),fully_integrated_state_comment()],
+                pending=[],
+                repository_context=repository_context(),
+            )
         self.assertEqual(provider.calls,0)
         self.assertEqual(cycle.selected_work["kind"],"action")
         self.assertEqual(
