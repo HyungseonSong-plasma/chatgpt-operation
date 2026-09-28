@@ -3,6 +3,7 @@ import unittest
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.diagnostic import enqueue_suspended_action
 from chatgpt_operation.controller.preflight import (
+    eligible_acceptance_criteria,
     extract_acceptance_criteria,
     integrated_acceptance_evidence,
     preflight_semantic_plan,
@@ -311,6 +312,41 @@ class SemanticPreflightTests(unittest.TestCase):
         self.assertEqual(
             failure.evidence["evidence_action_ids"],
             [evidence_id],
+        )
+
+    def test_eligible_acceptance_excludes_integrated_criteria(self):
+        current=state()
+        evidence=file_plan(path="src/chatgpt_operation/evidence.py")
+        evidence_id=mark_complete(
+            current,
+            evidence,
+            progress={
+                "criterion":"scheduler is durable",
+                "rationale":"implementation on bounded branch",
+            },
+        )
+        create_pr=create_pr_plan()
+        mark_complete(
+            current,
+            create_pr,
+            details={"after":{"pr_number":99,"head_sha":"c"*40}},
+        )
+        merge_pr=merge_pr_plan()
+        mark_complete(
+            current,
+            merge_pr,
+            details={"after":{"merged":True,"head_sha":"c"*40}},
+        )
+        self.assertEqual(
+            integrated_acceptance_evidence(current)["scheduler is durable"],
+            (evidence_id,),
+        )
+        self.assertEqual(
+            eligible_acceptance_criteria(BODY,current),
+            (
+                "retry handling is deterministic",
+                "closure is backed by evidence",
+            ),
         )
 
     def test_close_accepts_provenance_checked_completion_result_evidence(self):
