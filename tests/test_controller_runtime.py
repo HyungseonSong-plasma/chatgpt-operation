@@ -176,6 +176,48 @@ class TrackedGapProvider:
         }
 
 
+
+class ReuseWorkloadBranchProvider:
+    name = "reuse-workload-branch-fixture"
+
+    def __init__(self):
+        self.calls = 0
+        self.context = None
+        self.task = None
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.context = kwargs["context"]
+        self.task = kwargs["task"]
+        branch = "samuel/issues-24-43-weekly-maintenance"
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":"HyungseonSong-plasma/chatgpt-operation",
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":".github/workflows/samuel-weekly-maintenance.yml",
+                        "branch":branch,
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"name: Samuel Weekly Maintenance\n"},
+                    "commit_message":"Add Samuel weekly maintenance workflow",
+                },
+                "expected_observation":"Weekly maintenance workflow exists on the workload branch.",
+            },
+        }
+
+
 def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
@@ -875,6 +917,88 @@ class ControllerRuntimeTests(unittest.TestCase):
         proposed=decode_state(result.state_write["body"])
         self.assertEqual(proposed.research_id,"issue:24")
         self.assertEqual(proposed.inherited_evidence,state.inherited_evidence)
+
+    def test_completed_workload_branch_is_reused_after_main_advances(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Weekly telemetry maintenance",
+                "body":"Acceptance requires a durable scheduled workflow.",
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"reasoning_required",
+            }
+        }
+        old_head="a"*40
+        new_head="b"*40
+        branch_name="samuel/issues-24-43-weekly-maintenance"
+        state=ResearchState("issue:24","Weekly telemetry maintenance")
+        state.action_queue["branch-create"]={
+            "status":"complete",
+            "plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":"HyungseonSong-plasma/chatgpt-operation",
+                    "resource":"branch",
+                    "action":"create",
+                    "target":{"name":branch_name},
+                    "expected":{"absent":True},
+                    "desired":{"sha":old_head},
+                },
+                "expected_observation":"workload branch exists",
+            },
+        }
+        provider=ReuseWorkloadBranchProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":new_head,
+                "open_issues":[{
+                    "number":24,
+                    "title":"Weekly telemetry maintenance",
+                    "body":"Acceptance requires a durable scheduled workflow.",
+                    "state":"open",
+                    "labels":["samuel"],
+                }],
+                "open_pull_requests":[],
+                "samuel_branches":[{
+                    "head_sha":old_head,
+                    "ref":"refs/heads/"+branch_name,
+                }],
+                "tracked_paths":[
+                    "src/chatgpt_operation/weekly_maintenance.py",
+                ],
+                "workflow_files":[".github/workflows/ci.yml"],
+            },
+        )
+        self.assertEqual(provider.calls,1)
+        self.assertIn("even if main advanced",provider.task)
+        self.assertIn(
+            "Do not create a replacement branch solely because",
+            provider.task,
+        )
+        self.assertEqual(result.selected_work["kind"],"action")
+        plan=result.selected_work["plan"]
+        self.assertEqual(plan["payload"]["resource"],"file")
+        self.assertEqual(plan["payload"]["target"]["branch"],branch_name)
+        self.assertEqual(
+            plan["payload"]["target"]["path"],
+            ".github/workflows/samuel-weekly-maintenance.yml",
+        )
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.DISPATCH_ACTION,
+        )
 
     def test_existing_submission_is_consumed_in_same_root_cycle(self):
         result=controller().run_cycle(
