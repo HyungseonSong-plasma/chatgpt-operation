@@ -3,7 +3,7 @@ import unittest
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.decisions import DecisionRegistry
 from chatgpt_operation.controller.diagnostic import enqueue_suspended_action
-from chatgpt_operation.controller.durable_state import encode_state
+from chatgpt_operation.controller.durable_state import decode_state, encode_state
 from chatgpt_operation.controller.research import ResearchState
 from chatgpt_operation.controller.issue_ingestion import (
     decode_admission_ledger,
@@ -216,6 +216,126 @@ def integrated_state_comment():
     return {"id":8,"body":encode_state(state)}
 
 
+def fully_integrated_state_comment():
+    state=ResearchState("issue:24","weekly maintenance")
+    criteria=[
+        "scheduler is durable",
+        "retry handling is deterministic",
+    ]
+    for index,criterion in enumerate(criteria):
+        plan=ActionPlan.from_dict({
+            "schema_version":1,
+            "research_id":"issue:24",
+            "stage":"implement",
+            "executor":"repository_mutation",
+            "payload":{
+                "schema_version":1,
+                "repository":REPOSITORY,
+                "resource":"file",
+                "action":"create",
+                "target":{
+                    "path":f"src/chatgpt_operation/full_evidence_{index}.py",
+                    "branch":BRANCH,
+                },
+                "expected":{"absent":True},
+                "desired":{"content":"READY=True\n"},
+                "commit_message":f"Add full evidence {index}",
+            },
+            "expected_observation":"acceptance evidence exists",
+        })
+        enqueue_suspended_action(state,plan)
+        action_id=plan.idempotency_key
+        state.action_queue[action_id]["status"]="complete"
+        state.action_queue[action_id]["completion_result"]={
+            "schema_version":1,
+            "research_id":"issue:24",
+            "action_id":action_id,
+            "executor":plan.executor.value,
+            "status":"pass",
+            "observation":"verified",
+            "retryable":False,
+            "details":{},
+        }
+        state.action_queue[action_id]["progress"]={
+            "criterion":criterion,
+            "rationale":"merged criterion evidence",
+        }
+
+    create_pr=ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"issue:24",
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"create_pr",
+            "repository":REPOSITORY,
+            "target":{
+                "head":BRANCH,
+                "base":"main",
+                "title":"complete acceptance work",
+                "body":"complete acceptance work",
+            },
+            "preconditions":{"pr_present":False},
+            "desired_postcondition":{"pr_present":True},
+        },
+        "expected_observation":"reviewable PR exists",
+    })
+    enqueue_suspended_action(state,create_pr)
+    create_id=create_pr.idempotency_key
+    state.action_queue[create_id]["status"]="complete"
+    state.action_queue[create_id]["completion_result"]={
+        "schema_version":1,
+        "research_id":"issue:24",
+        "action_id":create_id,
+        "executor":create_pr.executor.value,
+        "status":"pass",
+        "observation":"verified",
+        "retryable":False,
+        "details":{"after":{"pr_number":99,"head_sha":"c"*40}},
+    }
+
+    merge_pr=ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"issue:24",
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"merge_pr",
+            "repository":REPOSITORY,
+            "target":{"number":99,"expected_head_sha":"c"*40},
+            "desired_postcondition":{"merged":True},
+        },
+        "expected_observation":"reviewed PR is merged",
+    })
+    enqueue_suspended_action(state,merge_pr)
+    merge_id=merge_pr.idempotency_key
+    state.action_queue[merge_id]["status"]="complete"
+    state.action_queue[merge_id]["completion_result"]={
+        "schema_version":1,
+        "research_id":"issue:24",
+        "action_id":merge_id,
+        "executor":merge_pr.executor.value,
+        "status":"pass",
+        "observation":"verified",
+        "retryable":False,
+        "details":{"after":{"merged":True,"head_sha":"c"*40}},
+    }
+    return {"id":8,"body":encode_state(state)}
+
+
+class ForbiddenTerminalReasoningProvider:
+    name="forbidden-terminal-reasoning-fixture"
+
+    def __init__(self):
+        self.calls=0
+
+    def reason(self,**kwargs):
+        self.calls+=1
+        raise AssertionError(
+            "fully integrated terminal acceptance must not invoke semantic reasoning"
+        )
+
+
 class EligibleCriterionProvider:
     name="eligible-criterion-fixture"
 
@@ -375,6 +495,48 @@ class DecisionRepairProvider:
 
 
 class SemanticPreflightRuntimeTests(unittest.TestCase):
+    def test_fully_integrated_acceptance_closes_deterministically_without_reasoning(self):
+        provider=ForbiddenTerminalReasoningProvider()
+        controller=SamuelController(
+            decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
+            reasoning=ReasoningProviderRegistry(provider),
+        )
+        cycle=controller.run_cycle(
+            trigger(),
+            comments=[admission(),fully_integrated_state_comment()],
+            pending=[],
+            repository_context=repository_context(),
+        )
+        self.assertEqual(provider.calls,0)
+        self.assertEqual(cycle.selected_work["kind"],"action")
+        self.assertEqual(
+            cycle.selected_work["reasoning_outcome"],
+            "deterministic_acceptance_completion",
+        )
+        self.assertEqual(
+            cycle.selected_work["plan"]["payload"]["action"],
+            "close_issue",
+        )
+        self.assertEqual(
+            cycle.selected_work["plan"]["payload"]["target"],
+            {"number":24},
+        )
+        self.assertIsNone(cycle.issue_planning)
+        self.assertIsNotNone(cycle.state_write)
+        proposed=decode_state(cycle.state_write["body"])
+        action_id=cycle.selected_work["action_id"]
+        queued=proposed.action_queue[action_id]
+        self.assertEqual(
+            [item["criterion"] for item in queued["completion_claim"]["criteria"]],
+            ["scheduler is durable","retry handling is deterministic"],
+        )
+        self.assertTrue(
+            all(
+                item["evidence_action_ids"]
+                for item in queued["completion_claim"]["criteria"]
+            )
+        )
+
     def test_reasoning_receives_only_controller_eligible_acceptance_criteria(self):
         provider=EligibleCriterionProvider()
         controller=SamuelController(
