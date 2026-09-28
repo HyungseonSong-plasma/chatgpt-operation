@@ -38,6 +38,22 @@ class IssueIngestionTests(unittest.TestCase):
         with self.assertRaisesRegex(AdmissionError,"identity changed"):
             admit_issue([{"id":7,"body":first["body"]}],issue(title="Changed title"))
 
+    def test_enriches_legacy_empty_html_url_without_identity_failure(self):
+        first=admit_issue([],issue())
+        ledger=decode_admission_ledger(first["body"])
+        ledger["issue:100"]["html_url"]=""
+        legacy=ADMISSION_MARKER+"\n~~~json\n"+__import__("json").dumps(
+            {"schema_version":1,"work":ledger},
+            sort_keys=True,separators=(",",":"),
+        )+"\n~~~"
+        second=admit_issue([{"id":7,"body":legacy}],issue())
+        self.assertTrue(second["changed"])
+        enriched=decode_admission_ledger(second["body"])
+        self.assertEqual(
+            enriched["issue:100"]["html_url"],
+            "https://github.com/o/r/issues/100",
+        )
+
     def test_rejects_multiple_authoritative_ledgers(self):
         body=ADMISSION_MARKER+'\n~~~json\n{"schema_version":1,"work":{}}\n~~~'
         with self.assertRaisesRegex(AdmissionError,"multiple authoritative"):

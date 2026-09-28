@@ -1242,6 +1242,7 @@ class SamuelController:
         state = load_state_comment(comments)
         rollover_source_state: ResearchState | None = None
         admitted, admission_comment_id = _admission_state(comments)
+        admission_write = None
         if issue is not None:
             labels = {
                 item.get("name")
@@ -1252,8 +1253,11 @@ class SamuelController:
                 admission = admit_issue(comments, issue)
                 admitted = decode_admission_ledger(admission["body"])
                 admission_comment_id = admission["comment_id"]
+                if admission["changed"]:
+                    admission_write = _admission_write(
+                        admission_comment_id, admitted
+                    )
 
-        admission_write = None
         open_issue_numbers: set[int] = set()
         if repository_context is not None:
             open_issues = repository_context.get("open_issues", [])
