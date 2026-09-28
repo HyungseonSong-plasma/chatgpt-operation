@@ -522,17 +522,24 @@ class SamuelController:
                         candidate,
                         expected_repository=expected_repository,
                     )
-                    try:
-                        authorize_manifest(
-                            manifest,
-                            policy=mutation_policy,
-                            repository=expected_repository or mutation_policy.repository,
+                    if (
+                        manifest.repository == mutation_policy.repository
+                        and (
+                            expected_repository is None
+                            or expected_repository == mutation_policy.repository
                         )
-                    except PolicyError as exc:
-                        raise ValueError(
-                            "repository mutation policy rejected ActionPlan: "
-                            + str(exc)
-                        ) from exc
+                    ):
+                        try:
+                            authorize_manifest(
+                                manifest,
+                                policy=mutation_policy,
+                                repository=mutation_policy.repository,
+                            )
+                        except PolicyError as exc:
+                            raise ValueError(
+                                "repository mutation policy rejected ActionPlan: "
+                                + str(exc)
+                            ) from exc
                 else:
                     raise ValueError(
                         "production semantic provider emitted unsupported executor "
