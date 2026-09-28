@@ -15,7 +15,7 @@ on:
         type: string
 permissions:
   contents: read
-  actions: write
+  actions: read
 jobs:
   acquire:
     runs-on: ubuntu-latest
@@ -88,11 +88,3 @@ jobs:
           name: samuel-evidence-result
           path: samuel-evidence-result.json
           if-no-files-found: error
-
-      - name: Wake Samuel controller after worker completion
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh workflow run samuel-bootstrap.yml --ref main
