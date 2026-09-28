@@ -140,6 +140,32 @@ class MergeRecoveryTests(unittest.TestCase):
             conflict_recovery_branch_plan(state,context(include_recovery=True))
         )
 
+    def test_completed_recovery_branch_action_is_not_replanned_when_context_omits_branch(self):
+        state=state_with_rejected_merge()
+        recovery=conflict_recovery_branch_plan(state,context())
+        self.assertIsNotNone(recovery)
+        enqueue_suspended_action(state,recovery)
+        state.action_queue[recovery.idempotency_key]["status"]="complete"
+        state.action_queue[recovery.idempotency_key]["completion_result"]={
+            "schema_version":1,
+            "research_id":"issue:24",
+            "action_id":recovery.idempotency_key,
+            "executor":"repository_mutation",
+            "status":"pass",
+            "observation":"repository mutation verified by postcondition readback",
+            "retryable":False,
+            "details":{
+                "after":{
+                    "resource":"branch",
+                    "action":"create",
+                    "target":{"name":recovery.payload["target"]["name"]},
+                    "result_identity":MAIN_HEAD,
+                    "status":"PASS",
+                }
+            },
+        }
+        self.assertIsNone(conflict_recovery_branch_plan(state,context()))
+
     def test_current_main_overlap_snapshot_is_exact_and_bounded(self):
         state=state_with_rejected_merge()
         file_plan=ActionPlan.from_dict({
