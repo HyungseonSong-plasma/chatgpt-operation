@@ -230,18 +230,18 @@ class NullThenFilePlanProvider:
                     "resource":"file",
                     "action":"create",
                     "target":{
-                        "path":".github/workflows/samuel-weekly-maintenance.yml",
+                        "path":"src/chatgpt_operation/weekly_schedule.py",
                         "branch":branch,
                     },
                     "expected":{"absent":True},
                     "desired":{
-                        "content":"name: Samuel Weekly Maintenance\non:\n  workflow_dispatch:\n"
+                        "content":"CANONICAL_TIMEZONE=\"UTC\"\n"
                     },
-                    "commit_message":"Add bounded weekly maintenance workflow",
+                    "commit_message":"Add bounded weekly maintenance schedule",
                 },
                 "expected_observation":(
-                    "The missing weekly maintenance workflow exists on the current "
-                    "workload branch."
+                    "The missing code-owned weekly maintenance schedule exists on "
+                    "the current workload branch."
                 ),
             },
         }
@@ -263,7 +263,7 @@ class PolicyRepairProvider:
         path=(
             ".github/workflows/paul-weekly-maintenance.yml"
             if self.calls == 1
-            else ".github/workflows/samuel-paul-weekly-maintenance.yml"
+            else "src/chatgpt_operation/weekly_schedule.py"
         )
         return {
             "operation":"analyze",
@@ -285,10 +285,10 @@ class PolicyRepairProvider:
                         "branch":"samuel/issues-24-43-weekly-maintenance-v2",
                     },
                     "expected":{"absent":True},
-                    "desired":{"content":"name: Samuel Paul weekly maintenance\n"},
-                    "commit_message":"Add scheduled Paul weekly maintenance workflow",
+                    "desired":{"content":"CANONICAL_TIMEZONE=\"UTC\"\n"},
+                    "commit_message":"Add code-owned weekly maintenance schedule",
                 },
-                "expected_observation":"Allowed scheduled workflow exists on workload branch.",
+                "expected_observation":"Allowed code-owned schedule exists on workload branch.",
             },
         }
 
@@ -320,14 +320,14 @@ class ReuseWorkloadBranchProvider:
                     "resource":"file",
                     "action":"create",
                     "target":{
-                        "path":".github/workflows/samuel-weekly-maintenance.yml",
+                        "path":"src/chatgpt_operation/weekly_schedule.py",
                         "branch":branch,
                     },
                     "expected":{"absent":True},
-                    "desired":{"content":"name: Samuel Weekly Maintenance\n"},
-                    "commit_message":"Add Samuel weekly maintenance workflow",
+                    "desired":{"content":"CANONICAL_TIMEZONE=\"UTC\"\n"},
+                    "commit_message":"Add Samuel weekly maintenance schedule",
                 },
-                "expected_observation":"Weekly maintenance workflow exists on the workload branch.",
+                "expected_observation":"Code-owned weekly schedule exists on the workload branch.",
             },
         }
 
@@ -1124,7 +1124,7 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(plan["payload"]["target"]["branch"],branch_name)
         self.assertEqual(
             plan["payload"]["target"]["path"],
-            ".github/workflows/samuel-weekly-maintenance.yml",
+            "src/chatgpt_operation/weekly_schedule.py",
         )
         self.assertEqual(
             result.execution_command.kind,
@@ -1227,9 +1227,13 @@ class ControllerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(provider.calls,2)
         self.assertIsNone(provider.validation_errors[0])
-        self.assertIn("file path denied",provider.validation_errors[1])
+        self.assertIn(
+            "workflow file mutation is unavailable",
+            provider.validation_errors[1],
+        )
         policy=provider.contexts[0]["execution_contracts"]["repository_mutation"]["policy"]
-        self.assertIn(".github/workflows/samuel-*.yml",policy["file_paths"]["allow"])
+        self.assertFalse(policy["runtime_capabilities"]["workflow_file_mutation"])
+        self.assertNotIn(".github/workflows/samuel-*.yml",policy["file_paths"]["allow"])
         self.assertIn(
             "failed-policy-action",
             provider.contexts[0]["durable_state"]["execution_results"],
@@ -1238,7 +1242,7 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(result.selected_work["work_id"],"issue:24")
         self.assertEqual(
             result.selected_work["plan"]["payload"]["target"]["path"],
-            ".github/workflows/samuel-paul-weekly-maintenance.yml",
+            "src/chatgpt_operation/weekly_schedule.py",
         )
         ledger=decode_admission_ledger(result.admission_write["body"])
         self.assertEqual(ledger["issue:24"]["status"],"planned")
