@@ -54,6 +54,21 @@ def extract_acceptance_criteria(body: str) -> tuple[str, ...]:
     return tuple(criteria)
 
 
+def eligible_acceptance_criteria(
+    issue_body: str,
+    state: ResearchState,
+) -> tuple[str, ...]:
+    """Return only acceptance criteria not already integrated through verified work."""
+    criteria=extract_acceptance_criteria(issue_body)
+    if not criteria:
+        return ()
+    integrated=integrated_acceptance_evidence(state)
+    return tuple(
+        criterion for criterion in criteria
+        if criterion not in integrated
+    )
+
+
 def verified_evidence_ids(state: ResearchState) -> set[str]:
     """Return terminal-success evidence already provenance-checked by the lifecycle."""
     result=set()
