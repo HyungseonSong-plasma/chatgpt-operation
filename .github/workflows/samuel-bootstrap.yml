@@ -459,6 +459,7 @@ jobs:
             --command samuel-post-worker-command.json \
             --comments samuel-post-worker-comments.json \
             --repository "$GITHUB_REPOSITORY" \
+            --token-env GH_TOKEN \
             --result samuel-execution-gateway-result.json \
             --state-write-result samuel-post-worker-gateway-state-write.json \
             --action-run-id-result samuel-action-run-id.txt \
