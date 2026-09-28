@@ -947,6 +947,7 @@ class SamuelController:
             plan is None
             and proposal.operation == "analyze"
             and outcome is GuardOutcome.CONTINUE
+            and acceptance_criteria
         ):
             reconciliation_context = copy.deepcopy(context)
             reconciliation_context["completion_reconciliation"] = {
