@@ -40,6 +40,7 @@ jobs:
        github.event.workflow_run.actor.login == 'github-actions[bot]' &&
        startsWith(github.event.workflow_run.head_branch, 'samuel/'))
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     runs-on: ubuntu-24.04
@@ -64,9 +65,11 @@ jobs:
           esac
           test "${#VALIDATION_HEAD_SHA}" -eq 40
           gh api "repos/$GITHUB_REPOSITORY/pulls/$VALIDATION_PR_NUMBER" > trusted-pr.json
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$VALIDATION_PR_NUMBER/files?per_page=100" > trusted-pr-files.json
           python3 - <<'PY'
           import json, os
           pr=json.load(open("trusted-pr.json"))
+          files=json.load(open("trusted-pr-files.json"))
           expected={
               "number":int(os.environ["VALIDATION_PR_NUMBER"]),
               "head_sha":os.environ["VALIDATION_HEAD_SHA"],
@@ -90,8 +93,81 @@ jobs:
               raise SystemExit("trusted validation PR is no longer open against main")
           if observed["actor"] != "github-actions[bot]":
               raise SystemExit("trusted validation dispatch is only for Samuel bot PRs")
+          if pr.get("changed_files") != len(files):
+              raise SystemExit("trusted validation PR changed-file set is truncated")
+          workflow_changes=[
+              item.get("filename")
+              for item in files
+              if str(item.get("filename") or "").startswith(".github/workflows/")
+          ]
+          if workflow_changes:
+              raise SystemExit(
+                  "trusted validation fallback cannot validate workflow mutations: "
+                  + ",".join(str(item) for item in workflow_changes)
+              )
           print("SAMUEL_TRUSTED_PR_IDENTITY=PASS")
           PY
+
+      - name: Verify ordinary CI fallback boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&per_page=100" > ordinary-ci-runs.json
+            python3 - <<'PY' > ordinary-ci-route.txt
+          import json, os
+          runs=json.load(open("ordinary-ci-runs.json")).get("workflow_runs",[])
+          matches=[
+              item for item in runs
+              if item.get("head_sha")==os.environ["VALIDATION_HEAD_SHA"]
+              and item.get("head_branch")==os.environ["VALIDATION_HEAD_BRANCH"]
+          ]
+          if not matches:
+              print("NONE NONE NONE NONE")
+          else:
+              run=max(matches,key=lambda item:int(item.get("id",0)))
+              print(
+                  run.get("id"),
+                  run.get("status"),
+                  run.get("conclusion") or "NONE",
+                  (run.get("actor") or {}).get("login") or "NONE",
+              )
+          PY
+            read -r run_id run_status run_conclusion run_actor < ordinary-ci-route.txt
+            if [ "$run_id" = "NONE" ] || [ "$run_status" != "completed" ]; then
+              sleep 5
+              continue
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" > ordinary-ci-jobs.json
+            CI_RUN_ID="$run_id" CI_RUN_CONCLUSION="$run_conclusion" CI_RUN_ACTOR="$run_actor" python3 - <<'PY'
+          import json, os
+          jobs=json.load(open("ordinary-ci-jobs.json")).get("jobs",[])
+          conclusion=os.environ["CI_RUN_CONCLUSION"]
+          actor=os.environ["CI_RUN_ACTOR"]
+          run_id=os.environ["CI_RUN_ID"]
+          if conclusion=="success":
+              if not jobs:
+                  raise SystemExit(
+                      f"ordinary CI run {run_id} reported success without jobs"
+                  )
+              print("SAMUEL_ORDINARY_CI_ROUTE=SUCCESS")
+          elif (
+              conclusion in {"action_required","failure"}
+              and not jobs
+              and actor=="github-actions[bot]"
+          ):
+              print("SAMUEL_ORDINARY_CI_ROUTE=BLOCKED_NO_JOBS")
+          else:
+              raise SystemExit(
+                  f"ordinary CI is not eligible for trusted fallback: "
+                  f"run={run_id} conclusion={conclusion} jobs={len(jobs)} actor={actor}"
+              )
+          PY
+            exit 0
+          done
+          echo "ordinary CI route did not reach an exact-head terminal state" >&2
+          exit 1
 
       - name: Checkout exact Samuel PR head
         uses: actions/checkout@v4
