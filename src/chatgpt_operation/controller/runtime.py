@@ -482,6 +482,9 @@ class SamuelController:
         context["repository_context"]["scheduler_surfaces"] = (
             _existing_scheduler_surfaces()
         )
+        reasoning_head_sha = str(
+            (repository_context or {}).get("observed_head_sha") or ""
+        ).strip() or None
         mutation_policy = parse_policy(
             load_repository_json("automation/samuel/repository-mutation-policy.json")
         )
@@ -835,12 +838,19 @@ class SamuelController:
                 if outcome is GuardOutcome.REVISION_REQUIRED
                 else "blocked"
             )
+            blocked_state = copy.deepcopy(state)
+            if (
+                reasoning_head_sha is not None
+                and blocked_state.last_reasoning_head_sha != reasoning_head_sha
+            ):
+                blocked_state.last_reasoning_head_sha = reasoning_head_sha
+                blocked_state.revision += 1
             return (
                 ReasoningConsumption(
                     outcome.value,
                     reason,
                     transition_issue_status(work, work_id, lifecycle),
-                    state,
+                    blocked_state,
                     None,
                 ),
                 planning,
@@ -850,6 +860,7 @@ class SamuelController:
                 "provider ActionPlan research identity does not match active work"
             )
         proposed = copy.deepcopy(state)
+        proposed.last_reasoning_head_sha = reasoning_head_sha
         enqueue_suspended_action(proposed, plan)
         return (
             ReasoningConsumption(
@@ -924,6 +935,11 @@ class SamuelController:
 
         admission_write = _admission_write(admission_comment_id, result.work)
         if result.action_id is None:
+            blocker_state_write = None
+            if result.state.revision > working_state.revision:
+                blocker_state_write = state_write_request(
+                    comments, result.state
+                )
             return ControllerCycle(
                 trigger,
                 {
@@ -934,7 +950,7 @@ class SamuelController:
                 },
                 planning,
                 admission_write,
-                None,
+                blocker_state_write,
             )
         queued = result.state.action_queue.get(result.action_id)
         if not isinstance(queued, dict) or not isinstance(queued.get("plan"), dict):
@@ -988,6 +1004,7 @@ class SamuelController:
                 admission_comment_id = admission["comment_id"]
 
         admission_write = None
+        open_issue_numbers: set[int] = set()
         if repository_context is not None:
             open_issues = repository_context.get("open_issues", [])
             if not isinstance(open_issues, list):
@@ -1001,19 +1018,19 @@ class SamuelController:
                     admission_comment_id, admitted
                 )
 
+            open_issue_numbers = {
+                item.get("number")
+                for item in open_issues
+                if isinstance(item, dict)
+                and item.get("state") in {None, "open"}
+                and isinstance(item.get("number"), int)
+            }
             if state is not None and can_rollover_state(state):
                 current = admitted.get(state.research_id)
-                open_numbers = {
-                    item.get("number")
-                    for item in open_issues
-                    if isinstance(item, dict)
-                    and item.get("state") in {None, "open"}
-                    and isinstance(item.get("number"), int)
-                }
                 if (
                     isinstance(current, dict)
                     and isinstance(current.get("issue_number"), int)
-                    and current["issue_number"] not in open_numbers
+                    and current["issue_number"] not in open_issue_numbers
                 ):
                     if current.get("status") != "complete":
                         admitted = transition_issue_status(
@@ -1086,10 +1103,29 @@ class SamuelController:
             and self.reasoning.status().available
         ):
             current = admitted.get(state.research_id)
+            current_status = (
+                current.get("status") if isinstance(current, dict) else None
+            )
+            current_issue_number = (
+                current.get("issue_number") if isinstance(current, dict) else None
+            )
+            observed_head_sha = str(
+                (repository_context or {}).get("observed_head_sha") or ""
+            ).strip() or None
+            semantic_blocker_stale = (
+                current_status in {"blocked", "revision_required"}
+                and isinstance(current_issue_number, int)
+                and current_issue_number in open_issue_numbers
+                and observed_head_sha is not None
+                and state.last_reasoning_head_sha != observed_head_sha
+            )
+            ordinary_continuation = (
+                current_status == "planned"
+                and bool(state.action_queue)
+            )
             if (
                 isinstance(current, dict)
-                and current.get("status") == "planned"
-                and bool(state.action_queue)
+                and (ordinary_continuation or semantic_blocker_stale)
                 and not any(
                     recovery.get("status") in {"open", "needs_evidence"}
                     for recovery in state.diagnostic_recoveries.values()
@@ -1142,14 +1178,21 @@ class SamuelController:
                 inherited_evidence=rollover_evidence(work_id),
             )
         if waiting:
-            if (
-                state is not None
-                and waiting[0] != state.research_id
-                and not can_rollover_state(state)
-            ):
-                raise ControllerCompositionError(
-                    "reasoning work cannot switch workloads before active durable "
-                    "state reaches terminal rollover eligibility"
+            if state is not None and waiting[0] != state.research_id:
+                return ControllerCycle(
+                    trigger,
+                    {
+                        "kind":"blocked",
+                        "work_id":state.research_id,
+                        "reason":(
+                            "active durable workload retains ownership until its "
+                            "repository issue is observed closed"
+                        ),
+                    },
+                    None,
+                    admission_write,
+                    None,
+                    None,
                 )
             return self._consume_waiting_reasoning(
                 trigger=trigger,
@@ -1170,6 +1213,26 @@ class SamuelController:
             admitted_work=admitted,
         )
         payload = _selected_payload(selected)
+        if (
+            state is not None
+            and payload.get("kind") == "issue"
+            and payload.get("work_id") != state.research_id
+        ):
+            return ControllerCycle(
+                trigger,
+                {
+                    "kind":"blocked",
+                    "work_id":state.research_id,
+                    "reason":(
+                        "active durable workload retains ownership until its "
+                        "repository issue is observed closed"
+                    ),
+                },
+                None,
+                admission_write,
+                None,
+                None,
+            )
         if payload["kind"] == "action_intent":
             if state is None:
                 raise ControllerCompositionError(
