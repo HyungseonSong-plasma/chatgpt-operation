@@ -3,6 +3,7 @@ import unittest
 
 from chatgpt_operation.controller.centralization import (
     CentralizationManifestError,
+    centralization_reasoning_contract,
     retirement_candidates,
     validate_manifest,
 )
@@ -42,6 +43,19 @@ def manifest():
 
 
 class CentralizationContractTests(unittest.TestCase):
+    def test_reasoning_contract_exposes_state_without_granting_retirement(self):
+        contract=centralization_reasoning_contract(manifest())
+        self.assertEqual(
+            contract["canonical_repository"],
+            "HyungseonSong-plasma/chatgpt-operation",
+        )
+        self.assertEqual(contract["components"][0]["phase"],"centralized")
+        self.assertEqual(
+            contract["components"][0]["consumers"][0]["status"],
+            "pending_cutover",
+        )
+        self.assertIn("does not authorize consumer deletion",contract["rule"])
+
     def test_centralized_component_is_not_yet_a_retirement_candidate(self):
         raw=validate_manifest(manifest())
         self.assertEqual(
