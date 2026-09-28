@@ -303,6 +303,35 @@ jobs:
             --token-env GH_TOKEN \
             --result samuel-gateway-state-persist-result.json
 
+      - name: Arm bounded worker completion wake
+        if: ${{ hashFiles('samuel-execution-gateway-result.json') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(python3 -c 'import json; print(json.load(open("samuel-execution-gateway-result.json")).get("status",""))')"
+          if [ "$status" != "receipt" ]; then
+            echo "SAMUEL_WORKER_WAKE=NOT_REQUIRED gateway_status=$status"
+            exit 0
+          fi
+          worker_run_id="$(python3 - <<'PY'
+          import json
+          raw=json.load(open("samuel-execution-gateway-result.json"))
+          receipt=raw.get("receipt")
+          if not isinstance(receipt,dict):
+              raise SystemExit("SAMUEL_WORKER_WAKE=HARD_STOP receipt missing")
+          value=receipt.get("workflow_run_id")
+          if not isinstance(value,int) or isinstance(value,bool) or value < 1:
+              raise SystemExit("SAMUEL_WORKER_WAKE=HARD_STOP invalid worker run id")
+          print(value)
+          PY
+          )"
+          gh workflow run samuel-worker-completion-wake.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f worker_run_id="$worker_run_id"
+          echo "SAMUEL_WORKER_WAKE=ARMED worker_run_id=$worker_run_id"
+
       - name: Persist terminal controller artifact
         if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
         env:
