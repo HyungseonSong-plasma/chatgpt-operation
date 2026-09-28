@@ -328,6 +328,12 @@ jobs:
               "diagnostic":"samuel-diagnostic-run-id.txt",
               "corrective":"samuel-corrective-run-id.txt",
           }
+          if surface=="trusted_validation":
+              print(
+                  "SAMUEL_WORKER_ID=NOT_REQUIRED surface=trusted_validation "
+                  "validation workflow publishes exact-head status and wakes controller"
+              )
+              raise SystemExit(0)
           output=outputs.get(surface)
           if output is None:
               raise SystemExit(
