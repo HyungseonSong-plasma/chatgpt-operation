@@ -1188,7 +1188,13 @@ class ControllerRuntimeTests(unittest.TestCase):
             repository_context={
                 "repository":"HyungseonSong-plasma/chatgpt-operation",
                 "observed_head_sha":"b"*40,
-                "open_issues":[repository_issue(24)],
+                "open_issues":[{
+                    "number":24,
+                    "title":"Telemetry",
+                    "body":"continue active work",
+                    "state":"open",
+                    "labels":["samuel"],
+                }],
                 "open_pull_requests":[],
                 "samuel_branches":[],
                 "tracked_paths":[],
