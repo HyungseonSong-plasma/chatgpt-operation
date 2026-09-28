@@ -2,7 +2,7 @@ from __future__ import annotations
 import base64, os, unittest
 from unittest.mock import patch
 from chatgpt_operation.cli import main as cli_main
-from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy
+from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy,repository_mutation_reasoning_contract
 from chatgpt_operation.source import canonical_github_repository
 
 OLD="a"*40; NEW="b"*40
@@ -64,6 +64,22 @@ class Fake:
 
 class Tests(unittest.TestCase):
     def engine(self,f=None,p=None,run=None): return Engine(f or Fake(),repository="o/r",policy=p or pol(),current_run_id=run)
+    def test_reasoning_contract_matches_closed_world_manifest(self):
+        contract=repository_mutation_reasoning_contract()
+        payload=contract["payload"]
+        self.assertFalse(payload["additional_fields"])
+        self.assertEqual(
+            set(payload["required_fields"]),
+            {"schema_version","repository","resource","action","target","expected","desired"},
+        )
+        self.assertEqual(
+            set(payload["allowed_fields"]),
+            {"schema_version","repository","resource","action","target","expected","desired","commit_message"},
+        )
+        branch=contract["branch_create"]
+        self.assertEqual(branch["target_exactly"],["name"])
+        self.assertEqual(branch["expected"],{"absent":True})
+
     def test_closed_world(self):
         with self.assertRaises(ManifestError):
             parse_manifest({"schema_version":1,"repository":"o/r","resource":"issue","action":"update","target":{},"expected":{},"desired":{}})
