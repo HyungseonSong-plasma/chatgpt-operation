@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   test:
@@ -59,3 +60,16 @@ jobs:
           python3 -m chatgpt_operation.cli controller throughput-self-test
           python3 -m chatgpt_operation.cli controller state-refresh --help
           python3 -m chatgpt_operation.cli controller state-refresh-self-test
+      - name: Publish legacy CI compatibility status
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_STATUS_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$CI_STATUS_SHA"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$CI_STATUS_SHA" \
+            -f state=success \
+            -f context='samuel/ci-compat' \
+            -f description='CI workflow completed successfully' >/dev/null
