@@ -55,14 +55,21 @@ def extract_acceptance_criteria(body: str) -> tuple[str, ...]:
 
 
 def verified_evidence_ids(state: ResearchState) -> set[str]:
+    """Return terminal-success evidence already provenance-checked by the lifecycle."""
     result=set()
     for action_id,item in state.action_queue.items():
         if not isinstance(item,dict) or item.get("status")!="complete":
             continue
-        execution=state.execution_results.get(action_id)
-        if not isinstance(execution,dict):
+        completion=item.get("completion_result")
+        if (
+            isinstance(completion,dict)
+            and completion.get("status") in {"pass","noop"}
+        ):
+            result.add(action_id)
             continue
-        if execution.get("status") in {"pass","noop"}:
+        # Legacy durable states stored terminal results separately.
+        execution=state.execution_results.get(action_id)
+        if isinstance(execution,dict) and execution.get("status") in {"pass","noop"}:
             result.add(action_id)
     for item in state.inherited_evidence:
         if not isinstance(item,dict):
@@ -73,6 +80,104 @@ def verified_evidence_ids(state: ResearchState) -> set[str]:
         if isinstance(source,str) and source:
             result.add(source)
     return result
+
+
+def integrated_acceptance_evidence(
+    state: ResearchState,
+) -> dict[str, tuple[str, ...]]:
+    """Map acceptance criteria to progress evidence integrated through a merged PR.
+
+    A progress claim may legitimately need several actions while a branch is under
+    construction. It becomes durable integrated evidence only after that workload
+    branch is carried by a provenance-verified create_pr action whose PR is later
+    merged by a provenance-verified merge_pr action.
+    """
+    verified=verified_evidence_ids(state)
+    merged_pr_numbers:set[int]=set()
+
+    for action_id,item in state.action_queue.items():
+        if action_id not in verified or not isinstance(item,dict):
+            continue
+        plan=item.get("plan")
+        payload=plan.get("payload") if isinstance(plan,dict) else None
+        target=payload.get("target") if isinstance(payload,dict) else None
+        completion=item.get("completion_result")
+        details=completion.get("details") if isinstance(completion,dict) else None
+        after=details.get("after") if isinstance(details,dict) else None
+        if (
+            isinstance(payload,dict)
+            and payload.get("action")=="merge_pr"
+            and isinstance(target,dict)
+            and isinstance(target.get("number"),int)
+            and isinstance(after,dict)
+            and after.get("merged") is True
+        ):
+            merged_pr_numbers.add(target["number"])
+
+    merged_heads:set[str]=set()
+    for action_id,item in state.action_queue.items():
+        if action_id not in verified or not isinstance(item,dict):
+            continue
+        plan=item.get("plan")
+        payload=plan.get("payload") if isinstance(plan,dict) else None
+        target=payload.get("target") if isinstance(payload,dict) else None
+        completion=item.get("completion_result")
+        details=completion.get("details") if isinstance(completion,dict) else None
+        after=details.get("after") if isinstance(details,dict) else None
+        if (
+            isinstance(payload,dict)
+            and payload.get("action")=="create_pr"
+            and isinstance(target,dict)
+            and isinstance(after,dict)
+            and after.get("pr_number") in merged_pr_numbers
+        ):
+            head=target.get("head")
+            if isinstance(head,str) and head:
+                merged_heads.add(head)
+
+    by_criterion:dict[str,set[str]]={}
+    for action_id,item in state.action_queue.items():
+        if action_id not in verified or not isinstance(item,dict):
+            continue
+        progress=item.get("progress")
+        if not isinstance(progress,dict):
+            continue
+        criterion=progress.get("criterion")
+        if not isinstance(criterion,str) or not criterion:
+            continue
+        plan=item.get("plan")
+        payload=plan.get("payload") if isinstance(plan,dict) else None
+        target=payload.get("target") if isinstance(payload,dict) else None
+        if not isinstance(payload,dict) or not isinstance(target,dict):
+            continue
+
+        action=payload.get("action")
+        resource=payload.get("resource")
+        integrated=False
+        if payload.get("executor") is not None:
+            # Executor lives on the plan, not the payload. This branch is retained
+            # only for compatibility with historical serialized plans.
+            pass
+        if action=="create_pr":
+            completion=item.get("completion_result")
+            details=completion.get("details") if isinstance(completion,dict) else None
+            after=details.get("after") if isinstance(details,dict) else None
+            integrated=isinstance(after,dict) and after.get("pr_number") in merged_pr_numbers
+        elif action=="merge_pr":
+            integrated=target.get("number") in merged_pr_numbers
+        elif resource=="file":
+            integrated=target.get("branch") in merged_heads
+        elif resource=="branch" and action=="create":
+            # Creating a branch is preparation, not acceptance evidence by itself.
+            integrated=False
+
+        if integrated:
+            by_criterion.setdefault(criterion,set()).add(action_id)
+
+    return {
+        criterion:tuple(sorted(action_ids))
+        for criterion,action_ids in sorted(by_criterion.items())
+    }
 
 
 def _samuel_branch_heads(repository_context: dict[str, Any]) -> dict[str,str]:
@@ -310,5 +415,19 @@ def preflight_semantic_plan(
             "unknown_acceptance_criterion",
             {"criterion":criterion,"acceptance_criteria":list(criteria)},
             "copy one exact ## Acceptance bullet into progress.criterion",
+        )
+    integrated=integrated_acceptance_evidence(state)
+    if criterion in integrated:
+        return PreflightFailure(
+            "acceptance_already_integrated",
+            {
+                "criterion":criterion,
+                "evidence_action_ids":list(integrated[criterion]),
+            },
+            (
+                "do not re-prove an acceptance criterion already integrated through "
+                "a verified merged PR; choose the next unmet criterion or close the "
+                "issue with a complete evidence claim"
+            ),
         )
     return None
