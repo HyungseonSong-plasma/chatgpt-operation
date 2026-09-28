@@ -82,9 +82,15 @@ jobs:
               ["git","ls-remote","--heads","origin","refs/heads/samuel/*"],
               check=False,capture_output=True,text=True,
           ).stdout.splitlines()
+          branch_limit=200
+          if len(refs)>branch_limit:
+              raise SystemExit(
+                  "SAMUEL_CONTEXT=HARD_STOP samuel branch inventory exceeds bound "
+                  +str(branch_limit)
+              )
           branches=[
               {"head_sha":line.split()[0],"ref":line.split()[1]}
-              for line in refs[:20] if len(line.split())==2
+              for line in refs if len(line.split())==2
           ]
           tracked=subprocess.run(
               ["git","ls-files"],
