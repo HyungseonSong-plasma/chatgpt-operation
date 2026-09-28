@@ -516,8 +516,11 @@ class SamuelController:
                     "Do not repeat completed actions. When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
                     "named gap in implementation_gaps. Follow execution_contracts "
-                    "exactly. Prefer the smallest verifiable next step; return null "
-                    "only when no safe executable step exists."
+                    "exactly. For github_native plans, payload must contain only "
+                    "fields listed in execution_contracts.github_native.payload."
+                    "allowed_fields; action-specific data belongs under target. "
+                    "Prefer the smallest verifiable next step; return null only "
+                    "when no safe executable step exists."
                 ),
                 context=context,
             ),
