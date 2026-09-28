@@ -58,5 +58,14 @@ component phase is `retirement_ready` and that consumer is
 The initial canonical implementation was promoted from
 `HyungseonSong-plasma/moose-test-repo@3c6e91a039600ceb4c152c8fd787e03160ad7c72`.
 
-The next migration step is consumer cutover. It must establish an exact-revision
-distribution/import mechanism before any duplicate module is removed.
+Consumer compatibility is now verified against the exact canonical revision
+`chatgpt-operation@d7e5d16e1ed1b9d3561c25cc3b2f0d3533de4a87` by
+`moose-test-repo` PR #352, merged as
+`e279affc26d2563987d78fc4cd1915b4e0a5eeb3`.
+
+The migration is therefore in `consumer_cutover`, not `retirement_ready`.
+The remaining work is to establish an exact-revision distribution/import
+mechanism and move consumer import edges off the local duplicate modules.
+Positive `remaining_local_imports` values are conservative deletion blockers
+until that dedicated import census reaches zero. No duplicate module may be
+removed before then.

@@ -232,6 +232,8 @@ def validate_manifest(raw: dict[str, Any]) -> dict[str, Any]:
                 "compatibility_verified",
                 "consumer_ci_success",
                 "remaining_local_imports",
+                "consumer_revision",
+                "compatibility_pull_request",
             }
             if set(verification) != required_verification:
                 raise CentralizationManifestError(
@@ -241,6 +243,8 @@ def validate_manifest(raw: dict[str, Any]) -> dict[str, Any]:
             compatibility_verified = verification["compatibility_verified"]
             consumer_ci_success = verification["consumer_ci_success"]
             remaining_local_imports = verification["remaining_local_imports"]
+            consumer_revision = verification["consumer_revision"]
+            compatibility_pull_request = verification["compatibility_pull_request"]
             if not isinstance(compatibility_verified, bool):
                 raise CentralizationManifestError(
                     f"{cwhere}.verification.compatibility_verified must be bool"
@@ -256,6 +260,31 @@ def validate_manifest(raw: dict[str, Any]) -> dict[str, Any]:
                     f"{cwhere}.verification.remaining_local_imports "
                     "must be a non-negative integer"
                 )
+            if consumer_revision is not None:
+                consumer_revision = _nonempty(
+                    consumer_revision,
+                    f"{cwhere}.verification.consumer_revision",
+                ).lower()
+                if not _SHA.fullmatch(consumer_revision):
+                    raise CentralizationManifestError(
+                        f"{cwhere}.verification.consumer_revision "
+                        "must be lowercase 40-hex"
+                    )
+            if compatibility_pull_request is not None and (
+                not isinstance(compatibility_pull_request, int)
+                or isinstance(compatibility_pull_request, bool)
+                or compatibility_pull_request < 1
+            ):
+                raise CentralizationManifestError(
+                    f"{cwhere}.verification.compatibility_pull_request "
+                    "must be a positive integer"
+                )
+            if compatibility_verified:
+                if consumer_revision is None or compatibility_pull_request is None:
+                    raise CentralizationManifestError(
+                        f"{cwhere} compatibility verification requires exact "
+                        "consumer_revision and compatibility_pull_request"
+                    )
             if status in {"cutover_verified", "retired"}:
                 if canonical_revision is None:
                     raise CentralizationManifestError(
@@ -285,6 +314,8 @@ def validate_manifest(raw: dict[str, Any]) -> dict[str, Any]:
                         "compatibility_verified": compatibility_verified,
                         "consumer_ci_success": consumer_ci_success,
                         "remaining_local_imports": remaining_local_imports,
+                        "consumer_revision": consumer_revision,
+                        "compatibility_pull_request": compatibility_pull_request,
                     },
                 }
             )
