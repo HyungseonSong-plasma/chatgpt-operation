@@ -326,6 +326,59 @@ def apply_action_rejection(current: ResearchState, result) -> ResearchState:
     return proposed
 
 
+def _repository_policy_replan_failure(raw: dict[str, Any]) -> bool:
+    """Return whether failure proves the ActionPlan is policy-invalid and must be replanned."""
+    if not isinstance(raw, dict):
+        return False
+    details=raw.get("details")
+    return (
+        raw.get("status")=="failed"
+        and raw.get("executor")=="repository_mutation"
+        and isinstance(details,dict)
+        and details.get("error_type") in {"PolicyError","ManifestError"}
+        and details.get("governance_retryable") is not True
+    )
+
+
+def retire_orphaned_repository_policy_failures(
+    current: ResearchState,
+) -> ResearchState | None:
+    """Migrate legacy suspended policy-invalid actions into auditable rejected actions.
+
+    Older failure governance suspended non-retryable repository PolicyError results
+    without opening a diagnostic recovery. Such actions have no legal next step:
+    replaying the same plan would deterministically fail again, while diagnostics
+    cannot repair a policy-invalid path. Retire only this narrow, evidence-proven
+    legacy shape so the active workload can replan.
+    """
+    import copy
+    action_ids=[]
+    for action_id,item in sorted(current.action_queue.items()):
+        if not isinstance(item,dict) or item.get("status")!="suspended":
+            continue
+        if action_id in current.diagnostic_recoveries:
+            continue
+        result=current.execution_results.get(action_id)
+        if not _repository_policy_replan_failure(result):
+            continue
+        plan=item.get("plan")
+        if not isinstance(plan,dict) or plan.get("executor")!="repository_mutation":
+            continue
+        action_ids.append(action_id)
+    if not action_ids:
+        return None
+    proposed=copy.deepcopy(current)
+    for action_id in action_ids:
+        item=proposed.action_queue[action_id]
+        item["status"]="rejected"
+        item["rejection_reason"]="deterministic_repository_policy_replan"
+        item["rejection_result"]=copy.deepcopy(
+            proposed.execution_results[action_id]
+        )
+    proposed.revision=current.revision+1
+    return proposed
+
+
 def apply_action_failure(current: ResearchState, result) -> ResearchState:
     """Record typed failure; repeated identical retryable failure opens diagnosis."""
     from chatgpt_operation.controller.execution import (
@@ -380,7 +433,18 @@ def apply_action_failure(current: ResearchState, result) -> ResearchState:
     proposed.execution_results[result.action_id]["details"][
         "governance_retryable"
     ] = effective_retryable
-    if repeated and effective_retryable:
+    deterministic_policy_replan = (
+        result.executor.value == "repository_mutation"
+        and result.details.get("error_type") in {"PolicyError","ManifestError"}
+        and not effective_retryable
+    )
+    if deterministic_policy_replan:
+        queued=proposed.action_queue[result.action_id]
+        queued["status"]="rejected"
+        queued["rejection_reason"]="deterministic_repository_policy_replan"
+        queued["rejection_result"]=result.to_dict()
+        proposed.revision += 1
+    elif repeated and effective_retryable:
         open_diagnostic_recovery(proposed, result, fingerprint=(fingerprint,))
         plan = ActionPlan.from_dict(proposed.action_queue[result.action_id]["plan"])
         attach_source_plan(proposed, result.action_id, plan)
