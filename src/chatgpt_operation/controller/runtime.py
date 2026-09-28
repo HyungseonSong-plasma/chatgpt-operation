@@ -551,6 +551,45 @@ class SamuelController:
         outcome, plan, reason = compile_guarded_action(
             proposal, planned.envelope
         )
+        reconciliation_attempted = False
+        if (
+            plan is None
+            and proposal.operation == "analyze"
+            and outcome is GuardOutcome.CONTINUE
+        ):
+            reconciliation_attempted = True
+            reconciliation_context = copy.deepcopy(context)
+            reconciliation_context["prior_analysis"] = {
+                "operation": proposal.operation,
+                "action_plan": None,
+                "result": "no_executable_action_produced",
+            }
+            proposal = StructuredReasoningNode(
+                parser=parse_provider_proposal,
+                max_attempts=2,
+            ).run(
+                ReasoningRequest(
+                    task=(
+                        "Completion reconciliation for the still-open workload "
+                        f"{work_id}. A prior valid analysis returned no ActionPlan, "
+                        "which is not an idle or terminal outcome. Re-evaluate every "
+                        "Issue acceptance requirement against durable execution history, "
+                        "inherited_evidence, repository_context.tracked_paths, "
+                        "workflow_files, open_pull_requests, and samuel_branches. "
+                        "If any bounded executable step can advance an unmet criterion, "
+                        "return exactly one smallest valid ActionPlan using "
+                        "execution_contracts. Do not repeat completed actions. "
+                        "If no safe executable step exists, return action_plan=null; "
+                        "the deterministic controller will record the workload blocked "
+                        "rather than silently idling."
+                    ),
+                    context=reconciliation_context,
+                ),
+                self.reasoning.runner(),
+            )
+            outcome, plan, reason = compile_guarded_action(
+                proposal, planned.envelope
+            )
         repository_audit = context.get("repository_context") or {}
         durable_audit = context.get("durable_state") or {}
         planning = {
@@ -573,6 +612,7 @@ class SamuelController:
                 "revision_requested": proposal.revision_requested,
             },
             "action_plan": proposal.action_plan,
+            "reconciliation_attempted": reconciliation_attempted,
             "reasoning_context": {
                 "goal": context.get("goal"),
                 "locked_decisions": context.get("locked_decisions", []),
@@ -637,9 +677,12 @@ class SamuelController:
             ):
                 return (
                     ReasoningConsumption(
-                        "reasoning_required",
-                        "provider analysis produced no executable ActionPlan",
-                        work,
+                        "blocked",
+                        (
+                            "completion reconciliation produced no safe executable "
+                            "ActionPlan for an open workload"
+                        ),
+                        transition_issue_status(work, work_id, "blocked"),
                         state,
                         None,
                     ),
@@ -739,6 +782,11 @@ class SamuelController:
 
         admission_write = _admission_write(admission_comment_id, result.work)
         if result.action_id is None:
+            initial_state_write = None
+            if state is None and working_state.inherited_evidence:
+                initial_state_write = state_write_request(
+                    comments, working_state
+                )
             return ControllerCycle(
                 trigger,
                 {
@@ -749,7 +797,7 @@ class SamuelController:
                 },
                 planning,
                 admission_write,
-                None,
+                initial_state_write,
             )
         queued = result.state.action_queue.get(result.action_id)
         if not isinstance(queued, dict) or not isinstance(queued.get("plan"), dict):
