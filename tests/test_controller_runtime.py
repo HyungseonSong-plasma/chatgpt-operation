@@ -469,42 +469,21 @@ def native_action_plan_for(number):
     return {
         "schema_version":1,
         "research_id":f"issue:{number}",
-        "stage":"implement",
+        "stage":"execute",
         "executor":"github_native",
         "payload":{
-            "action":"comment_issue",
+            "action":"close_issue",
             "repository":"HyungseonSong-plasma/chatgpt-operation",
-            "target":{
-                "number":number,
-                "body":f"<!-- composition-root-test-{number} -->",
-                "marker":f"<!-- composition-root-test-{number} -->",
-            },
-            "preconditions":{"issue_state":"open","comment_present":False},
-            "desired_postcondition":{"comment_present":True},
+            "target":{"number":number},
+            "preconditions":{"issue_state":"open"},
+            "desired_postcondition":{"issue_state":"closed"},
         },
-        "expected_observation":f"Issue #{number} contains its test marker",
+        "expected_observation":f"Issue #{number} is closed",
     }
 
 
 def native_action_plan():
-    return {
-        "schema_version":1,
-        "research_id":"issue:44",
-        "stage":"implement",
-        "executor":"github_native",
-        "payload":{
-            "action":"comment_issue",
-            "repository":"HyungseonSong-plasma/chatgpt-operation",
-            "target":{
-                "number":44,
-                "body":"<!-- composition-root-test -->",
-                "marker":"<!-- composition-root-test -->",
-            },
-            "preconditions":{"issue_state":"open","comment_present":False},
-            "desired_postcondition":{"comment_present":True},
-        },
-        "expected_observation":"Issue #44 contains composition-root-test marker",
-    }
+    return native_action_plan_for(44)
 
 
 class ControllerRuntimeTests(unittest.TestCase):
@@ -701,7 +680,7 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(provider.calls,1)
         self.assertEqual(
             result.selected_work["plan"]["payload"]["action"],
-            "comment_issue",
+            "close_issue",
         )
 
     def test_terminal_closed_workload_rolls_over_to_next_admitted_issue(self):
@@ -1479,7 +1458,7 @@ class ControllerRuntimeTests(unittest.TestCase):
                 "open_issues":[{
                     "number":24,
                     "title":"Weekly telemetry maintenance",
-                    "body":"Use an equivalent durable scheduler.",
+                    "body":"Use GitHub Actions scheduled workflows or an equivalent durable scheduler.",
                     "state":"open",
                     "labels":["samuel"],
                 }],
