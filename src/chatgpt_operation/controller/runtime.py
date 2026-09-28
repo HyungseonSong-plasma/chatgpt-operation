@@ -46,7 +46,10 @@ from .reasoning_consumption import (
 )
 from .reasoning_provider import ReasoningProviderRegistry
 from .research import ResearchState
-from chatgpt_operation.github.native_executor import NativeGitHubCommand
+from chatgpt_operation.github.native_executor import (
+    NativeGitHubCommand,
+    native_github_reasoning_contract,
+)
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
 
 
@@ -464,35 +467,7 @@ class SamuelController:
                     "update/delete require exact current file SHA; create requires absent=true"
                 ),
             },
-            "github_native": {
-                "rule": "mutation is read-before/write/read-after and postcondition verified",
-                "create_pr": {
-                    "target": ["head", "base", "title", "body"],
-                    "preconditions": {"pr_present": False},
-                    "desired_postcondition": {"pr_present": True},
-                },
-                "close_issue": {
-                    "target": ["number"],
-                    "preconditions": {"issue_state": "open"},
-                    "desired_postcondition": {"issue_state": "closed"},
-                },
-                "comment_issue": {
-                    "target": ["number", "body", "marker"],
-                    "precondition_keys": ["issue_state", "comment_present"],
-                    "desired_postcondition": {"comment_present": True},
-                },
-                "merge_pr": {
-                    "target_required": ["number", "expected_head_sha"],
-                    "preconditions": (
-                        "optional in proposal; deterministic executor always enforces "
-                        "exact head_sha, mergeable=true, and ci=success"
-                    ),
-                    "desired_postcondition": {"merged": True},
-                },
-                "dispatch_workflow": {
-                    "target_required": ["workflow", "ref"],
-                },
-            },
+            "github_native": native_github_reasoning_contract(),
         }
         def parse_provider_proposal(
             raw: dict[str, Any],
@@ -541,8 +516,11 @@ class SamuelController:
                     "Do not repeat completed actions. When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
                     "named gap in implementation_gaps. Follow execution_contracts "
-                    "exactly. Prefer the smallest verifiable next step; return null "
-                    "only when no safe executable step exists."
+                    "exactly. For github_native plans, payload must contain only "
+                    "fields listed in execution_contracts.github_native.payload."
+                    "allowed_fields; action-specific data belongs under target. "
+                    "Prefer the smallest verifiable next step; return null only "
+                    "when no safe executable step exists."
                 ),
                 context=context,
             ),
