@@ -65,6 +65,100 @@ class GatewayResult:
         }
 
 
+def terminal_gateway_result_from_completed_run(
+    gateway_result: dict[str, Any],
+    completed_run: dict[str, Any],
+) -> GatewayResult:
+    """Bind a completed exact worker run to a typed terminal gateway result.
+
+    Fresh dispatch commands return a bound RECEIPT before the worker is terminal.
+    Once the trusted Bootstrap has polled that exact run to completion, this
+    function performs the deterministic receipt -> terminal transition required
+    by terminal ingestion. Existing TERMINAL results are revalidated and
+    normalized through the same boundary.
+    """
+    required = {
+        "schema_version", "surface", "action_id", "status",
+        "receipt", "observation", "terminal_run_id",
+    }
+    if not isinstance(gateway_result, dict) or set(gateway_result) != required:
+        raise ExecutionGatewayError("invalid gateway result schema")
+    if gateway_result.get("schema_version") != 1:
+        raise ExecutionGatewayError("unsupported gateway result schema_version")
+
+    surface = gateway_result.get("surface")
+    action_id = gateway_result.get("action_id")
+    if surface not in {"action", "evidence", "diagnostic", "corrective"}:
+        raise ExecutionGatewayError("gateway result has unsupported surface")
+    if not isinstance(action_id, str) or not action_id:
+        raise ExecutionGatewayError("gateway result action_id is missing")
+    if not isinstance(completed_run, dict):
+        raise ExecutionGatewayError("completed worker run must be an object")
+
+    run_id = completed_run.get("id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+        raise ExecutionGatewayError("completed worker run id is invalid")
+    if completed_run.get("status") != "completed":
+        raise ExecutionGatewayError("worker run is not completed")
+    if completed_run.get("event") != "workflow_dispatch":
+        raise ExecutionGatewayError("worker run event is not workflow_dispatch")
+
+    status = gateway_result.get("status")
+    receipt = gateway_result.get("receipt")
+    if status == GatewayStatus.RECEIPT.value:
+        if not isinstance(receipt, dict):
+            raise ExecutionGatewayError("receipt gateway result is missing receipt")
+        if receipt.get("workflow_run_id") != run_id:
+            raise ExecutionGatewayError("worker run id does not match bound receipt")
+        workflow_id = receipt.get("workflow_id")
+        observed_workflow_id = completed_run.get("workflow_id")
+        if (
+            isinstance(workflow_id, int)
+            and isinstance(observed_workflow_id, int)
+            and workflow_id != observed_workflow_id
+        ):
+            raise ExecutionGatewayError("worker workflow id does not match bound receipt")
+        workflow_path = receipt.get("workflow_path")
+        observed_path = completed_run.get("path")
+        if (
+            isinstance(workflow_path, str)
+            and workflow_path
+            and isinstance(observed_path, str)
+            and observed_path
+            and workflow_path != observed_path
+        ):
+            raise ExecutionGatewayError("worker workflow path does not match bound receipt")
+    elif status == GatewayStatus.TERMINAL.value:
+        if gateway_result.get("terminal_run_id") != run_id:
+            raise ExecutionGatewayError("terminal gateway run id changed")
+    else:
+        raise ExecutionGatewayError(
+            "only receipt or terminal gateway results can bind completed workers"
+        )
+
+    observation = {
+        "status": "MATCHED_TERMINAL",
+        "matched_run_ids": [run_id],
+        "run_status": "completed",
+        "conclusion": str(completed_run.get("conclusion") or ""),
+    }
+    head_sha = completed_run.get("head_sha")
+    if isinstance(head_sha, str) and head_sha:
+        observation["head_sha"] = head_sha
+    path = completed_run.get("path")
+    if isinstance(path, str) and path:
+        observation["workflow_path"] = path
+
+    return GatewayResult(
+        surface=surface,
+        action_id=action_id,
+        status=GatewayStatus.TERMINAL,
+        receipt=receipt if isinstance(receipt, dict) else None,
+        observation=observation,
+        terminal_run_id=run_id,
+    )
+
+
 class ExecutionGateway:
     """Only runtime boundary allowed to dispatch or observe controller workflows."""
 
