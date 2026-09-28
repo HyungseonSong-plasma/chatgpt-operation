@@ -2,7 +2,7 @@ from __future__ import annotations
 import base64, os, unittest
 from unittest.mock import patch
 from chatgpt_operation.cli import main as cli_main
-from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy,repository_mutation_reasoning_contract
+from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy,repository_mutation_reasoning_contract,validate_manifest_policy
 from chatgpt_operation.source import canonical_github_repository
 
 OLD="a"*40; NEW="b"*40
@@ -83,6 +83,26 @@ class Tests(unittest.TestCase):
     def test_closed_world(self):
         with self.assertRaises(ManifestError):
             parse_manifest({"schema_version":1,"repository":"o/r","resource":"issue","action":"update","target":{},"expected":{},"desired":{}})
+    def test_policy_preflight_matches_engine_path_authority(self):
+        policy=pol(
+            file_allow=[".github/workflows/samuel-*.yml"],
+            file_deny=[".github/workflows/samuel-native-github.yml"],
+            branch_allow=["samuel/*"],
+        )
+        allowed=mf(
+            "create",
+            path=".github/workflows/samuel-weekly-maintenance.yml",
+            branch="samuel/issue-24",
+        )
+        validate_manifest_policy(allowed,policy,repository="o/r")
+        denied=mf(
+            "create",
+            path=".github/workflows/paul-weekly-maintenance.yml",
+            branch="samuel/issue-24",
+        )
+        with self.assertRaisesRegex(PolicyError,"file path denied"):
+            validate_manifest_policy(denied,policy,repository="o/r")
+
     def test_path_policy(self):
         f=Fake(); e=self.engine(f,pol(file_allow=["**"],file_deny=["docs/private/**"]))
         with self.assertRaises(PolicyError): e.execute(mf("create",path="docs/private/x.txt"))
