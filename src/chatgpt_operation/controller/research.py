@@ -149,6 +149,7 @@ class ResearchState:
     diagnostic_recoveries: dict[str, dict[str, Any]] = field(default_factory=dict)
     action_queue: dict[str, dict[str, Any]] = field(default_factory=dict)
     revision: int = 0
+    inherited_evidence: list[dict[str, Any]] = field(default_factory=list)
 
     def transition(self, target: ResearchStage, *, execution_evidence: bool = False) -> None:
         if target not in ALLOWED_TRANSITIONS[self.stage]:
@@ -194,6 +195,7 @@ class ResearchState:
             diagnostic_recoveries=dict(raw.get("diagnostic_recoveries", {})),
             action_queue=dict(raw.get("action_queue", {})),
             revision=int(raw.get("revision", 0)),
+            inherited_evidence=list(raw.get("inherited_evidence", [])),
         )
 
 
