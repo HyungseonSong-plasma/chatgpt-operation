@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import copy
+from pathlib import Path
+import re
 from typing import Any, Callable
 
 from .action_lifecycle import ActionLifecycle, DispatchIntent
@@ -187,6 +189,27 @@ def _selected_payload(selected: tuple[str, Any] | None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ControllerCompositionError("selected work payload must be an object")
     return {"kind": kind, **value}
+
+
+def _existing_scheduler_surfaces() -> list[dict[str, Any]]:
+    """Expose checked-in schedule triggers as read-only planning capabilities."""
+    path=Path(".github/workflows/samuel-bootstrap.yml")
+    try:
+        text=path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    if "schedule:" not in text:
+        return []
+    crons=re.findall(r"""cron:\s*['"]([^'"]+)['"]""",text)
+    return [
+        {
+            "workflow":str(path),
+            "event":"schedule",
+            "cron":cron,
+            "mutation_required":False,
+        }
+        for cron in crons
+    ]
 
 
 def _initial_state(
@@ -456,6 +479,9 @@ class SamuelController:
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
+        context["repository_context"]["scheduler_surfaces"] = (
+            _existing_scheduler_surfaces()
+        )
         mutation_policy = parse_policy(
             load_repository_json("automation/samuel/repository-mutation-policy.json")
         )
@@ -505,6 +531,18 @@ class SamuelController:
                     "implement_gap is invalid because implementation_gaps is empty; "
                     "use analyze for an action within accepted architecture"
                 )
+            if proposal.operation == "propose_revision":
+                locked_ids = {
+                    str(item.get("decision_id"))
+                    for item in context.get("locked_decisions", [])
+                    if isinstance(item, dict) and item.get("decision_id")
+                }
+                if proposal.decision_id not in locked_ids:
+                    raise ValueError(
+                        "propose_revision must reference an existing locked decision; "
+                        "do not invent a governance decision when an executable "
+                        "alternative is available"
+                    )
             if proposal.action_plan is not None:
                 candidate = ActionPlan.from_dict(proposal.action_plan)
                 if candidate.research_id != work_id:
@@ -512,7 +550,15 @@ class SamuelController:
                         "ActionPlan research_id must equal active work_id " + work_id
                     )
                 if candidate.executor is ExecutorKind.GITHUB_NATIVE:
-                    NativeGitHubCommand.from_plan(candidate)
+                    native_command=NativeGitHubCommand.from_plan(candidate)
+                    qualified=(
+                        native_github_reasoning_contract().get("actions") or {}
+                    )
+                    if native_command.action.value not in qualified:
+                        raise ValueError(
+                            "native GitHub action is not qualified for semantic "
+                            "planning: " + native_command.action.value
+                        )
                 elif candidate.executor is ExecutorKind.REPOSITORY_MUTATION:
                     expected_repository = (
                         str((repository_context or {}).get("repository") or "")
@@ -577,8 +623,15 @@ class SamuelController:
                     "allowed_fields; action-specific data belongs under target. For "
                     "repository_mutation plans, follow "
                     "execution_contracts.repository_mutation exactly, including "
-                    "execution_contracts.repository_mutation.policy file-path and "
-                    "branch allow/deny patterns. A suspended action is verified failure "
+                    "execution_contracts.repository_mutation.policy file-path, branch "
+                    "allow/deny patterns, and runtime_capabilities. When "
+                    "workflow_file_mutation is false, never propose a path under "
+                    ".github/workflows/. Reuse repository_context.scheduler_surfaces "
+                    "as an existing durable scheduler and implement cadence/integration "
+                    "under an executable allowed source path rather than requesting a "
+                    "policy revision solely because workflow-file mutation is unavailable. "
+                    "Status/audit comments are controller-owned and are not valid "
+                    "semantic implementation progress. A suspended action is verified failure "
                     "evidence: inspect durable_state.execution_results and do not repeat "
                     "the same policy-invalid plan unchanged. "
                     "Prefer the smallest verifiable next step; return null only "
@@ -755,6 +808,9 @@ class SamuelController:
                     ),
                     "workflow_files": repository_audit.get(
                         "workflow_files", []
+                    ),
+                    "scheduler_surfaces": copy.deepcopy(
+                        repository_audit.get("scheduler_surfaces") or []
                     ),
                 },
             },

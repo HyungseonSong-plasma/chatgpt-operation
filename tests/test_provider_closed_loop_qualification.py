@@ -383,7 +383,13 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
 
     def test_provider_to_terminal_rollover_and_idle_with_multiline_schedule_source(self):
         opener=SequencedOpener([
-            proposal("malformed-direct-action-plan"),
+            {
+                "operation":"propose_revision",
+                "decision_id":"workflow_file_mutation_governance",
+                "compatible_with_locked_decisions":True,
+                "revision_requested":True,
+                "action_plan":None,
+            },
             proposal(file_plan()),
             proposal(create_pr_plan()),
             proposal(close_issue_plan()),
@@ -400,7 +406,8 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
         state,ledger,denied_id=initial_state_and_ledger()
 
         # Suspended policy failure stays on issue:24 and enters bounded semantic
-        # repair. The first invalid direct action_plan is repaired in the same cycle.
+        # repair. Reproducing the live invented governance revision must repair to
+        # executable source work on the already scheduled bootstrap surface.
         first=controller.run_cycle(
             trigger(),
             comments=comments(ledger,state),
@@ -410,8 +417,20 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
         self.assertEqual(len(opener.requests),2)
         second_prompt=json.loads(opener.requests[1]["input"])
         self.assertIn(
-            "action_plan must be null or object",
+            "propose_revision must reference an existing locked decision",
             second_prompt["validation_error"],
+        )
+        scheduler=second_prompt["reasoning_context"]["repository_context"][
+            "scheduler_surfaces"
+        ]
+        self.assertEqual(
+            scheduler,
+            [{
+                "workflow":".github/workflows/samuel-bootstrap.yml",
+                "event":"schedule",
+                "cron":"55 * * * *",
+                "mutation_required":False,
+            }],
         )
         schema=opener.requests[1]["text"]["format"]["schema"]
         self.assertIn("action_plan",schema["properties"])

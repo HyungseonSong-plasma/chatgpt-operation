@@ -99,7 +99,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         variants=action_schema["anyOf"]
         self.assertEqual(variants[0],{"type":"null"})
         executable=variants[1:]
-        self.assertGreaterEqual(len(executable),9)
+        self.assertGreaterEqual(len(executable),7)
         executors={
             item["properties"]["executor"]["enum"][0]
             for item in executable
@@ -108,6 +108,17 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
             executors,
             {"repository_mutation","github_native"},
         )
+        native_actions={
+            item["properties"]["payload"]["properties"]["action"]["enum"][0]
+            for item in executable
+            if item["properties"]["executor"]["enum"] == ["github_native"]
+        }
+        self.assertEqual(
+            native_actions,
+            {"create_pr","close_issue","merge_pr"},
+        )
+        self.assertNotIn("comment_issue",native_actions)
+        self.assertNotIn("dispatch_workflow",native_actions)
         for item in executable:
             self.assertFalse(item["additionalProperties"])
             self.assertEqual(
@@ -115,18 +126,12 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
                 [item["properties"]["executor"]["enum"][0]],
             )
 
-    def test_production_mode_preserves_multiline_workflow_content_without_double_encoding(self):
+    def test_production_mode_preserves_multiline_source_without_double_encoding(self):
         content=(
-            "name: Samuel Weekly Maintenance\n"
-            "on:\n"
-            "  workflow_dispatch:\n"
-            "  schedule:\n"
-            "    - cron: '0 8 * * 1-5'\n"
-            "jobs:\n"
-            "  collect:\n"
-            "    runs-on: ubuntu-latest\n"
-            "    steps:\n"
-            "      - run: echo \"weekday collection\"\n"
+            "\"\"\"Code-owned weekly cadence.\"\"\"\n"
+            "CANONICAL_TIMEZONE='UTC'\n"
+            "BOOTSTRAP_CRON='55 * * * *'\n"
+            "PHASES=('collect','analyze','close')\n"
         )
         plan={
             "schema_version":1,
@@ -139,14 +144,14 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
                 "resource":"file",
                 "action":"create",
                 "target":{
-                    "path":".github/workflows/samuel-paul-weekly-maintenance.yml",
+                    "path":"src/chatgpt_operation/weekly_schedule.py",
                     "branch":"samuel/issues-24-43-weekly-maintenance-v2",
                 },
                 "expected":{"absent":True},
                 "desired":{"content":content},
-                "commit_message":"Add scheduled weekly maintenance",
+                "commit_message":"Add code-owned weekly schedule",
             },
-            "expected_observation":"scheduled workflow exists",
+            "expected_observation":"weekly schedule integration exists",
             "decision_risk":None,
         }
         raw={

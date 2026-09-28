@@ -167,22 +167,6 @@ def _native_payload_schemas() -> list[dict[str, Any]]:
         }),
         _closed_object({
             **common,
-            "action": {"type": "string", "enum": ["comment_issue"]},
-            "target": _closed_object({
-                "number": {"type": "integer"},
-                "body": {"type": "string"},
-                "marker": {"type": "string"},
-            }),
-            "preconditions": _closed_object({
-                "issue_state": {"type": "string", "enum": ["open"]},
-                "comment_present": {"type": "boolean", "enum": [False]},
-            }),
-            "desired_postcondition": _closed_object({
-                "comment_present": {"type": "boolean", "enum": [True]},
-            }),
-        }),
-        _closed_object({
-            **common,
             "action": {"type": "string", "enum": ["merge_pr"]},
             "target": _closed_object({
                 "number": {"type": "integer"},
@@ -191,21 +175,6 @@ def _native_payload_schemas() -> list[dict[str, Any]]:
             "preconditions": _closed_object({}),
             "desired_postcondition": _closed_object({
                 "merged": {"type": "boolean", "enum": [True]},
-            }),
-        }),
-        _closed_object({
-            **common,
-            "action": {"type": "string", "enum": ["dispatch_workflow"]},
-            "target": _closed_object({
-                "workflow": {"type": "string"},
-                "ref": {"type": "string"},
-            }),
-            "preconditions": _closed_object({
-                "dispatched": {"type": "boolean", "enum": [False]},
-                "ref": {"type": "string"},
-            }),
-            "desired_postcondition": _closed_object({
-                "dispatched": {"type": "boolean", "enum": [True]},
             }),
         }),
     ]

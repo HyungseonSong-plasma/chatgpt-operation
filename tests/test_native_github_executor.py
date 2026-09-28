@@ -42,9 +42,17 @@ class NativeGitHubExecutorTests(unittest.TestCase):
             set(payload["required_fields"]),
             {"action", "repository", "target", "desired_postcondition"},
         )
-        self.assertEqual(
-            contract["actions"]["comment_issue"]["target_required_exactly"],
-            ["number", "body", "marker"],
+        self.assertNotIn("comment_issue",contract["actions"])
+        self.assertIn("comment_issue",contract["controller_only_actions"])
+        self.assertIn(
+            "controller-owned",
+            contract["controller_only_actions"]["comment_issue"],
+        )
+        self.assertNotIn("dispatch_workflow",contract["actions"])
+        self.assertIn("dispatch_workflow",contract["unqualified_actions"])
+        self.assertIn(
+            "post-dispatch readback",
+            contract["unqualified_actions"]["dispatch_workflow"],
         )
 
     def test_replay_is_noop_when_postcondition_already_holds(self):
