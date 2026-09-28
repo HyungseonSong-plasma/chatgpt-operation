@@ -1227,12 +1227,22 @@ class ControllerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(provider.calls,2)
         self.assertIsNone(provider.validation_errors[0])
-        self.assertIn("file path denied",provider.validation_errors[1])
+        self.assertIn(
+            "workflow file mutation is unavailable",
+            provider.validation_errors[1],
+        )
         policy=provider.contexts[0]["execution_contracts"]["repository_mutation"]["policy"]
         self.assertFalse(
             policy["runtime_capabilities"]["workflow_file_mutation"]
         )
         self.assertIn(".github/workflows/**",policy["file_paths"]["deny"])
+        scheduler=provider.contexts[0]["repository_context"]["scheduler_surfaces"]
+        self.assertTrue(scheduler)
+        self.assertEqual(
+            scheduler[0]["workflow"],
+            ".github/workflows/samuel-bootstrap.yml",
+        )
+        self.assertEqual(scheduler[0]["cron"],"55 * * * *")
         self.assertIn(
             "failed-policy-action",
             provider.contexts[0]["durable_state"]["execution_results"],
