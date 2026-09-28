@@ -114,6 +114,26 @@ class ClosedWorldRepairProvider:
         }
 
 
+
+class NullPlanCapturingProvider:
+    name = "null-plan-capturing-fixture"
+
+    def __init__(self):
+        self.calls = 0
+        self.context = None
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.context = kwargs["context"]
+        return {
+            "operation":"analyze",
+            "decision_id":None,
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":None,
+        }
+
+
 def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
@@ -477,6 +497,140 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(proposed.research_id,"issue:24")
         self.assertEqual(result.state_write["expected_previous_revision"],0)
         self.assertEqual(result.execution_command.research_id,"issue:24")
+
+    def test_rollover_persists_verified_inherited_evidence_when_reasoning_returns_null(self):
+        work={
+            "issue:44":{
+                "work_id":"issue:44",
+                "issue_number":44,
+                "title":"Samuel OS",
+                "body":"terminal predecessor",
+                "html_url":"https://github.com/o/r/issues/44",
+                "status":"planned",
+            },
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Weekly telemetry",
+                "body":"finish weekly telemetry",
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"reasoning_required",
+            },
+        }
+        state=ResearchState(
+            "issue:44","terminal predecessor",stage=ResearchStage.EXECUTE,
+            revision=7,
+        )
+        state.action_queue={
+            "create-pr":{
+                "status":"complete",
+                "plan":{
+                    "schema_version":1,
+                    "research_id":"issue:44",
+                    "stage":"implement",
+                    "executor":"github_native",
+                    "payload":{
+                        "action":"create_pr",
+                        "repository":"HyungseonSong-plasma/chatgpt-operation",
+                        "target":{
+                            "head":"samuel/issues-24-43",
+                            "base":"main",
+                            "title":"Telemetry maintenance",
+                            "body":"Related issues: #24, #43, #44.",
+                        },
+                        "preconditions":{"pr_present":False},
+                        "desired_postcondition":{"pr_present":True},
+                    },
+                    "expected_observation":"reviewable PR exists",
+                },
+                "completion_result":{
+                    "status":"pass",
+                    "observation":"PR verified",
+                    "details":{
+                        "after":{
+                            "pr_present":True,
+                            "pr_number":136,
+                            "head_sha":"c"*40,
+                        },
+                        "provenance":{
+                            "workflow_run_id":101,
+                            "run_attempt":1,
+                            "head_sha":"b"*40,
+                            "action_id":"create-pr",
+                        },
+                    },
+                },
+            },
+            "merge-pr":{
+                "status":"complete",
+                "plan":{
+                    "schema_version":1,
+                    "research_id":"issue:44",
+                    "stage":"execute",
+                    "executor":"github_native",
+                    "payload":{
+                        "action":"merge_pr",
+                        "repository":"HyungseonSong-plasma/chatgpt-operation",
+                        "target":{
+                            "number":136,
+                            "expected_head_sha":"c"*40,
+                        },
+                        "desired_postcondition":{"merged":True},
+                    },
+                    "expected_observation":"PR #136 merged",
+                },
+                "completion_result":{
+                    "status":"pass",
+                    "observation":"merge verified",
+                    "details":{
+                        "after":{"merged":True,"head_sha":"c"*40},
+                        "provenance":{
+                            "workflow_run_id":102,
+                            "run_attempt":1,
+                            "head_sha":"b"*40,
+                            "action_id":"merge-pr",
+                        },
+                    },
+                },
+            },
+        }
+        provider=NullPlanCapturingProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "open_issues":[{
+                    "number":24,
+                    "title":"Weekly telemetry",
+                    "body":"finish weekly telemetry",
+                    "state":"open",
+                    "labels":["samuel"],
+                }],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+            },
+        )
+        self.assertEqual(provider.calls,1)
+        inherited=provider.context["durable_state"]["inherited_evidence"]
+        self.assertEqual(
+            [item["source_action_id"] for item in inherited],
+            ["create-pr","merge-pr"],
+        )
+        self.assertEqual(result.selected_work,{
+            "kind":"reasoning_required","work_id":"issue:24"
+        })
+        self.assertIsNotNone(result.state_write)
+        self.assertEqual(result.state_write["expected_previous_revision"],7)
+        proposed=decode_state(result.state_write["body"])
+        self.assertEqual(proposed.research_id,"issue:24")
+        self.assertEqual(proposed.revision,0)
+        self.assertEqual(proposed.inherited_evidence,inherited)
+        self.assertEqual(proposed.action_queue,{})
 
     def test_issue_trigger_admission_is_owned_by_root(self):
         issue_trigger=ControllerTrigger(

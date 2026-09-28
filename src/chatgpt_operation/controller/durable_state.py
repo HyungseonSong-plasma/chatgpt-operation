@@ -60,6 +60,7 @@ def decode_state(body: str) -> ResearchState:
         diagnostic_recoveries=dict(raw.get("diagnostic_recoveries", {})),
         action_queue=dict(raw.get("action_queue", {})),
         revision=int(raw.get("revision", 0)),
+        inherited_evidence=list(raw.get("inherited_evidence", [])),
     )
 
 

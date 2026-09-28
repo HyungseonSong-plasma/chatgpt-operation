@@ -46,6 +46,7 @@ from .reasoning_consumption import (
 )
 from .reasoning_provider import ReasoningProviderRegistry
 from .research import ResearchState
+from .rollover_evidence import inherited_evidence_for_issue
 from chatgpt_operation.github.native_executor import (
     NativeGitHubCommand,
     native_github_reasoning_contract,
@@ -180,10 +181,16 @@ def _selected_payload(selected: tuple[str, Any] | None) -> dict[str, Any]:
     return {"kind": kind, **value}
 
 
-def _initial_state(work_id: str, item: dict[str, Any]) -> ResearchState:
+def _initial_state(
+    work_id: str,
+    item: dict[str, Any],
+    *,
+    inherited_evidence: list[dict[str, Any]] | None = None,
+) -> ResearchState:
     return ResearchState(
         work_id,
         str(item.get("title") or item.get("body") or work_id),
+        inherited_evidence=copy.deepcopy(inherited_evidence or []),
     )
 
 
@@ -437,6 +444,7 @@ class SamuelController:
             "stage": state.stage.value,
             "action_queue": copy.deepcopy(state.action_queue),
             "diagnostic_recoveries": copy.deepcopy(state.diagnostic_recoveries),
+            "inherited_evidence": copy.deepcopy(state.inherited_evidence),
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
         context["execution_contracts"] = {
@@ -512,7 +520,9 @@ class SamuelController:
             ReasoningRequest(
                 task=(
                     "Produce exactly one next bounded ActionPlan toward completing "
-                    f"{work_id}. Continue from durable execution history. "
+                    f"{work_id}. Continue from durable execution history and "
+                    "inherited_evidence. Treat inherited_evidence as verified prior "
+                    "work from a terminal predecessor workload; do not repeat it. "
                     "Do not repeat completed actions. When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
                     "named gap in implementation_gaps. Follow execution_contracts "
@@ -572,6 +582,9 @@ class SamuelController:
                         ).items()
                         if isinstance(value, dict)
                     },
+                    "inherited_evidence": copy.deepcopy(
+                        durable_audit.get("inherited_evidence") or []
+                    ),
                 },
                 "repository_context": {
                     "repository": repository_audit.get("repository"),
@@ -658,11 +671,16 @@ class SamuelController:
         planning: dict[str, Any] | None = None,
         prior_admission_write: dict[str, Any] | None = None,
         repository_context: dict[str, Any] | None = None,
+        inherited_evidence: list[dict[str, Any]] | None = None,
     ) -> ControllerCycle:
         item = work.get(work_id)
         if item is None:
             raise ControllerCompositionError("reasoning work is missing from admission ledger")
-        working_state = state or _initial_state(work_id, item)
+        working_state = state or _initial_state(
+            work_id,
+            item,
+            inherited_evidence=inherited_evidence,
+        )
         if not self.reasoning_enabled:
             return ControllerCycle(
                 trigger,
@@ -688,12 +706,17 @@ class SamuelController:
                 state=working_state,
             )
         if result.outcome == "reasoning_required":
+            initial_state_write = None
+            if state is None and working_state.inherited_evidence:
+                initial_state_write = state_write_request(
+                    comments, working_state
+                )
             return ControllerCycle(
                 trigger,
                 {"kind": "reasoning_required", "work_id": work_id},
                 planning,
                 prior_admission_write,
-                None,
+                initial_state_write,
             )
 
         admission_write = _admission_write(admission_comment_id, result.work)
@@ -748,6 +771,7 @@ class SamuelController:
             )
 
         state = load_state_comment(comments)
+        rollover_source_state: ResearchState | None = None
         admitted, admission_comment_id = _admission_state(comments)
         if issue is not None:
             labels = {
@@ -795,7 +819,21 @@ class SamuelController:
                     admission_write = _admission_write(
                         admission_comment_id, admitted
                     )
+                    rollover_source_state = state
                     state = None
+
+        def rollover_evidence(work_id: str) -> list[dict[str, Any]]:
+            if rollover_source_state is None:
+                return []
+            item = admitted.get(work_id)
+            if not isinstance(item, dict):
+                return []
+            issue_number = item.get("issue_number")
+            if not isinstance(issue_number, int) or isinstance(issue_number, bool):
+                return []
+            return inherited_evidence_for_issue(
+                rollover_source_state, issue_number
+            )
 
         if state is not None:
             ready_pr_plan=_owned_ready_pr_plan(state,repository_context)
@@ -884,6 +922,7 @@ class SamuelController:
                 admission_comment_id=admission_comment_id,
                 prior_admission_write=recovery_write,
                 repository_context=repository_context,
+                inherited_evidence=rollover_evidence(work_id),
             )
         if waiting:
             return self._consume_waiting_reasoning(
@@ -895,6 +934,7 @@ class SamuelController:
                 admission_comment_id=admission_comment_id,
                 prior_admission_write=admission_write,
                 repository_context=repository_context,
+                inherited_evidence=rollover_evidence(waiting[0]),
             )
 
         selected = select_controller_work(
