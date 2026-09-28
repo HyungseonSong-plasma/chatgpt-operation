@@ -1415,6 +1415,48 @@ class SamuelController:
         )
 
         if state is not None and actions_quiescent:
+            current=admitted.get(state.research_id)
+            current_issue_number=(
+                current.get("issue_number") if isinstance(current,dict) else None
+            )
+            if (
+                isinstance(current,dict)
+                and current.get("status")!="complete"
+                and isinstance(current_issue_number,int)
+                and current_issue_number in open_issue_numbers
+            ):
+                terminal_close=_deterministic_terminal_close_plan(
+                    state,current,repository_context
+                )
+                if terminal_close is not None:
+                    close_plan,completion_claim=terminal_close
+                    proposed=copy.deepcopy(state)
+                    enqueue_suspended_action(proposed,close_plan)
+                    proposed.action_queue[
+                        close_plan.idempotency_key
+                    ]["completion_claim"]=copy.deepcopy(completion_claim)
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"planned"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                    return self._prepare_dispatch_intent(
+                        trigger=trigger,
+                        comments=comments,
+                        state=proposed,
+                        payload={
+                            "kind":"action",
+                            "action_id":close_plan.idempotency_key,
+                            "plan":proposed.action_queue[
+                                close_plan.idempotency_key
+                            ]["plan"],
+                            "reasoning_outcome":"deterministic_acceptance_completion",
+                            "work_id":state.research_id,
+                        },
+                        admission_write=admission_write,
+                    )
+
             recovery_branch_plan=conflict_recovery_branch_plan(
                 state,repository_context
             )
@@ -1487,48 +1529,6 @@ class SamuelController:
                     },
                     admission_write=admission_write,
                 )
-
-            current=admitted.get(state.research_id)
-            current_issue_number=(
-                current.get("issue_number") if isinstance(current,dict) else None
-            )
-            if (
-                isinstance(current,dict)
-                and current.get("status")!="complete"
-                and isinstance(current_issue_number,int)
-                and current_issue_number in open_issue_numbers
-            ):
-                terminal_close=_deterministic_terminal_close_plan(
-                    state,current,repository_context
-                )
-                if terminal_close is not None:
-                    close_plan,completion_claim=terminal_close
-                    proposed=copy.deepcopy(state)
-                    enqueue_suspended_action(proposed,close_plan)
-                    proposed.action_queue[
-                        close_plan.idempotency_key
-                    ]["completion_claim"]=copy.deepcopy(completion_claim)
-                    admitted=transition_issue_status(
-                        admitted,state.research_id,"planned"
-                    )
-                    admission_write=_admission_write(
-                        admission_comment_id,admitted
-                    )
-                    return self._prepare_dispatch_intent(
-                        trigger=trigger,
-                        comments=comments,
-                        state=proposed,
-                        payload={
-                            "kind":"action",
-                            "action_id":close_plan.idempotency_key,
-                            "plan":proposed.action_queue[
-                                close_plan.idempotency_key
-                            ]["plan"],
-                            "reasoning_outcome":"deterministic_acceptance_completion",
-                            "work_id":state.research_id,
-                        },
-                        admission_write=admission_write,
-                    )
 
         if (
             state is not None
