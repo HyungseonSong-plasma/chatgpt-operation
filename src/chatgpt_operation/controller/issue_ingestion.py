@@ -11,6 +11,21 @@ ADMISSION_LABEL = "samuel"
 class AdmissionError(ValueError):
     pass
 
+
+def _label_names(issue: dict[str, Any]) -> set[str]:
+    names: set[str] = set()
+    for item in issue.get("labels", []):
+        if isinstance(item, str):
+            value = item
+        elif isinstance(item, dict):
+            value = item.get("name")
+        else:
+            continue
+        if isinstance(value, str) and value:
+            names.add(value)
+    return names
+
+
 @dataclass(frozen=True)
 class AdmittedIssueWork:
     work_id: str
@@ -25,8 +40,7 @@ class AdmittedIssueWork:
         number=issue.get("number")
         if not isinstance(number,int) or number <= 0:
             raise AdmissionError("issue number is required")
-        labels={x.get("name") for x in issue.get("labels",[]) if isinstance(x,dict)}
-        if ADMISSION_LABEL not in labels:
+        if ADMISSION_LABEL not in _label_names(issue):
             raise AdmissionError("issue is not explicitly admitted")
         if issue.get("pull_request") is not None:
             raise AdmissionError("pull requests cannot enter the issue work queue")
@@ -40,6 +54,43 @@ class AdmittedIssueWork:
             body=str(issue.get("body") or ""),
             html_url=str(issue.get("html_url") or ""),
         )
+
+
+def _upsert_admitted_issue(
+    current: dict[str, dict[str, Any]],
+    issue: dict[str, Any],
+) -> tuple[dict[str, dict[str, Any]], str, bool]:
+    updated={key:dict(value) for key,value in current.items()}
+    item=AdmittedIssueWork.from_issue(issue)
+    existing=updated.get(item.work_id)
+    encoded=asdict(item)
+    if existing is not None:
+        immutable=("work_id","issue_number","title","body","html_url")
+        if any(existing.get(key) != encoded.get(key) for key in immutable):
+            raise AdmissionError("admitted issue identity changed")
+        encoded["status"]=existing.get("status","admitted")
+    updated[item.work_id]=encoded
+    return updated,item.work_id,existing is None
+
+
+def discover_admissible_issues(
+    current: dict[str, dict[str, Any]],
+    issues: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Admit explicit Samuel opt-ins discovered during any controller wake."""
+    updated={key:dict(value) for key,value in current.items()}
+    ordered=sorted(
+        (item for item in issues if isinstance(item,dict)),
+        key=lambda item: int(item.get("number",0))
+        if isinstance(item.get("number"),int) else 0,
+    )
+    for issue in ordered:
+        if issue.get("state") not in {None,"open"}:
+            continue
+        if ADMISSION_LABEL not in _label_names(issue):
+            continue
+        updated,_,_=_upsert_admitted_issue(updated,issue)
+    return updated
 
 def decode_admission_ledger(body: str) -> dict[str, dict[str, Any]]:
     if ADMISSION_MARKER not in body:
@@ -62,20 +113,12 @@ def admit_issue(comments: list[dict[str,Any]], issue: dict[str,Any]) -> dict[str
     if len(matches)>1:
         raise AdmissionError("multiple authoritative admission ledgers")
     current={} if not matches else decode_admission_ledger(str(matches[0]["body"]))
-    item=AdmittedIssueWork.from_issue(issue)
-    existing=current.get(item.work_id)
-    encoded=asdict(item)
-    if existing is not None:
-        immutable=("work_id","issue_number","title","body","html_url")
-        if any(existing.get(key) != encoded.get(key) for key in immutable):
-            raise AdmissionError("admitted issue identity changed")
-        encoded["status"]=existing.get("status","admitted")
-    current[item.work_id]=encoded
+    current,work_id,changed=_upsert_admitted_issue(current,issue)
     return {
-        "changed": existing is None,
+        "changed": changed,
         "comment_id": None if not matches else int(matches[0]["id"]),
         "body": encode_admission_ledger(current),
-        "work_id": item.work_id,
+        "work_id": work_id,
     }
 
 
