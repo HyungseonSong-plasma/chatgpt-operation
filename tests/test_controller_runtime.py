@@ -1131,6 +1131,80 @@ class ControllerRuntimeTests(unittest.TestCase):
             ControllerCommandKind.DISPATCH_ACTION,
         )
 
+    def test_in_flight_action_observation_precedes_suspended_replanning(self):
+        provider=StaticPlanProvider(native_action_plan_for(24))
+        state=ResearchState("issue:24","continue active work",revision=12)
+        state.action_queue["old-failure"]={
+            "status":"suspended",
+            "plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":"HyungseonSong-plasma/chatgpt-operation",
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":".github/workflows/paul-weekly-maintenance.yml",
+                        "branch":"samuel/issues-24-43-weekly-maintenance-v2",
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"name: denied\n"},
+                    "commit_message":"Attempt denied workflow",
+                },
+                "expected_observation":"denied workflow exists",
+            },
+        }
+        active=native_action_plan_for(24)
+        state.action_queue["active-action"]={
+            "status":"dispatched",
+            "plan":active,
+            "dispatch_receipt":{
+                "workflow_run_id":999,
+                "workflow_path":".github/workflows/samuel-native-github.yml",
+                "ref":"main",
+                "correlation_id":"active-action",
+            },
+        }
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Telemetry",
+                "body":"continue active work",
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"planned",
+            }
+        }
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[repository_issue(24)],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+                "tracked_paths":[],
+                "tracked_paths_truncated":False,
+                "workflow_files":[],
+            },
+        )
+        self.assertEqual(provider.calls,0)
+        self.assertEqual(result.selected_work["kind"],"action_observation")
+        self.assertEqual(result.selected_work["action_id"],"active-action")
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.OBSERVE_ACTION,
+        )
+
+
     def test_suspended_action_reasons_on_same_workload_and_repairs_policy(self):
         denied_plan={
             "schema_version":1,
