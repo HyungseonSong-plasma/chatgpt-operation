@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from typing import Any
+import hashlib
+from pathlib import Path
 
 from .action_plan import ActionPlan
 from .durable_state import can_rollover_state
@@ -139,3 +141,59 @@ def conflict_recovery_branch_plan(
             f"head {observed}."
         ),
     })
+
+
+def conflict_main_file_snapshots(
+    state: ResearchState,
+    repository_context: dict[str, Any] | None,
+    *,
+    root: str | Path = ".",
+    max_files: int = 20,
+    max_bytes_per_file: int = 20000,
+) -> list[dict[str, Any]]:
+    """Expose bounded current-main snapshots only for paths touched on conflicted branches."""
+    conflicts=conflicted_workload_pull_requests(state,repository_context)
+    conflict_branches={item["head_ref"] for item in conflicts}
+    if not conflict_branches:
+        return []
+    paths=[]
+    for item in state.action_queue.values():
+        if not isinstance(item,dict):
+            continue
+        plan=item.get("plan")
+        if not isinstance(plan,dict) or plan.get("executor")!="repository_mutation":
+            continue
+        payload=plan.get("payload")
+        if not isinstance(payload,dict) or payload.get("resource")!="file":
+            continue
+        target=payload.get("target")
+        if not isinstance(target,dict) or target.get("branch") not in conflict_branches:
+            continue
+        path=target.get("path")
+        if isinstance(path,str) and path not in paths:
+            paths.append(path)
+    base=Path(root)
+    snapshots=[]
+    for path in paths[:max_files]:
+        candidate=(base/path)
+        try:
+            data=candidate.read_bytes()
+        except OSError:
+            continue
+        if len(data)>max_bytes_per_file:
+            snapshots.append({
+                "path":path,
+                "exists":True,
+                "content_omitted":True,
+                "size":len(data),
+            })
+            continue
+        header=f"blob {len(data)}\0".encode()
+        snapshots.append({
+            "path":path,
+            "exists":True,
+            "content_omitted":False,
+            "git_blob_sha":hashlib.sha1(header+data).hexdigest(),
+            "content":data.decode("utf-8"),
+        })
+    return snapshots
