@@ -23,6 +23,11 @@ MANIFEST_REQUIRED_FIELDS=frozenset({
     "schema_version","repository","resource","action",
     "target","expected","desired",
 })
+WORKFLOW_FILE_PREFIX=".github/workflows/"
+REPOSITORY_MUTATION_RUNTIME_CAPABILITIES={
+    "credential":"github_actions_github_token",
+    "workflow_file_mutation":False,
+}
 
 class MutationError(RuntimeError): pass
 class ManifestError(MutationError): pass
@@ -214,9 +219,14 @@ def repository_mutation_policy_reasoning_contract(policy: Policy) -> dict[str, A
             "mode": policy.gate_mode,
             "workflows": sorted(policy.gate_workflows),
         },
+        "runtime_capabilities": dict(
+            REPOSITORY_MUTATION_RUNTIME_CAPABILITIES
+        ),
         "rule": (
-            "ActionPlans must satisfy these allow/deny patterns before dispatch; "
-            "deny patterns override allow patterns."
+            "ActionPlans must satisfy these allow/deny patterns and runtime "
+            "capabilities before dispatch; deny patterns override allow patterns. "
+            "workflow_file_mutation=false means .github/workflows/ must never be "
+            "planned for repository_mutation."
         ),
     }
 
@@ -234,6 +244,11 @@ def authorize_manifest(
         if manifest.action not in policy.allow_file_actions:
             raise PolicyError(f"file action denied: {manifest.action}")
         path = manifest.target["path"]
+        if path.startswith(WORKFLOW_FILE_PREFIX):
+            raise PolicyError(
+                "workflow file mutation is unavailable to the repository-native "
+                "GitHub Actions credential"
+            )
         if not _allowed(path, policy.file_allow, policy.file_deny):
             raise PolicyError(
                 "file path denied: "
