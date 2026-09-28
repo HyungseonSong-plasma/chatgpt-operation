@@ -5,6 +5,11 @@ Originated from qualified moose-test-repo scientific infrastructure at
 consumer-owned.
 """
 
+from .contract import ExecutionContractError, evaluate_contract, validate_contract
+from .errors import (
+    Attribution, AttributionConfidence, AttributionSignals, ErrorCategory,
+    ErrorEvent, ErrorLedger, classify_attribution, error_fingerprint,
+)
 from .execution import ExecutionCase, ExecutionPlan, UnresolvedPolicyError, compile_execution_plan
 from .ontology import (
     AcceptanceStatus, ActionExecution, ActionSpec, ApplicabilityStatus, Artifact,
@@ -22,16 +27,19 @@ from .provenance import ArtifactRef, FileIdentity, RunEnvelope, read_run_envelop
 
 __all__ = [
     "AcceptanceStatus", "ActionExecution", "ActionSpec", "ApplicabilityStatus",
+    "Attribution", "AttributionConfidence", "AttributionSignals",
     "Artifact", "ArtifactRef", "CapabilityDescriptor", "ClaimAssessment",
     "Constraint", "DerivedFact", "DevelopmentGoal", "DevelopmentState",
     "DiagnosticConclusion", "Evidence", "EvidenceAdmissibility", "EvidenceAvailability",
-    "ExecutionCase", "ExecutionOutcome", "ExecutionOutcomeStatus", "ExecutionPlan",
+    "ErrorCategory", "ErrorEvent", "ErrorLedger", "ExecutionCase",
+    "ExecutionContractError", "ExecutionOutcome", "ExecutionOutcomeStatus", "ExecutionPlan",
     "ExecutionStatus", "ExperimentCaseIntent", "ExperimentIntent", "FileIdentity",
     "Hypothesis", "HypothesisAssessment", "HypothesisSupport", "MechanismClaim",
     "Observation", "OpenQuestion", "PolicyRule", "PolicyRuleDescriptor",
     "ProductionReadiness", "Proposition", "ProvenanceRecord", "ResolutionStatus",
     "RunEnvelope", "ScopeStatus", "ScientificPolicy", "SearchDecision", "StateDelta",
     "StateTransition", "UnresolvedPolicyError", "ValidationClaim", "ValidationStatus",
-    "compile_execution_plan", "default_capabilities", "frozen_mapping",
-    "read_run_envelope", "synthesize_policy", "write_run_envelope",
+    "classify_attribution", "compile_execution_plan", "default_capabilities",
+    "error_fingerprint", "evaluate_contract", "frozen_mapping", "read_run_envelope",
+    "synthesize_policy", "validate_contract", "write_run_envelope",
 ]
