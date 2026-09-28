@@ -982,7 +982,21 @@ class SamuelController:
                 rollover_source_state, issue_number
             )
 
-        if state is not None:
+        actions_quiescent = (
+            state is None
+            or all(
+                isinstance(queued, dict)
+                and queued.get("status")
+                in {
+                    ActionLifecycle.COMPLETE.value,
+                    ActionLifecycle.REJECTED.value,
+                    ActionLifecycle.SUSPENDED.value,
+                }
+                for queued in state.action_queue.values()
+            )
+        )
+
+        if state is not None and actions_quiescent:
             ready_pr_plan=_owned_ready_pr_plan(state,repository_context)
             if ready_pr_plan is not None:
                 proposed=copy.deepcopy(state)
@@ -1010,25 +1024,16 @@ class SamuelController:
                     admission_write=admission_write,
                 )
 
-        if state is not None and self.reasoning.status().available:
+        if (
+            state is not None
+            and actions_quiescent
+            and self.reasoning.status().available
+        ):
             current = admitted.get(state.research_id)
-            suspended_actions = [
-                action_id
-                for action_id, queued in state.action_queue.items()
-                if isinstance(queued, dict)
-                and queued.get("status") == ActionLifecycle.SUSPENDED.value
-            ]
-            terminal_actions_only = (
-                bool(state.action_queue)
-                and all(
-                    queued.get("status") in {"complete", "rejected"}
-                    for queued in state.action_queue.values()
-                )
-            )
             if (
                 isinstance(current, dict)
                 and current.get("status") == "planned"
-                and (terminal_actions_only or suspended_actions)
+                and bool(state.action_queue)
                 and not any(
                     recovery.get("status") in {"open", "needs_evidence"}
                     for recovery in state.diagnostic_recoveries.values()
