@@ -36,6 +36,8 @@ def manifest():
                     "compatibility_verified":False,
                     "consumer_ci_success":False,
                     "remaining_local_imports":1,
+                    "consumer_revision":None,
+                    "compatibility_pull_request":None,
                 },
             }],
         }],
@@ -77,6 +79,8 @@ class CentralizationContractTests(unittest.TestCase):
             "compatibility_verified":True,
             "consumer_ci_success":True,
             "remaining_local_imports":0,
+            "consumer_revision":"c"*40,
+            "compatibility_pull_request":352,
         }
         candidate=retirement_candidates(
             raw,
@@ -97,10 +101,23 @@ class CentralizationContractTests(unittest.TestCase):
             "compatibility_verified":True,
             "consumer_ci_success":True,
             "remaining_local_imports":0,
+            "consumer_revision":"c"*40,
+            "compatibility_pull_request":352,
         }
         with self.assertRaisesRegex(
             CentralizationManifestError,
             "canonical_revision",
+        ):
+            validate_manifest(raw)
+
+    def test_compatibility_boolean_without_exact_consumer_evidence_fails_closed(self):
+        raw=manifest()
+        verification=raw["components"][0]["consumers"][0]["verification"]
+        verification["compatibility_verified"]=True
+        verification["consumer_ci_success"]=True
+        with self.assertRaisesRegex(
+            CentralizationManifestError,
+            "consumer_revision",
         ):
             validate_manifest(raw)
 
