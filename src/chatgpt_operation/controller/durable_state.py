@@ -275,6 +275,9 @@ def apply_dispatch_receipt(
         record_diagnostic_dispatch,
         record_evidence_dispatch,
     )
+    from chatgpt_operation.controller.trusted_validation import (
+        record_trusted_validation_dispatch,
+    )
     import copy
 
     handlers = {
@@ -282,6 +285,7 @@ def apply_dispatch_receipt(
         "evidence": record_evidence_dispatch,
         "diagnostic": record_diagnostic_dispatch,
         "corrective": record_corrective_dispatch,
+        "trusted_validation": record_trusted_validation_dispatch,
     }
     try:
         handler = handlers[surface]
