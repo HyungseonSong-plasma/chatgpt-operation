@@ -166,6 +166,24 @@ def test_bootstrap_waits_for_dispatched_worker_before_terminal_ingestion():
     assert "SAMUEL_WORKER_WAIT=HARD_STOP timeout" in wait
 
 
+def test_post_worker_terminal_is_observed_through_root_and_gateway():
+    text=Path(
+        ".github/workflows/samuel-bootstrap.yml"
+    ).read_text(encoding="utf-8")
+    wait_marker="- name: Wait for dispatched bounded worker terminal state"
+    observe_marker="- name: Observe completed bounded worker through composition root"
+    ingest_marker="- name: Persist terminal controller artifact"
+    assert text.count(observe_marker)==1
+    assert text.index(wait_marker) < text.index(observe_marker) < text.index(ingest_marker)
+    observe=text.split(observe_marker,1)[1].split(ingest_marker,1)[0]
+    assert "controller run-cycle" in observe
+    assert "--event-name bootstrap" in observe
+    assert "controller execute-command" in observe
+    assert 'result.get("status") != "terminal"' in observe
+    assert "SAMUEL_POST_WORKER=TERMINAL" in observe
+    assert "samuel-execution-gateway-result.json" in observe
+
+
 def test_terminal_persistence_triggers_exactly_one_continuation_wake():
     text=Path(
         ".github/workflows/samuel-bootstrap.yml"

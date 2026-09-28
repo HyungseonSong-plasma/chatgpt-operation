@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_bootstrap_routes_selection_and_planning_through_composition_root():
     workflow=Path(".github/workflows/samuel-bootstrap.yml").read_text(encoding="utf-8")
-    assert workflow.count("controller run-cycle")==1
+    assert workflow.count("controller run-cycle")==2
     assert "select_controller_work" not in workflow
     assert "plan_admitted_issue" not in workflow
     assert "consume_reasoning_submission" not in workflow
@@ -30,7 +30,7 @@ def test_bootstrap_routes_selection_and_planning_through_composition_root():
         "record_diagnostic_dispatch(",
     ):
         assert forbidden not in workflow
-    assert workflow.count("controller execute-command")==1
+    assert workflow.count("controller execute-command")==2
     assert workflow.count("controller persist-state")==3
     for forbidden_state_write in (
         "validate_state_write_precondition",
@@ -40,6 +40,9 @@ def test_bootstrap_routes_selection_and_planning_through_composition_root():
     ):
         assert forbidden_state_write not in workflow
     assert "ReasoningProviderRegistry()" not in workflow
+    assert "- name: Observe completed bounded worker through composition root" in workflow
+    assert "--event-name bootstrap" in workflow
+    assert "SAMUEL_POST_WORKER=TERMINAL" in workflow
 
 
 def test_cli_routes_run_cycle_through_samuel_controller():
