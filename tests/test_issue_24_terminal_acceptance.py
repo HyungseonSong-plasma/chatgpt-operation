@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
+import os
+import subprocess
+import sys
 
 from chatgpt_operation.weekly_analysis import analyze_snapshot
 from chatgpt_operation.weekly_schedule import phase_for_day
@@ -39,3 +43,29 @@ def test_issue_24_acceptance_boundaries() -> None:
         {"identity": "b", "occurred_at": "2026-09-29T17:00:00Z", "consumer": "x", "failure_category": "UNKNOWN"},
     ]
     assert analyze_snapshot(observations) == analyze_snapshot(list(reversed(observations)))
+
+
+def test_normal_paul_init_does_not_load_weekly_telemetry_data() -> None:
+    contract=Path("skills/session-bootstrap/README.md").read_text(encoding="utf-8")
+    assert "Do not preload every central skill merely because it exists." in contract
+    weekly_runtime_modules=(
+        "chatgpt_operation.weekly_raw_evidence",
+        "chatgpt_operation.weekly_analysis",
+        "chatgpt_operation.workflow_failure_ingestion",
+    )
+    for module in weekly_runtime_modules:
+        assert module.rsplit(".",1)[-1] not in contract
+
+    script = """
+import sys
+import chatgpt_operation.controller.bootstrap
+for name in (
+    "chatgpt_operation.weekly_raw_evidence",
+    "chatgpt_operation.weekly_analysis",
+    "chatgpt_operation.workflow_failure_ingestion",
+):
+    assert name not in sys.modules, name
+"""
+    env=dict(os.environ)
+    env["PYTHONPATH"]="src"
+    subprocess.run([sys.executable,"-c",script],check=True,env=env)
