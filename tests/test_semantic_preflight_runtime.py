@@ -229,6 +229,8 @@ class EligibleCriterionProvider:
         eligible=self.context["eligible_acceptance_criteria"]
         if eligible != ["retry handling is deterministic"]:
             raise AssertionError("provider must receive only unfinished acceptance work")
+        if self.context["target_acceptance_criterion"] != eligible[0]:
+            raise AssertionError("controller must bind the first eligible criterion")
         return {
             "operation":"analyze",
             "decision_id":"github_execution_authority",
@@ -258,6 +260,67 @@ class EligibleCriterionProvider:
             "progress":{
                 "criterion":eligible[0],
                 "rationale":"advances only controller-eligible acceptance work",
+            },
+            "completion_claim":None,
+        }
+
+
+class NullThenTargetProvider:
+    name="null-then-target-fixture"
+
+    def __init__(self):
+        self.calls=0
+        self.contexts=[]
+
+    def reason(self,**kwargs):
+        self.calls+=1
+        self.contexts.append(kwargs["context"])
+        if self.calls==1:
+            return {
+                "operation":"analyze",
+                "decision_id":None,
+                "compatible_with_locked_decisions":True,
+                "revision_requested":False,
+                "blocker":None,
+                "action_plan":None,
+                "progress":None,
+                "completion_claim":None,
+            }
+        context=kwargs["context"]
+        if not context.get("completion_reconciliation",{}).get("required"):
+            raise AssertionError("second pass must be completion reconciliation")
+        target=context["target_acceptance_criterion"]
+        if target != "retry handling is deterministic":
+            raise AssertionError("reconciliation must preserve the bound target")
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "blocker":None,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":REPOSITORY,
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":"src/chatgpt_operation/reconciliation_probe.py",
+                        "branch":BRANCH,
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"READY=True\n"},
+                    "commit_message":"Add reconciliation target probe",
+                },
+                "expected_observation":"reconciliation target probe exists",
+            },
+            "progress":{
+                "criterion":target,
+                "rationale":"advances the controller-selected acceptance criterion",
             },
             "completion_claim":None,
         }
@@ -333,11 +396,47 @@ class SemanticPreflightRuntimeTests(unittest.TestCase):
             provider.context["eligible_acceptance_criteria"],
             ["retry handling is deterministic"],
         )
+        self.assertEqual(
+            provider.context["target_acceptance_criterion"],
+            "retry handling is deterministic",
+        )
         self.assertIn(
             CRITERION,
             provider.context["durable_state"]["integrated_acceptance_evidence"],
         )
         self.assertEqual(cycle.selected_work["kind"],"action")
+        self.assertEqual(
+            cycle.issue_planning["proposal"]["progress"]["criterion"],
+            "retry handling is deterministic",
+        )
+
+    def test_null_first_pass_reconciliation_keeps_controller_bound_target(self):
+        provider=NullThenTargetProvider()
+        controller=SamuelController(
+            decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
+            reasoning=ReasoningProviderRegistry(provider),
+        )
+        cycle=controller.run_cycle(
+            trigger(),
+            comments=[admission(),integrated_state_comment()],
+            pending=[],
+            repository_context=repository_context(),
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertEqual(
+            provider.contexts[0]["target_acceptance_criterion"],
+            "retry handling is deterministic",
+        )
+        self.assertEqual(
+            provider.contexts[1]["target_acceptance_criterion"],
+            "retry handling is deterministic",
+        )
+        self.assertTrue(
+            provider.contexts[1]["completion_reconciliation"]["required"]
+        )
+        self.assertTrue(
+            cycle.issue_planning["semantic_provider"]["reconciled_after_null"]
+        )
         self.assertEqual(
             cycle.issue_planning["proposal"]["progress"]["criterion"],
             "retry handling is deterministic",
