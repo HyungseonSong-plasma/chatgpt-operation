@@ -49,6 +49,11 @@ class SamuelBootstrapTests(unittest.TestCase):
             "tracked_paths_truncated=len(relevant_tracked_paths)>500",
             text,
         )
+        self.assertNotIn("refs[:20]",text)
+        self.assertIn("branch_limit=200",text)
+        self.assertIn("if len(refs)>branch_limit:",text)
+        self.assertIn("samuel branch inventory exceeds bound",text)
+        self.assertIn("for line in refs if len(line.split())==2",text)
 
     def test_workflow_has_no_direct_evidence_or_diagnostic_dispatch_runtime(self):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
