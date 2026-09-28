@@ -400,6 +400,17 @@ jobs:
             sleep 5
           done
 
+      - name: Finalize completed worker gateway evidence
+        if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.cli controller finalize-gateway \
+            --gateway-result samuel-terminal-gateway-result.json \
+            --worker-run samuel-worker-run.json \
+            --result samuel-terminal-gateway-result.json
+
       - name: Persist terminal controller artifact
         if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
         env:
