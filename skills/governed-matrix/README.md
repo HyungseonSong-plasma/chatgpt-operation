@@ -100,6 +100,14 @@ jobs:
       operation_sha: <same-exact-sha>
 ```
 
+## Python entrypoint preflight
+
+When a prepare, case, or aggregate command launches a consumer command, apply the execution/harness preflight in `github-actions-execution` before launch. In particular, repository-local Python imports must have an explicit import contract; current working directory is not sufficient evidence.
+
+When a matrix generation reuses a capability from an earlier exact head, the prepare gate must also verify the reused-generation dependency closure defined by `github-actions-execution`. For multi-file capabilities, bind the declared source exact head and verify the complete required file/build/runtime set before fan-out; do not discover missing transitive dependencies one failure at a time during P1/P2 or case execution.
+
+A repository-local `ModuleNotFoundError` in prepare is a harness/infrastructure failure. It does not classify the scientific case. Repair the entrypoint/launcher, preserve scientific inputs, and relaunch at a new exact consumer head.
+
 ## Safety / reproducibility rules
 
 - Each matrix case uses an independent GitHub runner.
