@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import copy
-from pathlib import Path
-import re
 from typing import Any, Callable
 
 from .action_lifecycle import ActionLifecycle, DispatchIntent
@@ -71,6 +69,7 @@ from chatgpt_operation.github.native_executor import (
 )
 from chatgpt_operation.weekly_schedule import (
     SCHEDULER_CAPABILITY,
+    existing_scheduler_surfaces,
     scheduled_runtime_reasoning_contract,
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
@@ -209,27 +208,6 @@ def _selected_payload(selected: tuple[str, Any] | None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ControllerCompositionError("selected work payload must be an object")
     return {"kind": kind, **value}
-
-
-def _existing_scheduler_surfaces() -> list[dict[str, Any]]:
-    """Expose checked-in schedule triggers as read-only planning capabilities."""
-    path=Path(".github/workflows/samuel-bootstrap.yml")
-    try:
-        text=path.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    if "schedule:" not in text:
-        return []
-    crons=re.findall(r"""cron:\s*['"]([^'"]+)['"]""",text)
-    return [
-        {
-            "workflow":str(path),
-            "event":"schedule",
-            "cron":cron,
-            "mutation_required":False,
-        }
-        for cron in crons
-    ]
 
 
 def _initial_state(
@@ -634,7 +612,7 @@ class SamuelController:
             )
         )
         context["repository_context"]["scheduler_surfaces"] = (
-            _existing_scheduler_surfaces()
+            existing_scheduler_surfaces()
         )
         scheduled_runtime = scheduled_runtime_reasoning_contract(
             self.now(),

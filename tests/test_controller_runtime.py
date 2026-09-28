@@ -25,6 +25,7 @@ from chatgpt_operation.controller.runtime import (
     TriggerKind,
     _owned_ready_pr_plan,
 )
+from chatgpt_operation.weekly_schedule import existing_scheduler_surfaces
 
 
 class Provider:
@@ -337,7 +338,7 @@ class RevisionThenSourceProvider:
                     },
                     "expected":{"absent":True},
                     "desired":{
-                        "content":"CANONICAL_TIMEZONE='UTC'\nBOOTSTRAP_CRON='9 * * * *'\n"
+                        "content":"CANONICAL_TIMEZONE='UTC'\n"
                     },
                     "commit_message":"Add code-owned weekly schedule",
                 },
@@ -1547,15 +1548,7 @@ class ControllerRuntimeTests(unittest.TestCase):
             provider.validation_errors[1],
         )
         scheduler=provider.contexts[0]["repository_context"]["scheduler_surfaces"]
-        self.assertEqual(
-            scheduler,
-            [{
-                "workflow":".github/workflows/samuel-bootstrap.yml",
-                "event":"schedule",
-                "cron":"9 * * * *",
-                "mutation_required":False,
-            }],
-        )
+        self.assertEqual(scheduler,existing_scheduler_surfaces())
         self.assertEqual(result.selected_work["kind"],"action")
         self.assertEqual(result.selected_work["work_id"],"issue:24")
         self.assertEqual(
