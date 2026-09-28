@@ -23,6 +23,7 @@ from chatgpt_operation.controller.runtime import (
     ControllerTrigger,
     SamuelController,
     TriggerKind,
+    _owned_ready_pr_plan,
 )
 
 
@@ -628,6 +629,56 @@ class ControllerRuntimeTests(unittest.TestCase):
         ]
         self.assertEqual(len(queued),1)
         self.assertEqual(queued[0]["status"],"dispatch_intent")
+
+    def test_rejected_owned_ready_pr_is_not_requeued_automatically(self):
+        state=ResearchState(
+            "issue:24","finish telemetry",stage=ResearchStage.EXECUTE
+        )
+        state.action_queue["build"]={
+            "status":"complete",
+            "plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":"HyungseonSong-plasma/chatgpt-operation",
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":"x.py",
+                        "branch":"samuel/issue-24",
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"x=1\n"},
+                },
+                "expected_observation":"branch mutation exists",
+            },
+        }
+        repository_context={
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "open_pull_requests":[{
+                "number":142,
+                "title":"ready",
+                "state":"open",
+                "draft":False,
+                "head_ref":"samuel/issue-24",
+                "head_sha":"c"*40,
+                "base_ref":"main",
+                "ci_state":"success",
+            }],
+        }
+        merge_plan=_owned_ready_pr_plan(state,repository_context)
+        self.assertIsNotNone(merge_plan)
+        enqueue_suspended_action(state,merge_plan)
+        state.action_queue[merge_plan.idempotency_key]["status"]="rejected"
+
+        self.assertIsNone(_owned_ready_pr_plan(state,repository_context))
+        self.assertEqual(
+            state.action_queue[merge_plan.idempotency_key]["status"],
+            "rejected",
+        )
 
     def test_unowned_ready_pr_is_not_auto_promoted(self):
         work={
