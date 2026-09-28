@@ -21,8 +21,70 @@ class NativeGitHubAction(str, Enum):
     DISPATCH_WORKFLOW = "dispatch_workflow"
 
 
+NATIVE_GITHUB_PAYLOAD_ALLOWED_FIELDS = frozenset({
+    "action", "repository", "target",
+    "preconditions", "desired_postcondition",
+})
+NATIVE_GITHUB_PAYLOAD_REQUIRED_FIELDS = frozenset({
+    "action", "repository", "target", "desired_postcondition",
+})
+
+
 ReadState = Callable[[NativeGitHubAction, dict[str, Any]], dict[str, Any]]
 Mutate = Callable[[NativeGitHubAction, dict[str, Any]], dict[str, Any]]
+
+
+def native_github_reasoning_contract() -> dict[str, Any]:
+    """Return the closed-world semantic contract consumed by Samuel reasoning."""
+    return {
+        "rule": (
+            "mutation is read-before/write/read-after and postcondition verified; "
+            "payload must match this closed-world schema exactly"
+        ),
+        "payload": {
+            "required_fields": sorted(NATIVE_GITHUB_PAYLOAD_REQUIRED_FIELDS),
+            "optional_fields": ["preconditions"],
+            "allowed_fields": sorted(NATIVE_GITHUB_PAYLOAD_ALLOWED_FIELDS),
+            "additional_fields": False,
+            "repository": "owner/name",
+            "preconditions_required_except": ["merge_pr"],
+        },
+        "actions": {
+            "create_pr": {
+                "target_required_exactly": ["head", "base", "title", "body"],
+                "preconditions": {"pr_present": False},
+                "desired_postcondition": {"pr_present": True},
+            },
+            "close_issue": {
+                "target_required_exactly": ["number"],
+                "preconditions": {"issue_state": "open"},
+                "desired_postcondition": {"issue_state": "closed"},
+            },
+            "comment_issue": {
+                "target_required_exactly": ["number", "body", "marker"],
+                "preconditions": {
+                    "issue_state": "open",
+                    "comment_present": False,
+                },
+                "desired_postcondition": {"comment_present": True},
+            },
+            "merge_pr": {
+                "target_required": ["number", "expected_head_sha"],
+                "target_optional": ["merge_method"],
+                "preconditions": (
+                    "optional in proposal; deterministic executor derives exact "
+                    "head_sha, mergeable=true, and ci=success"
+                ),
+                "desired_postcondition": {"merged": True},
+            },
+            "dispatch_workflow": {
+                "target_required": ["workflow", "ref"],
+                "target_optional": ["inputs"],
+                "preconditions_required": True,
+                "desired_postcondition_required": True,
+            },
+        },
+    }
 
 
 @dataclass(frozen=True)
@@ -40,12 +102,10 @@ class NativeGitHubCommand:
         if plan.requires_escalation():
             raise ActionPlanError("action plan requires escalation before execution")
         raw = plan.payload
-        allowed = {
-            "action", "repository", "target",
-            "preconditions", "desired_postcondition",
-        }
-        required = {"action", "repository", "target", "desired_postcondition"}
-        if set(raw) - allowed or not required.issubset(raw):
+        if (
+            set(raw) - NATIVE_GITHUB_PAYLOAD_ALLOWED_FIELDS
+            or not NATIVE_GITHUB_PAYLOAD_REQUIRED_FIELDS.issubset(raw)
+        ):
             raise NativeGitHubError(
                 "native GitHub payload must use the closed-world schema"
             )
