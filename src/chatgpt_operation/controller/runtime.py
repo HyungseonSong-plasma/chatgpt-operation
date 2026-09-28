@@ -52,6 +52,7 @@ from chatgpt_operation.github.native_executor import (
     native_github_reasoning_contract,
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
+from chatgpt_operation.repository.mutation import repository_mutation_reasoning_contract
 
 
 class ControllerCompositionError(ValueError):
@@ -465,15 +466,17 @@ class SamuelController:
                 "decision_risk": "optional",
             },
             "repository_mutation": {
-                "purpose": "bounded branch/file mutation through deterministic policy",
-                "resource_actions": {
-                    "branch": ["create"],
-                    "file": ["create", "update", "delete"],
+                **repository_mutation_reasoning_contract(),
+                "policy": {
+                    "branch_rule": "never mutate main; use samuel/* or issue-*",
+                    "new_branch_base": (
+                        "for branch create, desired.sha must equal "
+                        "repository_context.observed_head_sha"
+                    ),
+                    "file_create_rule": (
+                        "target branch must already exist before file creation"
+                    ),
                 },
-                "branch_rule": "never mutate main; use samuel/* or issue-*",
-                "file_update_rule": (
-                    "update/delete require exact current file SHA; create requires absent=true"
-                ),
             },
             "github_native": native_github_reasoning_contract(),
         }
@@ -523,12 +526,21 @@ class SamuelController:
                     f"{work_id}. Continue from durable execution history and "
                     "inherited_evidence. Treat inherited_evidence as verified prior "
                     "work from a terminal predecessor workload; do not repeat it. "
-                    "Do not repeat completed actions. When implementation_gaps is "
+                    "Compare the Issue observations and acceptance requirements against "
+                    "durable history, inherited_evidence, and "
+                    "repository_context.tracked_paths to identify the first concrete "
+                    "unmet workload criterion. A required repository artifact absent "
+                    "from tracked_paths is a concrete gap. For a new repository change, "
+                    "if no workload-owned writable branch is already at "
+                    "repository_context.observed_head_sha, create a fresh samuel/* "
+                    "branch first. Do not repeat completed actions. When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
                     "named gap in implementation_gaps. Follow execution_contracts "
                     "exactly. For github_native plans, payload must contain only "
                     "fields listed in execution_contracts.github_native.payload."
-                    "allowed_fields; action-specific data belongs under target. "
+                    "allowed_fields; action-specific data belongs under target. For "
+                    "repository_mutation plans, follow "
+                    "execution_contracts.repository_mutation exactly. "
                     "Prefer the smallest verifiable next step; return null only "
                     "when no safe executable step exists."
                 ),
@@ -608,6 +620,12 @@ class SamuelController:
                     ),
                     "samuel_branches": repository_audit.get(
                         "samuel_branches", []
+                    ),
+                    "tracked_paths": repository_audit.get(
+                        "tracked_paths", []
+                    ),
+                    "workflow_files": repository_audit.get(
+                        "workflow_files", []
                     ),
                 },
             },
