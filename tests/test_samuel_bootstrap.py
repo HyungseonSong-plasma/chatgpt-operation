@@ -41,9 +41,14 @@ class SamuelBootstrapTests(unittest.TestCase):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
         self.assertIn('["git","ls-files"]',text)
         self.assertIn('"tracked_paths":tracked_paths',text)
+        self.assertIn('"tracked_paths_truncated":tracked_paths_truncated',text)
         self.assertIn('"workflow_files":workflow_files',text)
         self.assertIn('".github/workflows/"',text)
-        self.assertIn("[:500]",text)
+        self.assertIn("relevant_tracked_paths[:500]",text)
+        self.assertIn(
+            "tracked_paths_truncated=len(relevant_tracked_paths)>500",
+            text,
+        )
 
     def test_workflow_has_no_direct_evidence_or_diagnostic_dispatch_runtime(self):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
