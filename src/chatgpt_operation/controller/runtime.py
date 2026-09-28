@@ -53,6 +53,7 @@ from chatgpt_operation.github.native_executor import (
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
 from chatgpt_operation.repository.mutation import (
+    PolicyError,
     parse_policy,
     repository_mutation_reasoning_contract,
     validate_manifest_policy,
@@ -521,12 +522,18 @@ class SamuelController:
                         "mutation_policy"
                     )
                     if isinstance(policy_raw, dict):
-                        policy = parse_policy(policy_raw)
-                        validate_manifest_policy(
-                            manifest,
-                            policy,
-                            repository=manifest.repository,
-                        )
+                        try:
+                            policy = parse_policy(policy_raw)
+                            validate_manifest_policy(
+                                manifest,
+                                policy,
+                                repository=manifest.repository,
+                            )
+                        except PolicyError as exc:
+                            raise ValueError(
+                                "repository mutation violates authoritative policy: "
+                                + str(exc)
+                            ) from exc
                 else:
                     raise ValueError(
                         "production semantic provider emitted unsupported executor "
