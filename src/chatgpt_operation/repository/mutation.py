@@ -196,6 +196,78 @@ def parse_policy(raw):
     if not isinstance(gate["ignore_current_run"],bool): raise PolicyError("ignore_current_run must be boolean")
     return Policy(repo,frozenset(fa),frozenset(ba),_patterns(fp["allow"],"file_paths.allow"),_patterns(fp["deny"],"file_paths.deny"),_patterns(bn["allow"],"branch_names.allow"),_patterns(bn["deny"],"branch_names.deny"),mode,frozenset(workflows),gate["ignore_current_run"])
 
+def repository_mutation_policy_reasoning_contract(policy: Policy) -> dict[str, Any]:
+    """Expose executable repository policy to semantic planning without authority drift."""
+    return {
+        "repository": policy.repository,
+        "file_actions": sorted(policy.allow_file_actions),
+        "branch_actions": sorted(policy.allow_branch_actions),
+        "file_paths": {
+            "allow": list(policy.file_allow),
+            "deny": list(policy.file_deny),
+        },
+        "branch_names": {
+            "allow": list(policy.branch_allow),
+            "deny": list(policy.branch_deny),
+        },
+        "validation_gate": {
+            "mode": policy.gate_mode,
+            "workflows": sorted(policy.gate_workflows),
+        },
+        "rule": (
+            "ActionPlans must satisfy these allow/deny patterns before dispatch; "
+            "deny patterns override allow patterns."
+        ),
+    }
+
+
+def authorize_manifest(
+    manifest: Manifest,
+    *,
+    policy: Policy,
+    repository: str,
+) -> None:
+    """Apply repository mutation authority policy before any side effect."""
+    if manifest.repository != repository or policy.repository != repository:
+        raise PolicyError("repository binding mismatch")
+    if manifest.resource == "file":
+        if manifest.action not in policy.allow_file_actions:
+            raise PolicyError(f"file action denied: {manifest.action}")
+        path = manifest.target["path"]
+        if not _allowed(path, policy.file_allow, policy.file_deny):
+            raise PolicyError(
+                "file path denied: "
+                + path
+                + "; allow="
+                + repr(list(policy.file_allow))
+                + "; deny="
+                + repr(list(policy.file_deny))
+            )
+        branch = manifest.target["branch"]
+        if not _allowed(branch, policy.branch_allow, policy.branch_deny):
+            raise PolicyError(
+                "branch target denied: "
+                + branch
+                + "; allow="
+                + repr(list(policy.branch_allow))
+                + "; deny="
+                + repr(list(policy.branch_deny))
+            )
+        return
+    if manifest.action not in policy.allow_branch_actions:
+        raise PolicyError(f"branch action denied: {manifest.action}")
+    name = manifest.target["name"]
+    if not _allowed(name, policy.branch_allow, policy.branch_deny):
+        raise PolicyError(
+            "branch name denied: "
+            + name
+            + "; allow="
+            + repr(list(policy.branch_allow))
+            + "; deny="
+            + repr(list(policy.branch_deny))
+        )
+
+
 def load_json(path):
     try:
         with open(path,"r",encoding="utf-8") as f: return json.load(f)
@@ -236,14 +308,11 @@ class Engine:
             if exc.status==404: return None
             raise
     def _authorize(self,m):
-        if m.repository!=self.repository or self.policy.repository!=self.repository: raise PolicyError("repository binding mismatch")
-        if m.resource=="file":
-            if m.action not in self.policy.allow_file_actions: raise PolicyError(f"file action denied: {m.action}")
-            if not _allowed(m.target["path"],self.policy.file_allow,self.policy.file_deny): raise PolicyError(f"file path denied: {m.target['path']}")
-            if not _allowed(m.target["branch"],self.policy.branch_allow,self.policy.branch_deny): raise PolicyError(f"branch target denied: {m.target['branch']}")
-        else:
-            if m.action not in self.policy.allow_branch_actions: raise PolicyError(f"branch action denied: {m.action}")
-            if not _allowed(m.target["name"],self.policy.branch_allow,self.policy.branch_deny): raise PolicyError(f"branch name denied: {m.target['name']}")
+        authorize_manifest(
+            m,
+            policy=self.policy,
+            repository=self.repository,
+        )
     def _runs(self,status):
         page=1
         while True:
