@@ -1,7 +1,10 @@
 """Durable Samuel controller state encoded in the Issue #44 ledger."""
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import zlib
 from dataclasses import asdict
 from typing import Any
 
@@ -9,13 +12,25 @@ from .research import ResearchState
 
 STATE_MARKER = "<!-- samuel-controller-state -->"
 STATE_SCHEMA_VERSION = 2
+STATE_ENCODING = "zlib+base64"
+STATE_INLINE_THRESHOLD = 48_000
+STATE_SAFE_COMMENT_LIMIT = 240_000
+STATE_MAX_DECOMPRESSED_BYTES = 4_000_000
+STATE_MAX_COMPRESSED_BYTES = 1_000_000
 
 
 class DurableStateError(ValueError):
     pass
 
 
+def _state_body(envelope: dict[str, Any]) -> str:
+    return STATE_MARKER + "\n```json\n" + json.dumps(
+        envelope, sort_keys=True, separators=(",", ":")
+    ) + "\n```"
+
+
 def encode_state(state: ResearchState) -> str:
+    """Encode durable state, compressing large ledgers without discarding evidence."""
     payload = asdict(state)
     payload["stage"] = state.stage.value
     envelope = {
@@ -24,9 +39,68 @@ def encode_state(state: ResearchState) -> str:
         "revision": state.revision,
         "state": payload,
     }
-    return STATE_MARKER + "\n```json\n" + json.dumps(
-        envelope, sort_keys=True, separators=(",", ":")
-    ) + "\n```"
+    inline = _state_body(envelope)
+    if len(inline) <= STATE_INLINE_THRESHOLD:
+        return inline
+
+    raw = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    compressed = zlib.compress(raw, level=9)
+    encoded = base64.b64encode(compressed).decode("ascii")
+    compact = _state_body({
+        "schema_version": STATE_SCHEMA_VERSION,
+        "research_id": state.research_id,
+        "revision": state.revision,
+        "encoding": STATE_ENCODING,
+        "state": encoded,
+    })
+    if len(compact) > STATE_SAFE_COMMENT_LIMIT:
+        raise DurableStateError(
+            "encoded controller state exceeds safe GitHub comment size"
+        )
+    return compact
+
+
+def _decode_compressed_state(value: Any) -> dict[str, Any]:
+    if not isinstance(value, str) or not value:
+        raise DurableStateError("compressed controller state payload missing")
+    try:
+        compressed = base64.b64decode(value.encode("ascii"), validate=True)
+    except (UnicodeEncodeError, binascii.Error) as exc:
+        raise DurableStateError(
+            "compressed controller state base64 is invalid"
+        ) from exc
+    if len(compressed) > STATE_MAX_COMPRESSED_BYTES:
+        raise DurableStateError("compressed controller state payload is too large")
+
+    inflater = zlib.decompressobj()
+    try:
+        raw = inflater.decompress(
+            compressed, STATE_MAX_DECOMPRESSED_BYTES + 1
+        )
+    except zlib.error as exc:
+        raise DurableStateError(
+            "compressed controller state zlib payload is invalid"
+        ) from exc
+    if (
+        len(raw) > STATE_MAX_DECOMPRESSED_BYTES
+        or inflater.unconsumed_tail
+        or not inflater.eof
+        or inflater.unused_data
+    ):
+        raise DurableStateError(
+            "compressed controller state payload exceeds bounded decode contract"
+        )
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DurableStateError(
+            "compressed controller state JSON is invalid"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise DurableStateError("compressed controller state payload missing")
+    return payload
 
 
 def decode_state(body: str) -> ResearchState:
@@ -42,9 +116,15 @@ def decode_state(body: str) -> ResearchState:
         raise DurableStateError("controller state JSON is invalid") from exc
     if envelope.get("schema_version") not in {1, STATE_SCHEMA_VERSION}:
         raise DurableStateError("unsupported controller state schema")
-    raw = envelope.get("state")
-    if not isinstance(raw, dict):
-        raise DurableStateError("controller state payload missing")
+    encoding=envelope.get("encoding")
+    if encoding is None:
+        raw=envelope.get("state")
+        if not isinstance(raw,dict):
+            raise DurableStateError("controller state payload missing")
+    elif encoding==STATE_ENCODING:
+        raw=_decode_compressed_state(envelope.get("state"))
+    else:
+        raise DurableStateError("unsupported controller state encoding")
     if envelope.get("research_id") != raw.get("research_id"):
         raise DurableStateError("controller state research_id mismatch")
     if envelope.get("revision") != raw.get("revision"):
