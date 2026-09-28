@@ -3,6 +3,7 @@ import unittest
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.diagnostic import enqueue_suspended_action
 from chatgpt_operation.controller.preflight import (
+    deterministic_completion_claim,
     eligible_acceptance_criteria,
     extract_acceptance_criteria,
     integrated_acceptance_evidence,
@@ -347,6 +348,45 @@ class SemanticPreflightTests(unittest.TestCase):
                 "retry handling is deterministic",
                 "closure is backed by evidence",
             ),
+        )
+
+    def test_completion_claim_requires_integrated_coverage_for_every_criterion(self):
+        current=state()
+        self.assertIsNone(deterministic_completion_claim(BODY,current))
+
+        for index,criterion in enumerate(extract_acceptance_criteria(BODY)):
+            evidence=file_plan(
+                path=f"src/chatgpt_operation/evidence_{index}.py"
+            )
+            mark_complete(
+                current,
+                evidence,
+                progress={
+                    "criterion":criterion,
+                    "rationale":"implementation on bounded branch",
+                },
+            )
+        create_pr=create_pr_plan()
+        mark_complete(
+            current,
+            create_pr,
+            details={"after":{"pr_number":99,"head_sha":"c"*40}},
+        )
+        merge_pr=merge_pr_plan()
+        mark_complete(
+            current,
+            merge_pr,
+            details={"after":{"merged":True,"head_sha":"c"*40}},
+        )
+
+        claim=deterministic_completion_claim(BODY,current)
+        self.assertIsNotNone(claim)
+        self.assertEqual(
+            [item["criterion"] for item in claim["criteria"]],
+            list(extract_acceptance_criteria(BODY)),
+        )
+        self.assertTrue(
+            all(item["evidence_action_ids"] for item in claim["criteria"])
         )
 
     def test_close_accepts_provenance_checked_completion_result_evidence(self):
