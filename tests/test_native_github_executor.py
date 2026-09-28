@@ -2,7 +2,11 @@ import unittest
 
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.execution import ExecutionStatus
-from chatgpt_operation.github.native_executor import NativeGitHubError, execute_native_github
+from chatgpt_operation.github.native_executor import (
+    NativeGitHubError,
+    execute_native_github,
+    native_github_reasoning_contract,
+)
 
 
 def plan(action="merge_pr"):
@@ -23,6 +27,26 @@ def plan(action="merge_pr"):
 
 
 class NativeGitHubExecutorTests(unittest.TestCase):
+    def test_reasoning_contract_exposes_closed_world_payload_schema(self):
+        contract = native_github_reasoning_contract()
+        payload = contract["payload"]
+        self.assertFalse(payload["additional_fields"])
+        self.assertEqual(
+            set(payload["allowed_fields"]),
+            {
+                "action", "repository", "target",
+                "preconditions", "desired_postcondition",
+            },
+        )
+        self.assertEqual(
+            set(payload["required_fields"]),
+            {"action", "repository", "target", "desired_postcondition"},
+        )
+        self.assertEqual(
+            contract["actions"]["comment_issue"]["target_required_exactly"],
+            ["number", "body", "marker"],
+        )
+
     def test_replay_is_noop_when_postcondition_already_holds(self):
         result = execute_native_github(
             plan(),
