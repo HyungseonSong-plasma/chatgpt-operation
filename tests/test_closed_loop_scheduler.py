@@ -135,11 +135,29 @@ def test_bootstrap_waits_for_dispatched_worker_before_terminal_ingestion():
     text=Path(
         ".github/workflows/samuel-bootstrap.yml"
     ).read_text(encoding="utf-8")
+    materialize_marker="- name: Materialize dispatched worker run identity"
     wait_marker="- name: Wait for dispatched bounded worker terminal state"
     persist_marker="- name: Persist execution gateway state write"
     terminal_marker="- name: Persist terminal controller artifact"
+    assert text.count(materialize_marker)==1
     assert text.count(wait_marker)==1
-    assert text.index(persist_marker) < text.index(wait_marker) < text.index(terminal_marker)
+    assert (
+        text.index(persist_marker)
+        < text.index(materialize_marker)
+        < text.index(wait_marker)
+        < text.index(terminal_marker)
+    )
+    materialize=text.split(materialize_marker,1)[1].split(wait_marker,1)[0]
+    assert 'raw.get("status") != "receipt"' in materialize
+    assert 'receipt.get("workflow_run_id")' in materialize
+    for filename in (
+        "samuel-action-run-id.txt",
+        "samuel-evidence-run-id.txt",
+        "samuel-diagnostic-run-id.txt",
+        "samuel-corrective-run-id.txt",
+    ):
+        assert filename in materialize
+    assert "SAMUEL_WORKER_ID=MATERIALIZED" in materialize
     wait=text.split(wait_marker,1)[1].split(terminal_marker,1)[0]
     assert 'actions/runs/$run_id' in wait
     assert 'status" = "completed"' in wait
