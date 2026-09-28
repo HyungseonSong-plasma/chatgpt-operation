@@ -152,6 +152,10 @@ jobs:
                   "base_ref":item["base"]["ref"],
                   "ci_state":ci_state,
               })
+          mutation_policy=json.load(open(
+              "automation/samuel/repository-mutation-policy.json",
+              encoding="utf-8",
+          ))
           context={
               "schema_version":1,
               "repository":os.environ["GITHUB_REPOSITORY"],
@@ -162,6 +166,7 @@ jobs:
               "tracked_paths":tracked_paths,
               "tracked_paths_truncated":tracked_paths_truncated,
               "workflow_files":workflow_files,
+              "mutation_policy":mutation_policy,
           }
           open("samuel-repository-context.json","w").write(
               json.dumps(context,sort_keys=True,separators=(",",":"))+"\n"
