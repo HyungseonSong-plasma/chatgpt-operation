@@ -43,6 +43,25 @@ class Provider:
 
 
 
+
+class StaticPlanProvider:
+    name = "static-plan-fixture"
+
+    def __init__(self, plan):
+        self.plan = plan
+        self.calls = 0
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":self.plan,
+        }
+
+
 class RepairProvider:
     name = "repair-fixture"
     def __init__(self):
@@ -140,6 +159,38 @@ def queued_state():
     return plan,state
 
 
+
+def repository_issue(number, labels=("samuel",), state="open"):
+    return {
+        "number":number,
+        "title":f"Samuel work {number}",
+        "body":f"bounded work for issue {number}",
+        "state":state,
+        "labels":list(labels),
+    }
+
+
+def native_action_plan_for(number):
+    return {
+        "schema_version":1,
+        "research_id":f"issue:{number}",
+        "stage":"implement",
+        "executor":"github_native",
+        "payload":{
+            "action":"comment_issue",
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "target":{
+                "number":number,
+                "body":f"<!-- composition-root-test-{number} -->",
+                "marker":f"<!-- composition-root-test-{number} -->",
+            },
+            "preconditions":{"issue_state":"open","comment_present":False},
+            "desired_postcondition":{"comment_present":True},
+        },
+        "expected_observation":f"Issue #{number} contains its test marker",
+    }
+
+
 def native_action_plan():
     return {
         "schema_version":1,
@@ -170,6 +221,83 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertIsNone(result.state_write)
         self.assertEqual(result.to_dict()["schema_version"],4)
         self.assertIsNone(result.execution_command)
+
+
+    def test_schedule_discovers_explicit_samuel_opt_in(self):
+        result=controller().run_cycle(
+            trigger(),
+            comments=[],
+            pending=[],
+            repository_context={
+                "open_issues":[
+                    repository_issue(24),
+                    repository_issue(43,labels=("observability",)),
+                ]
+            },
+        )
+        self.assertEqual(
+            result.selected_work,
+            {"kind":"reasoning_required","work_id":"issue:24"},
+        )
+        admitted=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(set(admitted),{"issue:24"})
+        self.assertEqual(admitted["issue:24"]["status"],"reasoning_required")
+
+    def test_schedule_keeps_unlabeled_open_issues_fail_closed(self):
+        result=controller().run_cycle(
+            trigger(),
+            comments=[],
+            pending=[],
+            repository_context={
+                "open_issues":[repository_issue(24,labels=("bug",))]
+            },
+        )
+        self.assertEqual(result.selected_work,{"kind":"idle"})
+        self.assertIsNone(result.admission_write)
+
+    def test_terminal_closed_workload_rolls_over_to_next_admitted_issue(self):
+        work={
+            "issue:44":{
+                "work_id":"issue:44",
+                "issue_number":44,
+                "title":"Samuel OS",
+                "body":"finished root workload",
+                "html_url":"https://github.com/o/r/issues/44",
+                "status":"planned",
+            },
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Samuel work 24",
+                "body":"bounded work for issue 24",
+                "html_url":"",
+                "status":"admitted",
+            },
+        }
+        state=ResearchState(
+            "issue:44","finished root workload",stage=ResearchStage.EXECUTE
+        )
+        state.action_queue["done"]={"status":"complete"}
+        provider=StaticPlanProvider(native_action_plan_for(24))
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={"open_issues":[repository_issue(24)]},
+        )
+        self.assertEqual(provider.calls,1)
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["work_id"],"issue:24")
+        admitted=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(admitted["issue:44"]["status"],"complete")
+        self.assertEqual(admitted["issue:24"]["status"],"planned")
+        proposed=decode_state(result.state_write["body"])
+        self.assertEqual(proposed.research_id,"issue:24")
+        self.assertEqual(result.state_write["expected_previous_revision"],0)
+        self.assertEqual(result.execution_command.research_id,"issue:24")
 
     def test_issue_trigger_admission_is_owned_by_root(self):
         issue_trigger=ControllerTrigger(
