@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from pathlib import Path
+import re
 from typing import Any
 
 
 CANONICAL_TIMEZONE = "UTC"
 SCHEDULER_WORKFLOW = ".github/workflows/samuel-bootstrap.yml"
-SCHEDULER_CRON = "20 13 * * *"
 SCHEDULER_CAPABILITY = "existing_scheduled_runtime"
 PHASES = ("collect", "analyze", "close")
 
@@ -35,6 +36,27 @@ def canonical_slot(now: datetime) -> dict[str, Any]:
     }
 
 
+def existing_scheduler_surfaces() -> list[dict[str, Any]]:
+    """Observe checked-in bootstrap schedule triggers without duplicating cron policy."""
+    path=Path(SCHEDULER_WORKFLOW)
+    try:
+        text=path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    if "schedule:" not in text:
+        return []
+    crons=re.findall(r"""cron:\s*['"]([^'"]+)['"]""",text)
+    return [
+        {
+            "workflow":SCHEDULER_WORKFLOW,
+            "event":"schedule",
+            "cron":cron,
+            "mutation_required":False,
+        }
+        for cron in crons
+    ]
+
+
 def scheduled_runtime_reasoning_contract(
     now: datetime | None = None,
     *,
@@ -42,25 +64,28 @@ def scheduled_runtime_reasoning_contract(
 ) -> dict[str, Any]:
     """Expose the observed bootstrap scheduler as an executable alternative capability."""
     slot = canonical_slot(now or datetime.now(timezone.utc))
-    observed = list(scheduler_surfaces or [])
-    available = (
-        True
+    observed = (
+        existing_scheduler_surfaces()
         if scheduler_surfaces is None
-        else any(
-            item.get("workflow") == SCHEDULER_WORKFLOW
-            and item.get("event") == "schedule"
-            and item.get("cron") == SCHEDULER_CRON
-            and item.get("mutation_required") is False
-            for item in observed
-            if isinstance(item, dict)
-        )
+        else list(scheduler_surfaces)
     )
+    matching = [
+        item
+        for item in observed
+        if isinstance(item, dict)
+        and item.get("workflow") == SCHEDULER_WORKFLOW
+        and item.get("event") == "schedule"
+        and isinstance(item.get("cron"), str)
+        and bool(item["cron"].strip())
+        and item.get("mutation_required") is False
+    ]
+    scheduler = matching[0] if len(matching) == 1 else None
     return {
         "schema_version": 1,
         "capability": SCHEDULER_CAPABILITY,
-        "existing_durable_scheduler": available,
+        "existing_durable_scheduler": scheduler is not None,
         "workflow": SCHEDULER_WORKFLOW,
-        "cron": SCHEDULER_CRON,
+        "cron": None if scheduler is None else scheduler["cron"],
         "canonical_timezone": CANONICAL_TIMEZONE,
         "workflow_file_mutation_required": False,
         "code_owned_phase_routing": True,
