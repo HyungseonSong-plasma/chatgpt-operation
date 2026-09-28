@@ -16,6 +16,10 @@ from .action_lifecycle import ActionLifecycle, DispatchIntent
 from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
+from .centralization import (
+    centralization_reasoning_contract,
+    load_manifest as load_centralization_manifest,
+)
 from .decisions import DecisionRegistry, GuardOutcome
 from .durable_state import can_rollover_state, load_state_comment, state_write_request
 from .diagnostic import (
@@ -690,6 +694,12 @@ class SamuelController:
         ).strip() or None
         mutation_policy = parse_policy(
             load_repository_json("automation/samuel/repository-mutation-policy.json")
+        )
+        centralization_manifest=load_centralization_manifest(
+            "automation/samuel/scientific-centralization.json"
+        )
+        context["scientific_centralization"]=centralization_reasoning_contract(
+            centralization_manifest
         )
         context["execution_contracts"] = {
             "action_plan": {
