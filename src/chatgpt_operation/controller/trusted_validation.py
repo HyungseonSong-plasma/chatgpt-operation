@@ -187,13 +187,16 @@ def record_trusted_validation_intent(
         head_sha=head_sha,
         head_branch=head_branch,
     )
-    intent=DispatchIntent(
-        action_id=validation_id,
-        workflow=workflow,
-        ref=ref,
-        requested_at=requested_at,
-        expected_head_sha=expected_head_sha,
-    )
+    intent=DispatchIntent.from_dict({
+        "schema_version":2,
+        "action_id":validation_id,
+        "research_id":state.research_id,
+        "workflow":workflow,
+        "ref":ref,
+        "requested_at":requested_at,
+        "state_revision":state.revision+1,
+        "expected_head_sha":expected_head_sha,
+    })
     record={
         "schema_version":1,
         "status":ActionLifecycle.DISPATCH_INTENT.value,
@@ -229,8 +232,15 @@ def record_trusted_validation_dispatch(
     correlation=receipt.get("correlation_id")
     if correlation != record.get("validation_id"):
         raise TrustedValidationError("trusted validation receipt correlation mismatch")
+    run_id=receipt.get("workflow_run_id")
+    if not isinstance(run_id,int) or isinstance(run_id,bool) or run_id < 1:
+        raise TrustedValidationError(
+            "trusted validation receipt has no authoritative workflow_run_id"
+        )
+    if receipt.get("ref") != intent.ref:
+        raise TrustedValidationError("trusted validation receipt ref mismatch")
     workflow_path=str(receipt.get("workflow_path") or "")
-    if workflow_path and not workflow_path.endswith(intent.workflow):
+    if workflow_path and workflow_path.rsplit("/",1)[-1] != intent.workflow:
         raise TrustedValidationError("trusted validation receipt workflow mismatch")
     record["status"]=ActionLifecycle.DISPATCHED.value
     record["receipt"]=copy.deepcopy(receipt)
