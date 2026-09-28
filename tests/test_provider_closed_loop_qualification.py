@@ -35,6 +35,7 @@ from chatgpt_operation.controller.terminal_ingestion import (
     TerminalSurface,
     ingest_terminal_artifact,
 )
+from chatgpt_operation.weekly_schedule import existing_scheduler_surfaces
 
 
 REPOSITORY="HyungseonSong-plasma/chatgpt-operation"
@@ -47,7 +48,6 @@ SCHEDULE_CONTENT=(
     "from datetime import date\n"
     "\n"
     "CANONICAL_TIMEZONE=\"UTC\"\n"
-    "EXISTING_BOOTSTRAP_CRON=\"9 * * * *\"\n"
     "PHASES=(\"collect\",\"analyze\",\"close\")\n"
     "\n"
     "def phase_for_day(day: date) -> str:\n"
@@ -423,15 +423,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
         scheduler=second_prompt["reasoning_context"]["repository_context"][
             "scheduler_surfaces"
         ]
-        self.assertEqual(
-            scheduler,
-            [{
-                "workflow":".github/workflows/samuel-bootstrap.yml",
-                "event":"schedule",
-                "cron":"9 * * * *",
-                "mutation_required":False,
-            }],
-        )
+        self.assertEqual(scheduler,existing_scheduler_surfaces())
         schema=opener.requests[1]["text"]["format"]["schema"]
         self.assertIn("action_plan",schema["properties"])
         self.assertNotIn("action_plan_json",schema["properties"])
