@@ -3,6 +3,7 @@ from chatgpt_operation.controller.durable_state import (
     decode_state,
     encode_state,
     require_fresh_write,
+    can_rollover_state,
     load_state_comment,
     prepare_state_write,
     apply_diagnostic_patch,
@@ -81,6 +82,55 @@ def test_terminal_cross_research_rollover_is_allowed():
     assert write["comment_id"]==99
     assert write["expected_previous_revision"]==5
     assert decode_state(write["body"]).research_id=="issue:24"
+
+
+def test_nonretryable_suspended_failure_can_roll_over_after_workload_closes():
+    action_id="f"*64
+    current=ResearchState(
+        "issue:24",
+        "completed work with one governed nonretryable failed attempt",
+        stage=ResearchStage.EXECUTE,
+        action_queue={
+            "done":{"status":"complete"},
+            action_id:{"status":"suspended"},
+        },
+        execution_results={
+            action_id:{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "action_id":action_id,
+                "executor":"repository_mutation",
+                "status":"failed",
+                "observation":"repository mutation failed closed",
+                "retryable":False,
+                "details":{"governance_retryable":False},
+            }
+        },
+        revision=9,
+    )
+    assert can_rollover_state(current)
+    proposed=ResearchState("issue:43","next workload",revision=1)
+    require_fresh_write(current,proposed)
+
+
+def test_retryable_or_unproven_suspension_cannot_roll_over():
+    action_id="e"*64
+    current=ResearchState(
+        "issue:24",
+        "unfinished work",
+        action_queue={action_id:{"status":"suspended"}},
+        execution_results={
+            action_id:{
+                "status":"failed",
+                "details":{"governance_retryable":True},
+            }
+        },
+        revision=9,
+    )
+    assert not can_rollover_state(current)
+    current.execution_results[action_id]["details"]["governance_retryable"]=False
+    current.diagnostic_recoveries[action_id]={"status":"open"}
+    assert not can_rollover_state(current)
 
 
 def test_comment_loader_and_writer_use_single_authoritative_marker():
