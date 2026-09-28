@@ -52,7 +52,11 @@ from chatgpt_operation.github.native_executor import (
     native_github_reasoning_contract,
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
-from chatgpt_operation.repository.mutation import repository_mutation_reasoning_contract
+from chatgpt_operation.repository.mutation import (
+    parse_policy,
+    repository_mutation_reasoning_contract,
+    validate_manifest_policy,
+)
 
 
 class ControllerCompositionError(ValueError):
@@ -445,6 +449,7 @@ class SamuelController:
             "stage": state.stage.value,
             "action_queue": copy.deepcopy(state.action_queue),
             "diagnostic_recoveries": copy.deepcopy(state.diagnostic_recoveries),
+            "execution_results": copy.deepcopy(state.execution_results),
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
@@ -468,6 +473,9 @@ class SamuelController:
             "repository_mutation": {
                 **repository_mutation_reasoning_contract(),
                 "policy": {
+                    "authoritative": copy.deepcopy(
+                        (repository_context or {}).get("mutation_policy")
+                    ),
                     "branch_rule": "never mutate main; use samuel/* or issue-*",
                     "new_branch_base": (
                         "for branch create, desired.sha must equal "
@@ -505,10 +513,20 @@ class SamuelController:
                         str((repository_context or {}).get("repository") or "")
                         or None
                     )
-                    to_repository_manifest(
+                    manifest = to_repository_manifest(
                         candidate,
                         expected_repository=expected_repository,
                     )
+                    policy_raw = (repository_context or {}).get(
+                        "mutation_policy"
+                    )
+                    if isinstance(policy_raw, dict):
+                        policy = parse_policy(policy_raw)
+                        validate_manifest_policy(
+                            manifest,
+                            policy,
+                            repository=manifest.repository,
+                        )
                 else:
                     raise ValueError(
                         "production semantic provider emitted unsupported executor "
@@ -545,7 +563,9 @@ class SamuelController:
                     "fields listed in execution_contracts.github_native.payload."
                     "allowed_fields; action-specific data belongs under target. For "
                     "repository_mutation plans, follow "
-                    "execution_contracts.repository_mutation exactly. "
+                    "execution_contracts.repository_mutation exactly, including its "
+                    "authoritative policy allow/deny patterns. Never propose a file "
+                    "path denied by repository_context.mutation_policy. "
                     "Prefer the smallest verifiable next step; return null only "
                     "when no safe executable step exists."
                 ),
@@ -684,6 +704,9 @@ class SamuelController:
                     },
                     "inherited_evidence": copy.deepcopy(
                         durable_audit.get("inherited_evidence") or []
+                    ),
+                    "execution_results": copy.deepcopy(
+                        durable_audit.get("execution_results") or {}
                     ),
                 },
                 "repository_context": {
@@ -974,18 +997,20 @@ class SamuelController:
 
         if state is not None and self.reasoning.status().available:
             current = admitted.get(state.research_id)
+            unresolved_recovery = any(
+                recovery.get("status") in {"open", "needs_evidence"}
+                for recovery in state.diagnostic_recoveries.values()
+            )
+            replannable_statuses = {"complete", "rejected", "suspended"}
             if (
                 isinstance(current, dict)
                 and current.get("status") == "planned"
                 and state.action_queue
                 and all(
-                    item.get("status") in {"complete", "rejected"}
+                    item.get("status") in replannable_statuses
                     for item in state.action_queue.values()
                 )
-                and not any(
-                    recovery.get("status") in {"open", "needs_evidence"}
-                    for recovery in state.diagnostic_recoveries.values()
-                )
+                and not unresolved_recovery
             ):
                 admitted = transition_issue_status(
                     admitted, state.research_id, "reasoning_required"
