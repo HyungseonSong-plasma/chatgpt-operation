@@ -37,6 +37,7 @@ def test_current_main_ingests_all_consumers_and_preserves_retry_semantics() -> N
     assert retry.stable_identity != first.stable_identity
 
     ambiguous = _event("moose-test-repo")
+    ambiguous["run_id"] = "run-ambiguous"
     ambiguous.pop("dependency_status")
     ambiguous.pop("failure_signature")
     assert ingestor.ingest(ambiguous).failure_category == "UNKNOWN"
