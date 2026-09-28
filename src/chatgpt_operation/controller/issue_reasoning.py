@@ -16,10 +16,14 @@ class IssueReasoningProposal:
     compatible_with_locked_decisions: bool
     revision_requested: bool
     action_plan: dict[str, Any] | None
+    blocker: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "IssueReasoningProposal":
-        allowed={"operation","decision_id","compatible_with_locked_decisions","revision_requested","action_plan"}
+        allowed={
+            "operation","decision_id","compatible_with_locked_decisions",
+            "revision_requested","action_plan","blocker",
+        }
         if set(raw)-allowed:
             raise ValueError("unknown Issue reasoning proposal fields")
         operation=raw.get("operation")
@@ -39,7 +43,30 @@ class IssueReasoningProposal:
             raise ValueError(plan.split(": ",1)[1])
         if plan is not None and not isinstance(plan,dict):
             raise ValueError("action_plan must be null or object")
-        return cls(operation,decision_id,compatible,revision,plan)
+        blocker=raw.get("blocker")
+        if blocker is not None:
+            if not isinstance(blocker,dict) or set(blocker)!={
+                "capability","alternatives_considered","exhausted"
+            }:
+                raise ValueError("invalid blocker schema")
+            capability=blocker.get("capability")
+            alternatives=blocker.get("alternatives_considered")
+            exhausted=blocker.get("exhausted")
+            if not isinstance(capability,str) or not capability.strip():
+                raise ValueError("blocker capability must be non-empty")
+            if (
+                not isinstance(alternatives,list)
+                or any(not isinstance(item,str) or not item.strip() for item in alternatives)
+            ):
+                raise ValueError("blocker alternatives_considered must be strings")
+            if not isinstance(exhausted,bool):
+                raise ValueError("blocker exhausted must be boolean")
+            blocker={
+                "capability":capability.strip(),
+                "alternatives_considered":[item.strip() for item in alternatives],
+                "exhausted":exhausted,
+            }
+        return cls(operation,decision_id,compatible,revision,plan,blocker)
 
 
 def issue_reasoning_node(*,max_attempts:int=2)->StructuredReasoningNode[IssueReasoningProposal]:
