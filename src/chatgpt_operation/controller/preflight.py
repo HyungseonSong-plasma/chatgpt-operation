@@ -1,0 +1,300 @@
+"""Deterministic preflight for semantic ActionPlans before dispatch."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import re
+from typing import Any
+
+from .action_plan import ActionPlan, ExecutorKind
+from .research import ResearchState
+
+
+@dataclass(frozen=True)
+class PreflightFailure:
+    code: str
+    evidence: dict[str, Any]
+    repair_hint: str
+
+    def as_validation_error(self) -> str:
+        return "PREFLIGHT_REJECTED " + json.dumps(
+            {
+                "code": self.code,
+                "evidence": self.evidence,
+                "repair_hint": self.repair_hint,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+
+def extract_acceptance_criteria(body: str) -> tuple[str, ...]:
+    """Extract top-level bullets under a markdown ## Acceptance section."""
+    if not isinstance(body, str) or not body.strip():
+        return ()
+    lines=body.splitlines()
+    active=False
+    criteria=[]
+    for raw in lines:
+        line=raw.strip()
+        if line.startswith("## "):
+            if active:
+                break
+            active=line.lower()=="## acceptance"
+            continue
+        if not active:
+            continue
+        if line.startswith("### "):
+            continue
+        match=re.match(r"^-\s+(?:\[[ xX]\]\s+)?(.+?)\s*$", line)
+        if match:
+            criterion=match.group(1).strip()
+            if criterion and criterion not in criteria:
+                criteria.append(criterion)
+    return tuple(criteria)
+
+
+def verified_evidence_ids(state: ResearchState) -> set[str]:
+    result=set()
+    for action_id,item in state.action_queue.items():
+        if not isinstance(item,dict) or item.get("status")!="complete":
+            continue
+        execution=state.execution_results.get(action_id)
+        if not isinstance(execution,dict):
+            continue
+        if execution.get("status") in {"pass","noop"}:
+            result.add(action_id)
+    for item in state.inherited_evidence:
+        if not isinstance(item,dict):
+            continue
+        if item.get("verified_status") not in {"pass","noop"}:
+            continue
+        source=item.get("source_action_id")
+        if isinstance(source,str) and source:
+            result.add(source)
+    return result
+
+
+def _samuel_branch_heads(repository_context: dict[str, Any]) -> dict[str,str]:
+    branches={}
+    for item in repository_context.get("samuel_branches") or []:
+        if not isinstance(item,dict):
+            continue
+        ref=str(item.get("ref") or "")
+        sha=str(item.get("head_sha") or "")
+        prefix="refs/heads/"
+        if ref.startswith(prefix) and sha:
+            branches[ref[len(prefix):]]=sha
+    return branches
+
+
+def _is_close_issue(plan: ActionPlan) -> bool:
+    return (
+        plan.executor is ExecutorKind.GITHUB_NATIVE
+        and plan.payload.get("action")=="close_issue"
+    )
+
+
+def _preflight_repository_target(
+    plan: ActionPlan,
+    repository_context: dict[str, Any],
+) -> PreflightFailure | None:
+    if plan.executor is not ExecutorKind.REPOSITORY_MUTATION:
+        return None
+    payload=plan.payload
+    resource=payload.get("resource")
+    action=payload.get("action")
+    target=payload.get("target")
+    if not isinstance(target,dict):
+        return PreflightFailure(
+            "invalid_target",
+            {"resource":resource,"action":action},
+            "produce a repository mutation with a typed target",
+        )
+    observed=str(repository_context.get("observed_head_sha") or "")
+    branches=_samuel_branch_heads(repository_context)
+    if resource=="branch" and action=="create":
+        desired=payload.get("desired")
+        desired_sha=desired.get("sha") if isinstance(desired,dict) else None
+        if observed and desired_sha!=observed:
+            return PreflightFailure(
+                "stale_branch_base",
+                {"observed_head_sha":observed,"desired_sha":desired_sha},
+                "refresh repository state and create the branch from the exact observed main head",
+            )
+        return None
+    if resource=="file":
+        branch=target.get("branch")
+        if not isinstance(branch,str) or branch not in branches:
+            return PreflightFailure(
+                "missing_target_branch",
+                {
+                    "branch":branch,
+                    "known_workload_branches":sorted(branches),
+                },
+                "reuse an existing observed workload branch or create one first",
+            )
+    return None
+
+
+def _preflight_native_target(
+    plan: ActionPlan,
+    repository_context: dict[str, Any],
+) -> PreflightFailure | None:
+    if plan.executor is not ExecutorKind.GITHUB_NATIVE:
+        return None
+    action=plan.payload.get("action")
+    target=plan.payload.get("target")
+    if not isinstance(target,dict):
+        return PreflightFailure(
+            "invalid_target",
+            {"action":action},
+            "produce a native GitHub action with a typed target",
+        )
+    if action=="create_pr":
+        head=target.get("head")
+        branches=_samuel_branch_heads(repository_context)
+        if not isinstance(head,str) or head not in branches:
+            return PreflightFailure(
+                "missing_pr_head_branch",
+                {"head":head,"known_workload_branches":sorted(branches)},
+                "create or reuse an observed workload branch before opening a PR",
+            )
+    if action=="merge_pr":
+        number=target.get("number")
+        expected=target.get("expected_head_sha")
+        matches=[
+            item for item in repository_context.get("open_pull_requests") or []
+            if isinstance(item,dict) and item.get("number")==number
+        ]
+        if len(matches)!=1:
+            return PreflightFailure(
+                "missing_merge_target",
+                {"number":number,"matches":len(matches)},
+                "refresh pull-request state before planning merge",
+            )
+        actual=matches[0].get("head_sha")
+        if actual!=expected:
+            return PreflightFailure(
+                "stale_pr_head",
+                {"number":number,"expected_head_sha":expected,"actual_head_sha":actual},
+                "refresh the PR and replan against its exact current head",
+            )
+        if matches[0].get("ci_state")!="success":
+            return PreflightFailure(
+                "pr_not_ready",
+                {"number":number,"ci_state":matches[0].get("ci_state")},
+                "wait for authoritative CI success before merge",
+            )
+    return None
+
+
+def preflight_semantic_plan(
+    *,
+    plan: ActionPlan,
+    progress: dict[str, Any] | None,
+    completion_claim: dict[str, Any] | None,
+    issue_body: str,
+    state: ResearchState,
+    repository_context: dict[str, Any],
+) -> PreflightFailure | None:
+    """Reject predictable semantic/execution failures before enqueue/dispatch."""
+    if plan.idempotency_key in state.action_queue:
+        prior=state.action_queue[plan.idempotency_key]
+        return PreflightFailure(
+            "duplicate_action",
+            {
+                "action_id":plan.idempotency_key,
+                "prior_status":prior.get("status") if isinstance(prior,dict) else None,
+            },
+            "do not repeat an already-known ActionPlan; choose the next unmet criterion",
+        )
+
+    failure=_preflight_repository_target(plan,repository_context)
+    if failure is not None:
+        return failure
+    failure=_preflight_native_target(plan,repository_context)
+    if failure is not None:
+        return failure
+
+    criteria=extract_acceptance_criteria(issue_body)
+    if not criteria:
+        return None
+
+    if _is_close_issue(plan):
+        if progress is not None:
+            return PreflightFailure(
+                "close_has_progress_claim",
+                {"criterion":progress.get("criterion")},
+                "close_issue should use completion_claim, not a new progress claim",
+            )
+        if completion_claim is None:
+            return PreflightFailure(
+                "premature_close",
+                {"acceptance_criteria":list(criteria),"missing":"completion_claim"},
+                "map every acceptance criterion to terminal-success evidence before closing",
+            )
+        claimed=completion_claim.get("criteria")
+        if not isinstance(claimed,list):
+            return PreflightFailure(
+                "invalid_completion_claim",
+                {"reason":"criteria must be an array"},
+                "provide one completion entry for every exact acceptance criterion",
+            )
+        by_criterion={}
+        for item in claimed:
+            if not isinstance(item,dict):
+                continue
+            criterion=item.get("criterion")
+            evidence=item.get("evidence_action_ids")
+            if isinstance(criterion,str) and isinstance(evidence,list):
+                by_criterion[criterion]=evidence
+        missing=[criterion for criterion in criteria if criterion not in by_criterion]
+        extra=[criterion for criterion in by_criterion if criterion not in criteria]
+        if missing or extra:
+            return PreflightFailure(
+                "incomplete_acceptance_coverage",
+                {"missing":missing,"extra":extra},
+                "cover each exact ## Acceptance bullet once and do not invent criteria",
+            )
+        verified=verified_evidence_ids(state)
+        invalid={}
+        for criterion in criteria:
+            ids=by_criterion[criterion]
+            if not ids:
+                invalid[criterion]=ids
+                continue
+            bad=[
+                action_id for action_id in ids
+                if not isinstance(action_id,str) or action_id not in verified
+            ]
+            if bad:
+                invalid[criterion]=bad
+        if invalid:
+            return PreflightFailure(
+                "unverified_completion_evidence",
+                {"invalid_evidence":invalid,"verified_evidence_ids":sorted(verified)},
+                "use only terminal PASS/NOOP durable or inherited evidence IDs",
+            )
+        return None
+
+    if completion_claim is not None:
+        return PreflightFailure(
+            "completion_claim_before_close",
+            {},
+            "use completion_claim only for close_issue",
+        )
+    if progress is None:
+        return PreflightFailure(
+            "missing_acceptance_progress",
+            {"acceptance_criteria":list(criteria)},
+            "identify the exact ## Acceptance criterion this ActionPlan advances",
+        )
+    criterion=progress.get("criterion")
+    if criterion not in criteria:
+        return PreflightFailure(
+            "unknown_acceptance_criterion",
+            {"criterion":criterion,"acceptance_criteria":list(criteria)},
+            "copy one exact ## Acceptance bullet into progress.criterion",
+        )
+    return None
