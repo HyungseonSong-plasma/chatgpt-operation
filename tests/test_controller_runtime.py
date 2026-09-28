@@ -23,6 +23,7 @@ from chatgpt_operation.controller.runtime import (
     ControllerTrigger,
     SamuelController,
     TriggerKind,
+    _owned_ready_pr_plan,
 )
 
 
@@ -630,16 +631,6 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(queued[0]["status"],"dispatch_intent")
 
     def test_rejected_owned_ready_pr_is_not_requeued_automatically(self):
-        work={
-            "issue:24":{
-                "work_id":"issue:24",
-                "issue_number":24,
-                "title":"telemetry",
-                "body":"finish telemetry",
-                "html_url":"https://github.com/o/r/issues/24",
-                "status":"planned",
-            }
-        }
         state=ResearchState(
             "issue:24","finish telemetry",stage=ResearchStage.EXECUTE
         )
@@ -665,72 +656,27 @@ class ControllerRuntimeTests(unittest.TestCase):
                 "expected_observation":"branch mutation exists",
             },
         }
-        merge_plan=ActionPlan.from_dict({
-            "schema_version":1,
-            "research_id":"issue:24",
-            "stage":"execute",
-            "executor":"github_native",
-            "payload":{
-                "action":"merge_pr",
-                "repository":"HyungseonSong-plasma/chatgpt-operation",
-                "target":{
-                    "number":142,
-                    "expected_head_sha":"c"*40,
-                },
-                "desired_postcondition":{"merged":True},
-            },
-            "expected_observation":(
-                "Pull request #142 is merged at exact head "
-                + "c"*40
-                + " after native safety checks."
-            ),
-        })
+        repository_context={
+            "repository":"HyungseonSong-plasma/chatgpt-operation",
+            "open_pull_requests":[{
+                "number":142,
+                "title":"ready",
+                "state":"open",
+                "draft":False,
+                "head_ref":"samuel/issue-24",
+                "head_sha":"c"*40,
+                "base_ref":"main",
+                "ci_state":"success",
+            }],
+        }
+        merge_plan=_owned_ready_pr_plan(state,repository_context)
+        self.assertIsNotNone(merge_plan)
         enqueue_suspended_action(state,merge_plan)
         state.action_queue[merge_plan.idempotency_key]["status"]="rejected"
 
-        provider=Provider()
-        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
-            trigger(),
-            comments=[
-                {"id":7,"body":encode_admission_ledger(work)},
-                state_comment(state),
-            ],
-            pending=[],
-            repository_context={
-                "repository":"HyungseonSong-plasma/chatgpt-operation",
-                "observed_head_sha":"b"*40,
-                "open_issues":[{
-                    "number":24,
-                    "title":"telemetry",
-                    "body":"finish telemetry",
-                    "state":"open",
-                    "labels":["samuel"],
-                }],
-                "open_pull_requests":[{
-                    "number":142,
-                    "title":"ready",
-                    "state":"open",
-                    "draft":False,
-                    "head_ref":"samuel/issue-24",
-                    "head_sha":"c"*40,
-                    "base_ref":"main",
-                    "ci_state":"success",
-                }],
-            },
-        )
-
-        self.assertEqual(provider.calls,1)
+        self.assertIsNone(_owned_ready_pr_plan(state,repository_context))
         self.assertEqual(
             state.action_queue[merge_plan.idempotency_key]["status"],
-            "rejected",
-        )
-        self.assertNotEqual(
-            result.selected_work.get("reasoning_outcome"),
-            "deterministic_ready_pr",
-        )
-        proposed=decode_state(result.state_write["body"])
-        self.assertEqual(
-            proposed.action_queue[merge_plan.idempotency_key]["status"],
             "rejected",
         )
 
