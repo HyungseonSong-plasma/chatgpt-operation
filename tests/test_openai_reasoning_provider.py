@@ -8,6 +8,8 @@ from chatgpt_operation.controller.openai_reasoning_provider import (
     DEFAULT_MODEL, OpenAIReasoningProvider,
 )
 from chatgpt_operation.controller.reasoning_provider import ProviderUnavailable
+from chatgpt_operation.controller.issue_reasoning import IssueReasoningProposal
+from chatgpt_operation.controller.reasoning import ReasoningRequest, StructuredReasoningNode
 
 
 class Response:
@@ -111,7 +113,84 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         result=provider.reason(
             task="next",context={},attempt=1,validation_error=None
         )
-        self.assertEqual(result["action_plan"],"not-json")
+        self.assertIn(
+            "Expecting value at line 1 column 1",
+            result["action_plan"],
+        )
+        self.assertTrue(
+            result["action_plan"].startswith(
+                "__SAMUEL_INVALID_ACTION_PLAN_JSON__:"
+            )
+        )
+
+    def test_embedded_json_error_is_repaired_with_precise_validation_feedback(self):
+        plan={
+            "schema_version":1,
+            "research_id":"issue:24",
+            "stage":"implement",
+            "executor":"repository_mutation",
+            "payload":{
+                "schema_version":1,
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "resource":"file",
+                "action":"create",
+                "target":{
+                    "path":".github/workflows/samuel-paul-weekly-maintenance.yml",
+                    "branch":"samuel/issues-24-43-weekly-maintenance-v2",
+                },
+                "expected":{"absent":True},
+                "desired":{"content":"name: bounded\n"},
+                "commit_message":"Add bounded workflow",
+            },
+            "expected_observation":"bounded workflow exists",
+        }
+        outputs=[
+            {
+                "operation":"analyze",
+                "decision_id":"github_execution_authority",
+                "compatible_with_locked_decisions":True,
+                "revision_requested":False,
+                "action_plan_json":"{\"schema_version\":1,",
+            },
+            {
+                "operation":"analyze",
+                "decision_id":"github_execution_authority",
+                "compatible_with_locked_decisions":True,
+                "revision_requested":False,
+                "action_plan_json":json.dumps(plan),
+            },
+        ]
+        prompts=[]
+        def opener(req,timeout):
+            body=json.loads(req.data.decode())
+            prompts.append(json.loads(body["input"]))
+            return Response({
+                "output_text":json.dumps(outputs[len(prompts)-1])
+            })
+        provider=OpenAIReasoningProvider(
+            "secret",opener=opener,allow_action_plan=True
+        )
+        node=StructuredReasoningNode(
+            parser=IssueReasoningProposal.from_dict,
+            max_attempts=2,
+        )
+        result=node.run(
+            ReasoningRequest(task="next",context={}),
+            lambda task,context,attempt,validation_error:provider.reason(
+                task=task,
+                context=context,
+                attempt=attempt,
+                validation_error=validation_error,
+            ),
+        )
+        self.assertEqual(result.action_plan,plan)
+        self.assertEqual(len(prompts),2)
+        self.assertIsNone(prompts[0]["validation_error"])
+        self.assertIn("line 1 column",prompts[1]["validation_error"])
+        self.assertIn(
+            "Return syntactically valid JSON",
+            prompts[1]["validation_error"],
+        )
 
     def test_non_json_fails_closed(self):
         p = OpenAIReasoningProvider(

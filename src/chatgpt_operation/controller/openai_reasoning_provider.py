@@ -92,9 +92,11 @@ class OpenAIReasoningProvider:
                     "revision_requested", "action_plan_json",
                 ],
                 "action_plan_json": (
-                    "null or a JSON-encoded ActionPlan object for exactly one "
-                    "bounded next action; use only executors and payload shapes "
-                    "present in reasoning_context.execution_contracts"
+                    "null or a syntactically valid JSON-encoded ActionPlan object "
+                    "for exactly one bounded next action; use only executors and "
+                    "payload shapes present in reasoning_context.execution_contracts. "
+                    "Because this is JSON embedded in a string, JSON-escape quotes, "
+                    "backslashes, newlines, and multiline file content correctly."
                 ),
                 "no_direct_execution": True,
                 "one_action_maximum": True,
@@ -170,18 +172,24 @@ class OpenAIReasoningProvider:
             elif isinstance(encoded_plan, str):
                 try:
                     action_plan = json.loads(encoded_plan)
-                except json.JSONDecodeError:
-                    # Preserve malformed embedded ActionPlan text as typed-invalid
-                    # proposal data. StructuredReasoningNode owns bounded validation
-                    # repair; malformed plan JSON is not provider unavailability.
-                    decoded["action_plan"] = encoded_plan
+                except json.JSONDecodeError as exc:
+                    # StructuredReasoningNode owns bounded semantic repair. Preserve
+                    # a precise parser-visible diagnostic instead of collapsing this
+                    # into generic provider unavailability.
+                    decoded["action_plan"] = (
+                        "__SAMUEL_INVALID_ACTION_PLAN_JSON__: "
+                        + f"{exc.msg} at line {exc.lineno} column {exc.colno}. "
+                        + "Return syntactically valid JSON in action_plan_json."
+                    )
                 else:
                     decoded["action_plan"] = action_plan
             else:
-                # Strict provider schema should make this unreachable, but preserve
-                # it as parser-visible invalid data so the bounded repair loop owns
-                # the failure semantics.
-                decoded["action_plan"] = encoded_plan
+                # Strict provider schema should make this unreachable, but route it
+                # through the same typed repair path with a useful diagnostic.
+                decoded["action_plan"] = (
+                    "__SAMUEL_INVALID_ACTION_PLAN_JSON__: "
+                    + "action_plan_json must be null or a JSON string."
+                )
         return decoded
 
     @staticmethod
