@@ -407,6 +407,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          current_status="$(
+            python3 -c 'import json; print(json.load(open("samuel-execution-gateway-result.json")).get("status",""))'
+          )"
+          if [ "$current_status" = "terminal" ]; then
+            echo "SAMUEL_POST_WORKER=ALREADY_TERMINAL"
+            exit 0
+          fi
           gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-post-worker-comments.json
           python3 -m chatgpt_operation.cli controller run-cycle \
             --comments samuel-post-worker-comments.json \
@@ -459,6 +466,7 @@ jobs:
             --command samuel-post-worker-command.json \
             --comments samuel-post-worker-comments.json \
             --repository "$GITHUB_REPOSITORY" \
+            --token-env GH_TOKEN \
             --result samuel-execution-gateway-result.json \
             --state-write-result samuel-post-worker-gateway-state-write.json \
             --action-run-id-result samuel-action-run-id.txt \
