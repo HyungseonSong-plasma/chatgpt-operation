@@ -400,6 +400,105 @@ jobs:
             sleep 5
           done
 
+      - name: Promote completed worker receipt to terminal observation
+        if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
+        env:
+          PYTHONPATH: src
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_REASONING_MODE: OFF
+        run: |
+          set -euo pipefail
+          status="$(python3 -c 'import json; print(json.load(open("samuel-execution-gateway-result.json"))["status"])')"
+          if [ "$status" = "terminal" ]; then
+            cp samuel-execution-gateway-result.json samuel-terminal-gateway-result.json
+            echo "SAMUEL_POSTWAIT=ALREADY_TERMINAL"
+            exit 0
+          fi
+          if [ "$status" != "receipt" ]; then
+            echo "SAMUEL_POSTWAIT=HARD_STOP expected receipt or terminal gateway status, got $status" >&2
+            exit 2
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-postwait-comments.json
+          python3 -m chatgpt_operation.cli controller run-cycle \
+            --comments samuel-postwait-comments.json \
+            --pending automation/samuel/bootstrap.json \
+            --decisions automation/samuel/decisions.json \
+            --event-name workflow_dispatch \
+            --repository-context samuel-repository-context.json \
+            --head-sha "$GITHUB_SHA" \
+            --ref "$GITHUB_REF" \
+            --executor-ref "${{ github.ref_name }}" \
+            --executor-head-sha "${{ github.sha }}" \
+            --result samuel-postwait-cycle.json \
+            --selected-work-result samuel-postwait-selected-work.json \
+            --execution-command-result samuel-postwait-execution-command.json
+
+          python3 - <<'PY'
+          import json
+          selected=json.load(open("samuel-postwait-selected-work.json"))
+          initial=json.load(open("samuel-execution-gateway-result.json"))
+          kind=selected.get("kind")
+          allowed={
+              "action_observation",
+              "evidence_observation",
+              "diagnostic_observation",
+              "corrective_observation",
+          }
+          if kind not in allowed:
+              raise SystemExit(
+                  "SAMUEL_POSTWAIT=HARD_STOP expected observation work, got "
+                  +str(kind)
+              )
+          if selected.get("action_id") != initial.get("action_id"):
+              raise SystemExit(
+                  "SAMUEL_POSTWAIT=HARD_STOP observation action identity mismatch"
+              )
+          PY
+
+          python3 -m chatgpt_operation.cli controller execute-command \
+            --command samuel-postwait-execution-command.json \
+            --comments samuel-postwait-comments.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --result samuel-terminal-gateway-result.json \
+            --action-run-id-result samuel-action-run-id.txt \
+            --evidence-run-id-result samuel-evidence-run-id.txt \
+            --diagnostic-run-id-result samuel-diagnostic-run-id.txt \
+            --corrective-run-id-result samuel-corrective-run-id.txt \
+            --action-terminal-observation-result samuel-action-terminal-observation.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result=json.load(open("samuel-terminal-gateway-result.json"))
+          if result.get("status") != "terminal":
+              raise SystemExit(
+                  "SAMUEL_POSTWAIT=HARD_STOP worker completed but deterministic "
+                  "observation is not terminal"
+              )
+          surface=result.get("surface")
+          files={
+              "action":"samuel-action-run-id.txt",
+              "evidence":"samuel-evidence-run-id.txt",
+              "diagnostic":"samuel-diagnostic-run-id.txt",
+              "corrective":"samuel-corrective-run-id.txt",
+          }
+          path=files.get(surface)
+          if path is None or not Path(path).exists():
+              raise SystemExit(
+                  "SAMUEL_POSTWAIT=HARD_STOP terminal surface has no run identity"
+              )
+          if str(result.get("terminal_run_id")) != Path(path).read_text().strip():
+              raise SystemExit(
+                  "SAMUEL_POSTWAIT=HARD_STOP terminal run identity mismatch"
+              )
+          print(
+              "SAMUEL_POSTWAIT=TERMINAL surface="
+              +str(surface)+" run_id="+str(result.get("terminal_run_id"))
+          )
+          PY
+
       - name: Persist terminal controller artifact
         if: ${{ hashFiles('samuel-action-run-id.txt') != '' || hashFiles('samuel-evidence-run-id.txt') != '' || hashFiles('samuel-diagnostic-run-id.txt') != '' || hashFiles('samuel-corrective-run-id.txt') != '' }}
         env:
@@ -488,7 +587,7 @@ jobs:
             --surface "$surface" \
             --run-id "$run_id" \
             --artifact "$artifact_path" \
-            --gateway-result samuel-execution-gateway-result.json \
+            --gateway-result samuel-terminal-gateway-result.json \
             --comments terminal-comments.json \
             --result samuel-terminal-ingestion-result.json \
             --state-write-result samuel-terminal-state-write.json
