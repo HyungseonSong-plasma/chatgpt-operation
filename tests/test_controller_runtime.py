@@ -345,6 +345,23 @@ class RevisionThenSourceProvider:
         }
 
 
+class LockedRevisionProvider:
+    name = "locked-revision-fixture"
+
+    def __init__(self):
+        self.calls = 0
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        return {
+            "operation":"propose_revision",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":False,
+            "revision_requested":True,
+            "action_plan":None,
+        }
+
+
 class ReuseWorkloadBranchProvider:
     name = "reuse-workload-branch-fixture"
 
@@ -1494,6 +1511,162 @@ class ControllerRuntimeTests(unittest.TestCase):
             result.selected_work["plan"]["payload"]["target"]["path"],
             "src/chatgpt_operation/weekly_schedule.py",
         )
+
+    def test_revision_blocker_persists_reasoning_head(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Samuel work 24",
+                "body":"bounded work for issue 24",
+                "html_url":"",
+                "status":"reasoning_required",
+            }
+        }
+        state=ResearchState("issue:24","bounded work",revision=4)
+        provider=LockedRevisionProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[repository_issue(24)],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+                "tracked_paths":[],
+                "tracked_paths_truncated":False,
+                "workflow_files":[],
+            },
+        )
+        self.assertEqual(provider.calls,1)
+        self.assertEqual(
+            result.selected_work,
+            {
+                "kind":"reasoning_consumed",
+                "work_id":"issue:24",
+                "outcome":"revision_required",
+                "action_id":None,
+            },
+        )
+        self.assertIsNotNone(result.state_write)
+        proposed=decode_state(result.state_write["body"])
+        self.assertEqual(proposed.last_reasoning_head_sha,"b"*40)
+        self.assertEqual(proposed.revision,5)
+        ledger=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(ledger["issue:24"]["status"],"revision_required")
+
+    def test_same_head_blocker_keeps_active_workload_and_does_not_reason_next(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Samuel work 24",
+                "body":"bounded work for issue 24",
+                "html_url":"",
+                "status":"revision_required",
+            },
+            "issue:43":{
+                "work_id":"issue:43",
+                "issue_number":43,
+                "title":"Samuel work 43",
+                "body":"bounded work for issue 43",
+                "html_url":"",
+                "status":"reasoning_required",
+            },
+        }
+        state=ResearchState(
+            "issue:24",
+            "bounded work",
+            revision=5,
+            last_reasoning_head_sha="b"*40,
+        )
+        provider=StaticPlanProvider(native_action_plan_for(43))
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[repository_issue(24),repository_issue(43)],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+                "tracked_paths":[],
+                "tracked_paths_truncated":False,
+                "workflow_files":[],
+            },
+        )
+        self.assertEqual(provider.calls,0)
+        self.assertEqual(result.selected_work["kind"],"blocked")
+        self.assertEqual(result.selected_work["work_id"],"issue:24")
+        self.assertIsNone(result.execution_command)
+        self.assertIsNone(result.state_write)
+
+    def test_new_controller_head_reopens_current_blocked_workload_only(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Samuel work 24",
+                "body":"bounded work for issue 24",
+                "html_url":"",
+                "status":"blocked",
+            },
+            "issue:43":{
+                "work_id":"issue:43",
+                "issue_number":43,
+                "title":"Samuel work 43",
+                "body":"bounded work for issue 43",
+                "html_url":"",
+                "status":"reasoning_required",
+            },
+        }
+        state=ResearchState(
+            "issue:24",
+            "bounded work",
+            revision=8,
+            last_reasoning_head_sha="a"*40,
+        )
+        provider=StaticPlanProvider(native_action_plan_for(24))
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[repository_issue(24),repository_issue(43)],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+                "tracked_paths":[],
+                "tracked_paths_truncated":False,
+                "workflow_files":[],
+            },
+        )
+        self.assertEqual(provider.calls,1)
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["work_id"],"issue:24")
+        self.assertEqual(
+            result.selected_work["plan"]["research_id"],
+            "issue:24",
+        )
+        ledger=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(ledger["issue:24"]["status"],"planned")
+        self.assertEqual(ledger["issue:43"]["status"],"reasoning_required")
+        proposed=decode_state(result.state_write["body"])
+        self.assertEqual(proposed.research_id,"issue:24")
+        self.assertEqual(proposed.last_reasoning_head_sha,"b"*40)
 
     def test_existing_submission_is_consumed_in_same_root_cycle(self):
         result=controller().run_cycle(

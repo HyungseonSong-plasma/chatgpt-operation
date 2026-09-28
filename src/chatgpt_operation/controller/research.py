@@ -150,6 +150,7 @@ class ResearchState:
     action_queue: dict[str, dict[str, Any]] = field(default_factory=dict)
     revision: int = 0
     inherited_evidence: list[dict[str, Any]] = field(default_factory=list)
+    last_reasoning_head_sha: str | None = None
 
     def transition(self, target: ResearchStage, *, execution_evidence: bool = False) -> None:
         if target not in ALLOWED_TRANSITIONS[self.stage]:
@@ -196,6 +197,11 @@ class ResearchState:
             action_queue=dict(raw.get("action_queue", {})),
             revision=int(raw.get("revision", 0)),
             inherited_evidence=list(raw.get("inherited_evidence", [])),
+            last_reasoning_head_sha=(
+                str(raw["last_reasoning_head_sha"])
+                if raw.get("last_reasoning_head_sha") is not None
+                else None
+            ),
         )
 
 
