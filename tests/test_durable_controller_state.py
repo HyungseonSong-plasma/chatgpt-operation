@@ -1,5 +1,8 @@
+import json
+
 from chatgpt_operation.controller.durable_state import (
     DurableStateError,
+    STATE_MARKER,
     decode_state,
     encode_state,
     require_fresh_write,
@@ -46,6 +49,83 @@ def test_round_trip_preserves_last_reasoning_head_sha():
     )
     restored=decode_state(encode_state(current))
     assert restored.last_reasoning_head_sha=="c"*40
+
+
+def test_large_issue_ledger_uses_compressed_lossless_encoding():
+    current=ResearchState(
+        "issue:24",
+        "large durable workload",
+        revision=173,
+        action_queue={
+            "a"*64:{
+                "status":"complete",
+                "plan":{
+                    "schema_version":1,
+                    "research_id":"issue:24",
+                    "stage":"implement",
+                    "executor":"repository_mutation",
+                    "payload":{
+                        "schema_version":1,
+                        "repository":"HyungseonSong-plasma/chatgpt-operation",
+                        "resource":"file",
+                        "action":"create",
+                        "target":{
+                            "branch":"samuel/large-state",
+                            "path":"tests/large.py",
+                        },
+                        "expected":{"absent":True},
+                        "desired":{"content":"repeated-evidence-line\\n"*20_000},
+                    },
+                    "expected_observation":"large evidence is preserved",
+                },
+                "completion_result":{
+                    "schema_version":1,
+                    "research_id":"issue:24",
+                    "action_id":"a"*64,
+                    "executor":"repository_mutation",
+                    "status":"pass",
+                    "observation":"verified",
+                    "retryable":False,
+                    "details":{},
+                },
+            }
+        },
+    )
+    body=encode_state(current)
+    assert '"encoding":"zlib+base64"' in body
+    assert len(body) < 48_000
+    restored=decode_state(body)
+    assert restored.action_queue==current.action_queue
+    assert restored.revision==173
+
+
+def test_corrupt_compressed_issue_ledger_fails_closed():
+    current=ResearchState(
+        "issue:24",
+        "large durable workload",
+        revision=173,
+        action_queue={
+            "a"*64:{
+                "status":"complete",
+                "payload":"x"*100_000,
+            }
+        },
+    )
+    body=encode_state(current)
+    start=body.find("```json")
+    end=body.rfind("```")
+    envelope=json.loads(body[start+7:end].strip())
+    assert envelope["encoding"]=="zlib+base64"
+    envelope["state"]="not-valid-base64!"
+    corrupt=STATE_MARKER+"\n```json\n"+json.dumps(
+        envelope,sort_keys=True,separators=(",",":")
+    )+"\n```"
+    try:
+        decode_state(corrupt)
+    except DurableStateError as exc:
+        assert "base64 is invalid" in str(exc)
+    else:
+        raise AssertionError("corrupt compressed state must fail closed")
 
 
 def test_stale_scheduled_cycle_cannot_overwrite_newer_state():
