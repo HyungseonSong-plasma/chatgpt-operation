@@ -676,15 +676,18 @@ class SamuelController:
                         "ActionPlan research_id must equal active work_id " + work_id
                     )
                 if candidate.executor is ExecutorKind.GITHUB_NATIVE:
-                    native_command=NativeGitHubCommand.from_plan(candidate)
                     qualified=(
                         native_github_reasoning_contract().get("actions") or {}
                     )
-                    if native_command.action.value not in qualified:
+                    proposed_action=str(
+                        candidate.payload.get("action") or ""
+                    )
+                    if proposed_action not in qualified:
                         raise ValueError(
                             "native GitHub action is not qualified for semantic "
-                            "planning: " + native_command.action.value
+                            "planning: " + proposed_action
                         )
+                    NativeGitHubCommand.from_plan(candidate)
                 elif candidate.executor is ExecutorKind.REPOSITORY_MUTATION:
                     expected_repository = (
                         str((repository_context or {}).get("repository") or "")
