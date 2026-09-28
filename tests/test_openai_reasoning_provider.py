@@ -8,6 +8,11 @@ from chatgpt_operation.controller.openai_reasoning_provider import (
     DEFAULT_MODEL, OpenAIReasoningProvider,
 )
 from chatgpt_operation.controller.reasoning_provider import ProviderUnavailable
+from chatgpt_operation.controller.issue_reasoning import IssueReasoningProposal
+from chatgpt_operation.controller.reasoning import (
+    ReasoningRequest,
+    StructuredReasoningNode,
+)
 
 
 class Response:
@@ -95,7 +100,7 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
         self.assertIn("action_plan_json",schema["properties"])
         self.assertNotIn("action_plan",schema["properties"])
 
-    def test_production_mode_rejects_invalid_embedded_action_plan_json(self):
+    def test_production_mode_preserves_invalid_embedded_plan_for_typed_repair(self):
         raw = {
             "operation":"analyze",
             "decision_id":None,
@@ -108,10 +113,76 @@ class OpenAIReasoningProviderTests(unittest.TestCase):
             opener=lambda req,timeout:Response({"output_text":json.dumps(raw)}),
             allow_action_plan=True,
         )
-        with self.assertRaises(ProviderUnavailable):
-            provider.reason(
-                task="next",context={},attempt=1,validation_error=None
-            )
+        result=provider.reason(
+            task="next",context={},attempt=1,validation_error=None
+        )
+        self.assertEqual(result["action_plan"],"not-json")
+
+    def test_invalid_embedded_plan_uses_structured_reasoning_repair_attempt(self):
+        plan = {
+            "schema_version":1,
+            "research_id":"issue:24",
+            "stage":"implement",
+            "executor":"repository_mutation",
+            "payload":{
+                "schema_version":1,
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "resource":"file",
+                "action":"create",
+                "target":{
+                    "path":".github/workflows/samuel-paul-weekly-maintenance.yml",
+                    "branch":"samuel/issues-24-43-weekly-maintenance-v2",
+                },
+                "expected":{"absent":True},
+                "desired":{"content":"name: bounded\n"},
+                "commit_message":"Add bounded workflow",
+            },
+            "expected_observation":"bounded workflow exists",
+        }
+        outputs=[
+            {
+                "operation":"analyze",
+                "decision_id":"github_execution_authority",
+                "compatible_with_locked_decisions":True,
+                "revision_requested":False,
+                "action_plan_json":"{not valid json",
+            },
+            {
+                "operation":"analyze",
+                "decision_id":"github_execution_authority",
+                "compatible_with_locked_decisions":True,
+                "revision_requested":False,
+                "action_plan_json":json.dumps(plan),
+            },
+        ]
+        prompts=[]
+        def opener(req,timeout):
+            body=json.loads(req.data.decode())
+            prompts.append(json.loads(body["input"]))
+            return Response({"output_text":json.dumps(outputs[len(prompts)-1])})
+        provider=OpenAIReasoningProvider(
+            "secret",opener=opener,allow_action_plan=True
+        )
+        node=StructuredReasoningNode(
+            parser=IssueReasoningProposal.from_dict,
+            max_attempts=2,
+        )
+        result=node.run(
+            ReasoningRequest(task="next",context={}),
+            lambda task,context,attempt,validation_error:provider.reason(
+                task=task,
+                context=context,
+                attempt=attempt,
+                validation_error=validation_error,
+            ),
+        )
+        self.assertEqual(result.action_plan,plan)
+        self.assertEqual(len(prompts),2)
+        self.assertIsNone(prompts[0]["validation_error"])
+        self.assertIn(
+            "action_plan must be null or object",
+            prompts[1]["validation_error"],
+        )
 
     def test_non_json_fails_closed(self):
         p = OpenAIReasoningProvider(
