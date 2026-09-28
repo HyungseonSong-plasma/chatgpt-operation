@@ -36,6 +36,8 @@ OBSERVABILITY_BODY="""## Goal
 
 Monitor controller skill utilization.
 
+This issue is telemetry/observability only. It must not become a second source of workflow policy.
+
 ## Reporting
 
 Maintain a rolling telemetry comment. This issue intentionally has no Acceptance section.
@@ -580,6 +582,10 @@ class SemanticPreflightRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(cycle.issue_planning)
         self.assertFalse(
             cycle.issue_planning["semantic_provider"]["reconciled_after_null"]
+        )
+        self.assertEqual(
+            cycle.issue_planning["reasoning_context"]["workload_mode"],
+            "observability_only",
         )
         self.assertIsNone(cycle.execution_command)
 
