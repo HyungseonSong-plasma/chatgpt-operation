@@ -393,5 +393,90 @@ class ProductionReasoningClosedLoopQualificationTests(unittest.TestCase):
         self.assertEqual(completed["issue:24"]["status"],"complete")
 
 
+
+
+class PolicyRepairingOpenAI:
+    def __init__(self):
+        self.calls=0
+        self.requests=[]
+
+    def __call__(self,req,timeout):
+        self.calls+=1
+        body=json.loads(req.data.decode())
+        self.requests.append(body)
+        prompt=json.loads(body["input"])
+        denied=self.calls==1
+        path=(
+            ".github/workflows/paul-weekly-maintenance.yml"
+            if denied else WORKFLOW_PATH
+        )
+        proposal={
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":REPOSITORY,
+                    "resource":"file",
+                    "action":"create",
+                    "target":{"path":path,"branch":BRANCH},
+                    "expected":{"absent":True},
+                    "desired":{"content":WORKFLOW_CONTENT},
+                    "commit_message":"Add weekly maintenance workflow",
+                },
+                "expected_observation":"weekly workflow exists",
+                "decision_risk":None,
+            },
+        }
+        if self.calls==1:
+            assert prompt["validation_error"] is None
+        else:
+            assert "file path denied" in prompt["validation_error"]
+        return Response({"output_text":json.dumps(proposal)})
+
+
+class ProductionReasoningFaultQualificationTests(unittest.TestCase):
+    def test_policy_denied_direct_plan_repairs_before_dispatch(self):
+        api=PolicyRepairingOpenAI()
+        provider=OpenAIReasoningProvider(
+            "secret",
+            opener=api,
+            allow_action_plan=True,
+        )
+        controller=SamuelController(
+            decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
+            reasoning=ReasoningProviderRegistry(provider),
+        )
+        cycle=controller.run_cycle(
+            trigger(),
+            comments=[admission_comment()],
+            pending=[],
+            repository_context=repository_context(),
+        )
+        self.assertEqual(api.calls,2)
+        self.assertEqual(cycle.selected_work["kind"],"action")
+        self.assertEqual(
+            cycle.selected_work["plan"]["payload"]["target"]["path"],
+            WORKFLOW_PATH,
+        )
+        self.assertNotEqual(
+            cycle.selected_work["plan"]["payload"]["target"]["path"],
+            ".github/workflows/paul-weekly-maintenance.yml",
+        )
+        state=decode_state(cycle.state_write["body"])
+        action_id=cycle.selected_work["action_id"]
+        self.assertEqual(state.action_queue[action_id]["status"],"dispatch_intent")
+        self.assertEqual(
+            cycle.issue_planning["action_plan"]["payload"]["target"]["path"],
+            WORKFLOW_PATH,
+        )
+
+
 if __name__=="__main__":
     unittest.main()
