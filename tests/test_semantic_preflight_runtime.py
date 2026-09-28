@@ -32,6 +32,35 @@ Weekly maintenance.
 - retry handling is deterministic
 """
 
+OBSERVABILITY_BODY="""## Goal
+
+Monitor controller skill utilization.
+
+## Reporting
+
+Maintain a rolling telemetry comment. This issue intentionally has no Acceptance section.
+"""
+
+
+class NullObservabilityProvider:
+    name="null-observability-fixture"
+
+    def __init__(self):
+        self.calls=0
+
+    def reason(self,**kwargs):
+        self.calls+=1
+        return {
+            "operation":"analyze",
+            "decision_id":None,
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "blocker":None,
+            "action_plan":None,
+            "progress":None,
+            "completion_claim":None,
+        }
+
 
 class RepairProvider:
     name="preflight-repair-fixture"
@@ -104,6 +133,41 @@ def admission():
                 "status":"reasoning_required",
             }
         }),
+    }
+
+
+def observability_admission():
+    return {
+        "id":7,
+        "body":encode_admission_ledger({
+            "issue:43":{
+                "work_id":"issue:43",
+                "issue_number":43,
+                "title":"Monitor controller skill utilization",
+                "body":OBSERVABILITY_BODY,
+                "html_url":"https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/43",
+                "status":"reasoning_required",
+            }
+        }),
+    }
+
+
+def observability_repository_context():
+    return {
+        "repository":REPOSITORY,
+        "observed_head_sha":HEAD,
+        "open_issues":[{
+            "number":43,
+            "title":"Monitor controller skill utilization",
+            "body":OBSERVABILITY_BODY,
+            "state":"open",
+            "labels":["samuel"],
+        }],
+        "open_pull_requests":[],
+        "samuel_branches":[],
+        "tracked_paths":[],
+        "tracked_paths_truncated":False,
+        "workflow_files":[".github/workflows/samuel-bootstrap.yml"],
     }
 
 
@@ -496,6 +560,29 @@ class DecisionRepairProvider:
 
 
 class SemanticPreflightRuntimeTests(unittest.TestCase):
+    def test_open_issue_without_acceptance_allows_stable_null_analysis(self):
+        provider=NullObservabilityProvider()
+        controller=SamuelController(
+            decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
+            reasoning=ReasoningProviderRegistry(provider),
+        )
+        cycle=controller.run_cycle(
+            trigger(),
+            comments=[observability_admission()],
+            pending=[],
+            repository_context=observability_repository_context(),
+        )
+        self.assertEqual(provider.calls,1)
+        self.assertEqual(cycle.selected_work,{
+            "kind":"reasoning_required",
+            "work_id":"issue:43",
+        })
+        self.assertIsNotNone(cycle.issue_planning)
+        self.assertFalse(
+            cycle.issue_planning["semantic_provider"]["reconciled_after_null"]
+        )
+        self.assertIsNone(cycle.execution_command)
+
     def test_fully_integrated_acceptance_closes_deterministically_without_reasoning(self):
         provider=ForbiddenTerminalReasoningProvider()
         controller=SamuelController(
