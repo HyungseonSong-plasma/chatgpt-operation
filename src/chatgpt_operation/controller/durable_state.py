@@ -84,7 +84,7 @@ def require_fresh_write(current: ResearchState | None, proposed: ResearchState) 
         return
     if current.research_id != proposed.research_id:
         if not can_rollover_state(current):
-            raise DurableStateError("cannot overwrite a non-terminal research state")
+            raise DurableStateError("cannot overwrite a different research state before terminal completion")
         return
     if proposed.revision <= current.revision:
         raise DurableStateError(
@@ -178,7 +178,7 @@ def validate_state_write_precondition(
     if current.research_id != proposed.research_id:
         if not can_rollover_state(current):
             raise DurableStateError(
-                "cannot overwrite a non-terminal research state"
+                "cannot overwrite a different research state before terminal completion"
             )
         return
     if proposed.revision <= current.revision:
