@@ -1,0 +1,108 @@
+name: Samuel Weekly Maintenance
+
+on:
+  schedule:
+    # Canonical timezone: UTC.
+    # Mon-Fri: collect raw evidence; Sat: analyze; Sun: close/propose.
+    - cron: '17 6 * * 1-5'
+    - cron: '27 6 * * 6'
+    - cron: '37 6 * * 0'
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Maintenance phase
+        required: true
+        type: choice
+        default: dry_run
+        options:
+          - collect
+          - analyze
+          - close
+          - dry_run
+      lookback_days:
+        description: Lookback for manual collect
+        required: false
+        default: '14'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: samuel-weekly-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select UTC maintenance phase
+        id: phase
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_PHASE: ${{ inputs.phase }}
+          DISPATCH_LOOKBACK: ${{ inputs.lookback_days }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            phase="$DISPATCH_PHASE"
+            lookback="${DISPATCH_LOOKBACK:-14}"
+          else
+            case "$(date -u +%u)" in
+              1|2|3|4|5) phase=collect; lookback=2 ;;
+              6) phase=analyze; lookback=7 ;;
+              7) phase=close; lookback=7 ;;
+              *) echo "SAMUEL_WEEKLY=HARD_STOP invalid UTC weekday" >&2; exit 2 ;;
+            esac
+          fi
+          case "$lookback" in
+            ''|*[!0-9]*) echo "SAMUEL_WEEKLY=HARD_STOP invalid lookback" >&2; exit 2 ;;
+          esac
+          if [ "$lookback" -lt 1 ] || [ "$lookback" -gt 31 ]; then
+            echo "SAMUEL_WEEKLY=HARD_STOP lookback outside [1,31]" >&2
+            exit 2
+          fi
+          echo "phase=$phase" >> "$GITHUB_OUTPUT"
+          echo "lookback=$lookback" >> "$GITHUB_OUTPUT"
+          echo "SAMUEL_WEEKLY_PHASE=$phase"
+
+      - name: Collect and derive weekly maintenance evidence
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          PHASE: ${{ steps.phase.outputs.phase }}
+          LOOKBACK: ${{ steps.phase.outputs.lookback }}
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.weekly_maintenance_runtime             --phase "$PHASE"             --lookback-days "$LOOKBACK"             --output samuel-weekly-output
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          manifest=json.loads(
+              Path("samuel-weekly-output/manifest.json").read_text(encoding="utf-8")
+          )
+          print("## Samuel weekly maintenance")
+          print("")
+          print(f"- Phase: `{manifest['phase']}`")
+          print(f"- Canonical timezone: `{manifest['canonical_timezone']}`")
+          print(f"- Mutation performed: `{manifest.get('mutation_performed', False)}`")
+          if "workflow_failure_sources" in manifest:
+              print("- Consumer observations:")
+              for repo, item in sorted(manifest["workflow_failure_sources"].items()):
+                  print(
+                      f"  - `{repo}`: {item['status']} "
+                      f"({item.get('failure_records', 0)} failure records)"
+                  )
+          PY
+
+      - name: Upload durable weekly evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-weekly-${{ steps.phase.outputs.phase }}-${{ github.run_id }}
+          path: samuel-weekly-output/
+          if-no-files-found: error
+          retention-days: 90
