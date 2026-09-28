@@ -4,7 +4,9 @@ from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.diagnostic import enqueue_suspended_action
 from chatgpt_operation.controller.preflight import (
     extract_acceptance_criteria,
+    integrated_acceptance_evidence,
     preflight_semantic_plan,
+    verified_evidence_ids,
 )
 from chatgpt_operation.controller.research import ResearchStage, ResearchState
 
@@ -54,7 +56,7 @@ def branch_plan(sha=HEAD):
     })
 
 
-def file_plan(branch=BRANCH):
+def file_plan(branch=BRANCH, path="src/chatgpt_operation/x.py"):
     return ActionPlan.from_dict({
         "schema_version":1,
         "research_id":"issue:24",
@@ -65,7 +67,7 @@ def file_plan(branch=BRANCH):
             "repository":REPOSITORY,
             "resource":"file",
             "action":"create",
-            "target":{"path":"src/chatgpt_operation/x.py","branch":branch},
+            "target":{"path":path,"branch":branch},
             "expected":{"absent":True},
             "desired":{"content":"X=1\n"},
             "commit_message":"Add x",
@@ -97,6 +99,63 @@ def state():
         "weekly maintenance",
         stage=ResearchStage.IMPLEMENT,
     )
+
+
+def create_pr_plan(branch=BRANCH):
+    return ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"issue:24",
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"create_pr",
+            "repository":REPOSITORY,
+            "target":{
+                "head":branch,
+                "base":"main",
+                "title":"bounded work",
+                "body":"reviewable work",
+            },
+            "preconditions":{"pr_present":False},
+            "desired_postcondition":{"pr_present":True},
+        },
+        "expected_observation":"reviewable PR exists",
+    })
+
+
+def merge_pr_plan(number=99, head_sha="c"*40):
+    return ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":"issue:24",
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"merge_pr",
+            "repository":REPOSITORY,
+            "target":{"number":number,"expected_head_sha":head_sha},
+            "desired_postcondition":{"merged":True},
+        },
+        "expected_observation":"reviewed PR is merged",
+    })
+
+
+def mark_complete(current, plan, *, progress=None, details=None):
+    enqueue_suspended_action(current,plan)
+    action_id=plan.idempotency_key
+    current.action_queue[action_id]["status"]="complete"
+    current.action_queue[action_id]["completion_result"]={
+        "schema_version":1,
+        "research_id":"issue:24",
+        "action_id":action_id,
+        "executor":plan.executor.value,
+        "status":"pass",
+        "observation":"verified",
+        "retryable":False,
+        "details":{} if details is None else details,
+    }
+    if progress is not None:
+        current.action_queue[action_id]["progress"]=progress
+    return action_id
 
 
 class SemanticPreflightTests(unittest.TestCase):
@@ -178,6 +237,101 @@ class SemanticPreflightTests(unittest.TestCase):
             repository_context=context(),
         )
         self.assertEqual(failure.code,"unknown_acceptance_criterion")
+
+    def test_terminal_completion_result_is_verified_evidence(self):
+        current=state()
+        evidence=file_plan(path="src/chatgpt_operation/evidence.py")
+        action_id=mark_complete(current,evidence)
+        self.assertIn(action_id,verified_evidence_ids(current))
+
+    def test_progress_can_continue_until_branch_is_merged(self):
+        current=state()
+        evidence=file_plan(path="src/chatgpt_operation/evidence.py")
+        mark_complete(
+            current,
+            evidence,
+            progress={
+                "criterion":"scheduler is durable",
+                "rationale":"implementation landed on review branch",
+            },
+        )
+        failure=preflight_semantic_plan(
+            plan=file_plan(path="src/chatgpt_operation/evidence_test.py"),
+            progress={
+                "criterion":"scheduler is durable",
+                "rationale":"adds verification before merge",
+            },
+            completion_claim=None,
+            issue_body=BODY,
+            state=current,
+            repository_context=context(),
+        )
+        self.assertIsNone(failure)
+        self.assertEqual(integrated_acceptance_evidence(current),{})
+
+    def test_rejects_progress_for_criterion_already_integrated_by_merged_pr(self):
+        current=state()
+        evidence=file_plan(path="src/chatgpt_operation/evidence.py")
+        evidence_id=mark_complete(
+            current,
+            evidence,
+            progress={
+                "criterion":"scheduler is durable",
+                "rationale":"implementation on bounded branch",
+            },
+        )
+        create_pr=create_pr_plan()
+        mark_complete(
+            current,
+            create_pr,
+            details={"after":{"pr_number":99,"head_sha":"c"*40}},
+        )
+        merge_pr=merge_pr_plan()
+        mark_complete(
+            current,
+            merge_pr,
+            details={"after":{"merged":True,"head_sha":"c"*40}},
+        )
+
+        integrated=integrated_acceptance_evidence(current)
+        self.assertEqual(integrated["scheduler is durable"],(evidence_id,))
+
+        failure=preflight_semantic_plan(
+            plan=file_plan(path="src/chatgpt_operation/reprove.py"),
+            progress={
+                "criterion":"scheduler is durable",
+                "rationale":"must not re-prove merged progress",
+            },
+            completion_claim=None,
+            issue_body=BODY,
+            state=current,
+            repository_context=context(),
+        )
+        self.assertEqual(failure.code,"acceptance_already_integrated")
+        self.assertEqual(
+            failure.evidence["evidence_action_ids"],
+            [evidence_id],
+        )
+
+    def test_close_accepts_provenance_checked_completion_result_evidence(self):
+        current=state()
+        evidence=file_plan(path="src/chatgpt_operation/terminal.py")
+        action_id=mark_complete(current,evidence)
+        claim={
+            "criteria":[
+                {"criterion":criterion,"evidence_action_ids":[action_id]}
+                for criterion in extract_acceptance_criteria(BODY)
+            ]
+        }
+        failure=preflight_semantic_plan(
+            plan=close_plan(),
+            progress=None,
+            completion_claim=claim,
+            issue_body=BODY,
+            state=current,
+            repository_context=context(),
+        )
+        self.assertIsNone(failure)
 
     def test_rejects_premature_close_without_verified_coverage(self):
         failure=preflight_semantic_plan(

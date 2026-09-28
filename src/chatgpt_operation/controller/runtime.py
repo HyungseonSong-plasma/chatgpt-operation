@@ -44,7 +44,11 @@ from .merge_recovery import (
     conflicted_workload_pull_requests,
     rejected_merge_targets,
 )
-from .preflight import extract_acceptance_criteria, preflight_semantic_plan
+from .preflight import (
+    extract_acceptance_criteria,
+    integrated_acceptance_evidence,
+    preflight_semantic_plan,
+)
 from .issue_reasoning import (
     IssueReasoningProposal,
     compile_guarded_action,
@@ -595,6 +599,7 @@ class SamuelController:
             str(item.get("body") or "")
         )
         context["acceptance_criteria"]=list(acceptance_criteria)
+        integrated_acceptance=integrated_acceptance_evidence(state)
         context["durable_state"] = {
             "research_id": state.research_id,
             "revision": state.revision,
@@ -603,6 +608,10 @@ class SamuelController:
             "execution_results": copy.deepcopy(state.execution_results),
             "diagnostic_recoveries": copy.deepcopy(state.diagnostic_recoveries),
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
+            "integrated_acceptance_evidence": {
+                criterion:list(action_ids)
+                for criterion,action_ids in integrated_acceptance.items()
+            },
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
         conflict_prs=conflicted_workload_pull_requests(
@@ -825,7 +834,11 @@ class SamuelController:
                     "Create a fresh samuel/* branch only when no reusable workload-owned branch "
                     "or deterministic conflict-recovery branch exists. "
                     "After branch creation completes, advance the first unmet artifact "
-                    "on that branch instead of repeating branch creation. Do not repeat completed actions. When implementation_gaps is "
+                    "on that branch instead of repeating branch creation. Do not repeat completed actions. "
+                    "Treat durable_state.integrated_acceptance_evidence as code-verified "
+                    "merged progress: never propose new progress for those exact criteria; "
+                    "choose a genuinely unmet criterion or close with complete verified evidence. "
+                    "When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
                     "named gap in implementation_gaps. Follow execution_contracts "
                     "exactly. For github_native plans, payload must contain only "
@@ -1011,6 +1024,9 @@ class SamuelController:
                     },
                     "execution_results": copy.deepcopy(
                         durable_audit.get("execution_results") or {}
+                    ),
+                    "integrated_acceptance_evidence": copy.deepcopy(
+                        durable_audit.get("integrated_acceptance_evidence") or {}
                     ),
                     "inherited_evidence": copy.deepcopy(
                         durable_audit.get("inherited_evidence") or []
