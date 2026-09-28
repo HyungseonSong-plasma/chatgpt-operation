@@ -52,7 +52,14 @@ from chatgpt_operation.github.native_executor import (
     native_github_reasoning_contract,
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
-from chatgpt_operation.repository.mutation import repository_mutation_reasoning_contract
+from chatgpt_operation.repository.mutation import (
+    PolicyError,
+    authorize_manifest,
+    load_json as load_repository_json,
+    parse_policy,
+    repository_mutation_policy_reasoning_contract,
+    repository_mutation_reasoning_contract,
+)
 
 
 class ControllerCompositionError(ValueError):
@@ -444,10 +451,14 @@ class SamuelController:
             "revision": state.revision,
             "stage": state.stage.value,
             "action_queue": copy.deepcopy(state.action_queue),
+            "execution_results": copy.deepcopy(state.execution_results),
             "diagnostic_recoveries": copy.deepcopy(state.diagnostic_recoveries),
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
+        mutation_policy = parse_policy(
+            load_repository_json("automation/samuel/repository-mutation-policy.json")
+        )
         context["execution_contracts"] = {
             "action_plan": {
                 "required_fields": [
@@ -468,7 +479,9 @@ class SamuelController:
             "repository_mutation": {
                 **repository_mutation_reasoning_contract(),
                 "policy": {
-                    "branch_rule": "never mutate main; use samuel/* or issue-*",
+                    **repository_mutation_policy_reasoning_contract(
+                        mutation_policy
+                    ),
                     "new_branch_base": (
                         "for branch create, desired.sha must equal "
                         "repository_context.observed_head_sha"
@@ -505,10 +518,28 @@ class SamuelController:
                         str((repository_context or {}).get("repository") or "")
                         or None
                     )
-                    to_repository_manifest(
+                    manifest = to_repository_manifest(
                         candidate,
                         expected_repository=expected_repository,
                     )
+                    if (
+                        manifest.repository == mutation_policy.repository
+                        and (
+                            expected_repository is None
+                            or expected_repository == mutation_policy.repository
+                        )
+                    ):
+                        try:
+                            authorize_manifest(
+                                manifest,
+                                policy=mutation_policy,
+                                repository=mutation_policy.repository,
+                            )
+                        except PolicyError as exc:
+                            raise ValueError(
+                                "repository mutation policy rejected ActionPlan: "
+                                + str(exc)
+                            ) from exc
                 else:
                     raise ValueError(
                         "production semantic provider emitted unsupported executor "
@@ -545,7 +576,11 @@ class SamuelController:
                     "fields listed in execution_contracts.github_native.payload."
                     "allowed_fields; action-specific data belongs under target. For "
                     "repository_mutation plans, follow "
-                    "execution_contracts.repository_mutation exactly. "
+                    "execution_contracts.repository_mutation exactly, including "
+                    "execution_contracts.repository_mutation.policy file-path and "
+                    "branch allow/deny patterns. A suspended action is verified failure "
+                    "evidence: inspect durable_state.execution_results and do not repeat "
+                    "the same policy-invalid plan unchanged. "
                     "Prefer the smallest verifiable next step; return null only "
                     "when no safe executable step exists."
                 ),
@@ -682,6 +717,9 @@ class SamuelController:
                         ).items()
                         if isinstance(value, dict)
                     },
+                    "execution_results": copy.deepcopy(
+                        durable_audit.get("execution_results") or {}
+                    ),
                     "inherited_evidence": copy.deepcopy(
                         durable_audit.get("inherited_evidence") or []
                     ),
@@ -974,14 +1012,23 @@ class SamuelController:
 
         if state is not None and self.reasoning.status().available:
             current = admitted.get(state.research_id)
+            suspended_actions = [
+                action_id
+                for action_id, queued in state.action_queue.items()
+                if isinstance(queued, dict)
+                and queued.get("status") == ActionLifecycle.SUSPENDED.value
+            ]
+            terminal_actions_only = (
+                bool(state.action_queue)
+                and all(
+                    queued.get("status") in {"complete", "rejected"}
+                    for queued in state.action_queue.values()
+                )
+            )
             if (
                 isinstance(current, dict)
                 and current.get("status") == "planned"
-                and state.action_queue
-                and all(
-                    item.get("status") in {"complete", "rejected"}
-                    for item in state.action_queue.values()
-                )
+                and (terminal_actions_only or suspended_actions)
                 and not any(
                     recovery.get("status") in {"open", "needs_evidence"}
                     for recovery in state.diagnostic_recoveries.values()
@@ -1034,6 +1081,15 @@ class SamuelController:
                 inherited_evidence=rollover_evidence(work_id),
             )
         if waiting:
+            if (
+                state is not None
+                and waiting[0] != state.research_id
+                and not can_rollover_state(state)
+            ):
+                raise ControllerCompositionError(
+                    "reasoning work cannot switch workloads before active durable "
+                    "state reaches terminal rollover eligibility"
+                )
             return self._consume_waiting_reasoning(
                 trigger=trigger,
                 comments=comments,

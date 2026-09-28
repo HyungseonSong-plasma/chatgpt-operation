@@ -2,7 +2,12 @@ from __future__ import annotations
 import base64, os, unittest
 from unittest.mock import patch
 from chatgpt_operation.cli import main as cli_main
-from chatgpt_operation.repository.mutation import ApiError,Engine,HardStop,ManifestError,PolicyError,parse_manifest,parse_policy,repository_mutation_reasoning_contract
+from chatgpt_operation.repository.mutation import (
+    ApiError, Engine, HardStop, ManifestError, PolicyError,
+    authorize_manifest, parse_manifest, parse_policy,
+    repository_mutation_policy_reasoning_contract,
+    repository_mutation_reasoning_contract,
+)
 from chatgpt_operation.source import canonical_github_repository
 
 OLD="a"*40; NEW="b"*40
@@ -79,6 +84,37 @@ class Tests(unittest.TestCase):
         branch=contract["branch_create"]
         self.assertEqual(branch["target_exactly"],["name"])
         self.assertEqual(branch["expected"],{"absent":True})
+
+    def test_policy_reasoning_contract_matches_authority(self):
+        policy=pol(
+            file_allow=["src/**",".github/workflows/samuel-*.yml"],
+            file_deny=[".github/workflows/samuel-native-github.yml"],
+            branch_allow=["samuel/*"],
+            branch_deny=["main"],
+        )
+        contract=repository_mutation_policy_reasoning_contract(policy)
+        self.assertEqual(
+            contract["file_paths"]["allow"],
+            ["src/**",".github/workflows/samuel-*.yml"],
+        )
+        self.assertEqual(
+            contract["file_paths"]["deny"],
+            [".github/workflows/samuel-native-github.yml"],
+        )
+        self.assertEqual(contract["branch_names"]["allow"],["samuel/*"])
+        allowed=mf(
+            "create",
+            path=".github/workflows/samuel-weekly.yml",
+            branch="samuel/work",
+        )
+        authorize_manifest(allowed,policy=policy,repository="o/r")
+        denied=mf(
+            "create",
+            path=".github/workflows/paul-weekly.yml",
+            branch="samuel/work",
+        )
+        with self.assertRaises(PolicyError):
+            authorize_manifest(denied,policy=policy,repository="o/r")
 
     def test_closed_world(self):
         with self.assertRaises(ManifestError):
