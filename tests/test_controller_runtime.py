@@ -255,6 +255,148 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(result.selected_work,{"kind":"idle"})
         self.assertIsNone(result.admission_write)
 
+    def test_owned_ready_pr_is_promoted_before_semantic_reasoning(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"telemetry",
+                "body":"finish telemetry",
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"planned",
+            }
+        }
+        state=ResearchState(
+            "issue:24","finish telemetry",stage=ResearchStage.EXECUTE
+        )
+        state.action_queue["build"]={
+            "status":"complete",
+            "plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":"HyungseonSong-plasma/chatgpt-operation",
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":"x.py",
+                        "branch":"samuel/issue-24",
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"x=1\n"},
+                },
+                "expected_observation":"branch mutation exists",
+            },
+        }
+        provider=Provider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "open_issues":[repository_issue(24)],
+                "open_pull_requests":[{
+                    "number":142,
+                    "title":"ready",
+                    "state":"open",
+                    "draft":False,
+                    "head_ref":"samuel/issue-24",
+                    "head_sha":"c"*40,
+                    "base_ref":"main",
+                    "ci_state":"success",
+                }],
+            },
+        )
+        self.assertEqual(provider.calls,0)
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["plan"]["payload"]["action"],"merge_pr")
+        self.assertEqual(
+            result.selected_work["plan"]["payload"]["target"]["number"],142
+        )
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.DISPATCH_ACTION,
+        )
+        proposed=decode_state(result.state_write["body"])
+        queued=[
+            item for item in proposed.action_queue.values()
+            if item.get("plan",{}).get("payload",{}).get("action")=="merge_pr"
+        ]
+        self.assertEqual(len(queued),1)
+        self.assertEqual(queued[0]["status"],"dispatch_intent")
+
+    def test_unowned_ready_pr_is_not_auto_promoted(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"telemetry",
+                "body":"finish telemetry",
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"planned",
+            }
+        }
+        state=ResearchState(
+            "issue:24","finish telemetry",stage=ResearchStage.EXECUTE
+        )
+        state.action_queue["build"]={
+            "status":"complete",
+            "plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":"HyungseonSong-plasma/chatgpt-operation",
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":"x.py",
+                        "branch":"samuel/issue-24",
+                    },
+                    "expected":{"absent":True},
+                    "desired":{"content":"x=1\n"},
+                },
+                "expected_observation":"branch mutation exists",
+            },
+        }
+        provider=StaticPlanProvider(native_action_plan_for(24))
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "open_issues":[repository_issue(24)],
+                "open_pull_requests":[{
+                    "number":142,
+                    "title":"foreign ready",
+                    "state":"open",
+                    "draft":False,
+                    "head_ref":"samuel/other-work",
+                    "head_sha":"c"*40,
+                    "base_ref":"main",
+                    "ci_state":"success",
+                }],
+            },
+        )
+        self.assertEqual(provider.calls,1)
+        self.assertEqual(
+            result.selected_work["plan"]["payload"]["action"],
+            "comment_issue",
+        )
+
     def test_terminal_closed_workload_rolls_over_to_next_admitted_issue(self):
         work={
             "issue:44":{
