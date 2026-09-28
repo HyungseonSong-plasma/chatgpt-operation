@@ -170,19 +170,19 @@ class OpenAIReasoningProvider:
             elif isinstance(encoded_plan, str):
                 try:
                     action_plan = json.loads(encoded_plan)
-                except json.JSONDecodeError as exc:
-                    raise ProviderUnavailable(
-                        "OpenAI reasoning provider returned invalid ActionPlan JSON"
-                    ) from exc
-                if not isinstance(action_plan, dict):
-                    raise ProviderUnavailable(
-                        "OpenAI reasoning provider ActionPlan must decode to an object"
-                    )
-                decoded["action_plan"] = action_plan
+                except json.JSONDecodeError:
+                    # Preserve the malformed nested value for the typed proposal
+                    # parser. StructuredReasoningNode owns bounded validation repair,
+                    # so malformed semantic output must not bypass that boundary as
+                    # provider unavailability.
+                    decoded["action_plan"] = encoded_plan
+                else:
+                    decoded["action_plan"] = action_plan
             else:
-                raise ProviderUnavailable(
-                    "OpenAI reasoning provider action_plan_json is invalid"
-                )
+                # The outer strict schema should make this unreachable in normal
+                # operation. Keep it as typed-invalid semantic output so the same
+                # bounded repair path handles it.
+                decoded["action_plan"] = encoded_plan
         return decoded
 
     @staticmethod
