@@ -944,6 +944,14 @@ class SamuelController:
         proposed = copy.deepcopy(state)
         proposed.last_reasoning_head_sha = reasoning_head_sha
         enqueue_suspended_action(proposed, plan)
+        if proposal.progress is not None:
+            proposed.action_queue[plan.idempotency_key]["progress"]=copy.deepcopy(
+                proposal.progress
+            )
+        if proposal.completion_claim is not None:
+            proposed.action_queue[plan.idempotency_key]["completion_claim"]=copy.deepcopy(
+                proposal.completion_claim
+            )
         return (
             ReasoningConsumption(
                 "planned",
