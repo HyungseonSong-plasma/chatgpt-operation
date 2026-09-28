@@ -43,6 +43,11 @@ class SamuelBootstrapTests(unittest.TestCase):
         self.assertIn('"tracked_paths":tracked_paths',text)
         self.assertIn('"tracked_paths_truncated":tracked_paths_truncated',text)
         self.assertIn('"workflow_files":workflow_files',text)
+        self.assertIn('"mutation_policy":mutation_policy',text)
+        self.assertIn(
+            '"automation/samuel/repository-mutation-policy.json"',
+            text,
+        )
         self.assertIn('".github/workflows/"',text)
         self.assertIn("relevant_tracked_paths[:500]",text)
         self.assertIn(
