@@ -113,6 +113,27 @@ def ingest_terminal_artifact(
     )
 
     if surface is TerminalSurface.ACTION:
+        observation = gateway_result.get("observation")
+        if (
+            isinstance(observation, dict)
+            and observation.get("status") == "BOUND_RUN_IDENTITY_MISMATCH"
+        ):
+            conclusion = str(observation.get("conclusion") or "unknown")
+            proposed = copy.deepcopy(current)
+            record_native_dispatch_evidence_failure(
+                proposed,
+                action_id,
+                workflow_run_id=run_id,
+                conclusion=conclusion,
+                failure_kind="bound_executor_identity_mismatch",
+            )
+            return TerminalIngestionResult(
+                surface,
+                action_id,
+                run_id,
+                TerminalIngestionOutcome.RECOVERED_INVALID_EVIDENCE,
+                proposed,
+            )
         try:
             raw = json.loads(artifact_text)
         except json.JSONDecodeError:

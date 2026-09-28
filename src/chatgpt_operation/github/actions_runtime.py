@@ -402,6 +402,35 @@ def observe_dispatch_once(
         },
     }
     result = evaluate(snapshot)
+    if direct_binding and len(runs) == 1:
+        run = runs[0]
+        mismatches = {}
+        if (
+            expected_head_sha is not None
+            and run.get("head_sha") != expected_head_sha
+        ):
+            mismatches["head_sha"] = {
+                "expected": expected_head_sha,
+                "observed": run.get("head_sha"),
+            }
+        if run.get("workflow") != str(workflow_id):
+            mismatches["workflow"] = {
+                "expected": str(workflow_id),
+                "observed": run.get("workflow"),
+            }
+        if run.get("event") != "workflow_dispatch":
+            mismatches["event"] = {
+                "expected": "workflow_dispatch",
+                "observed": run.get("event"),
+            }
+        if mismatches:
+            result = {
+                "status": "BOUND_RUN_IDENTITY_MISMATCH",
+                "matched_run_ids": [run["run_id"]],
+                "run_status": run.get("status"),
+                "conclusion": run.get("conclusion"),
+                "identity_mismatches": mismatches,
+            }
     result["workflow_run_id"] = direct_run_id
     result["correlation_id"] = request_correlation
     return result

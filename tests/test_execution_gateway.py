@@ -141,6 +141,48 @@ class ExecutionGatewayTests(unittest.TestCase):
         self.assertEqual(result.status,GatewayStatus.TERMINAL)
         self.assertEqual(result.terminal_run_id,99)
 
+    @patch("chatgpt_operation.controller.execution_gateway.observe_native_plan")
+    @patch("chatgpt_operation.controller.execution_gateway.resume_dispatched_action")
+    def test_bound_action_source_mismatch_becomes_terminal_recovery_event(
+        self,resume,observe
+    ):
+        p=plan(); i=intent(p.idempotency_key)
+        receipt={"workflow_run_id":99,"correlation_id":p.idempotency_key}
+        resume.return_value=(p,receipt)
+        observe.return_value={
+            "status":"BOUND_RUN_IDENTITY_MISMATCH",
+            "matched_run_ids":[99],
+            "run_status":"completed",
+            "conclusion":"success",
+            "identity_mismatches":{
+                "head_sha":{"expected":"b"*40,"observed":"c"*40}
+            },
+        }
+        state=ResearchState(
+            "r","work",revision=2,
+            action_queue={
+                p.idempotency_key:{
+                    "status":"dispatched",
+                    "plan":{},
+                    "dispatch_intent":i.to_dict(),
+                    "dispatch_receipt":receipt,
+                }
+            },
+        )
+        result=ExecutionGateway(object()).execute(
+            command(
+                ControllerCommandKind.OBSERVE_ACTION,
+                action_id=p.idempotency_key,
+            ),
+            state=state,
+        )
+        self.assertEqual(result.status,GatewayStatus.TERMINAL)
+        self.assertEqual(result.terminal_run_id,99)
+        self.assertEqual(
+            result.observation["status"],
+            "BOUND_RUN_IDENTITY_MISMATCH",
+        )
+
     @patch("chatgpt_operation.controller.execution_gateway.dispatch_workflow")
     @patch("chatgpt_operation.controller.execution_gateway.resume_evidence_dispatch_intent")
     def test_evidence_dispatch_uses_durable_correlation(self, resume, dispatch):
