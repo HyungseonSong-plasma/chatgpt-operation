@@ -54,6 +54,13 @@ def extract_acceptance_criteria(body: str) -> tuple[str, ...]:
     return tuple(criteria)
 
 
+def is_observability_only_workload(body: str) -> bool:
+    """Return whether the Issue explicitly declares itself telemetry/observability only."""
+    if not isinstance(body,str):
+        return False
+    return "this issue is telemetry/observability only." in body.lower()
+
+
 def eligible_acceptance_criteria(
     issue_body: str,
     state: ResearchState,
