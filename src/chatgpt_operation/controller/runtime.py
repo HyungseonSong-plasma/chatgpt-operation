@@ -43,6 +43,7 @@ from .merge_recovery import (
     rejected_merge_targets,
 )
 from .preflight import (
+    deterministic_completion_claim,
     eligible_acceptance_criteria,
     extract_acceptance_criteria,
     integrated_acceptance_evidence,
@@ -209,6 +210,61 @@ def _selected_payload(selected: tuple[str, Any] | None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ControllerCompositionError("selected work payload must be an object")
     return {"kind": kind, **value}
+
+
+def _deterministic_terminal_close_plan(
+    state: ResearchState,
+    item: dict[str, Any],
+    repository_context: dict[str, Any] | None,
+) -> tuple[ActionPlan, dict[str, Any]] | None:
+    """Return a fail-closed close transaction when all acceptance work is integrated."""
+    issue_body=str(item.get("body") or "")
+    completion_claim=deterministic_completion_claim(issue_body,state)
+    if completion_claim is None:
+        return None
+
+    issue_number=item.get("issue_number")
+    if not isinstance(issue_number,int) or isinstance(issue_number,bool):
+        raise ControllerCompositionError(
+            "deterministic terminal close requires an integer issue_number"
+        )
+    repository=str((repository_context or {}).get("repository") or "").strip()
+    if "/" not in repository:
+        raise ControllerCompositionError(
+            "deterministic terminal close requires repository context"
+        )
+
+    plan=ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":state.research_id,
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"close_issue",
+            "repository":repository,
+            "target":{"number":issue_number},
+            "preconditions":{"issue_state":"open"},
+            "desired_postcondition":{"issue_state":"closed"},
+        },
+        "expected_observation":(
+            f"Issue #{issue_number} is closed after every acceptance criterion "
+            "has verified integrated evidence."
+        ),
+    })
+    failure=preflight_semantic_plan(
+        plan=plan,
+        progress=None,
+        completion_claim=completion_claim,
+        issue_body=issue_body,
+        state=state,
+        repository_context=repository_context or {},
+    )
+    if failure is not None:
+        raise ControllerCompositionError(
+            "deterministic terminal close preflight failed: "
+            + failure.as_validation_error()
+        )
+    return plan,completion_claim
 
 
 def _initial_state(
@@ -1431,6 +1487,48 @@ class SamuelController:
                     },
                     admission_write=admission_write,
                 )
+
+            current=admitted.get(state.research_id)
+            current_issue_number=(
+                current.get("issue_number") if isinstance(current,dict) else None
+            )
+            if (
+                isinstance(current,dict)
+                and current.get("status")!="complete"
+                and isinstance(current_issue_number,int)
+                and current_issue_number in open_issue_numbers
+            ):
+                terminal_close=_deterministic_terminal_close_plan(
+                    state,current,repository_context
+                )
+                if terminal_close is not None:
+                    close_plan,completion_claim=terminal_close
+                    proposed=copy.deepcopy(state)
+                    enqueue_suspended_action(proposed,close_plan)
+                    proposed.action_queue[
+                        close_plan.idempotency_key
+                    ]["completion_claim"]=copy.deepcopy(completion_claim)
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"planned"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                    return self._prepare_dispatch_intent(
+                        trigger=trigger,
+                        comments=comments,
+                        state=proposed,
+                        payload={
+                            "kind":"action",
+                            "action_id":close_plan.idempotency_key,
+                            "plan":proposed.action_queue[
+                                close_plan.idempotency_key
+                            ]["plan"],
+                            "reasoning_outcome":"deterministic_acceptance_completion",
+                            "work_id":state.research_id,
+                        },
+                        admission_write=admission_write,
+                    )
 
         if (
             state is not None
