@@ -37,6 +37,7 @@ from .issue_ingestion import (
     transition_issue_status,
 )
 from .issue_planning import plan_admitted_issue
+from .preflight import extract_acceptance_criteria, preflight_semantic_plan
 from .issue_reasoning import (
     IssueReasoningProposal,
     compile_guarded_action,
@@ -473,6 +474,10 @@ class SamuelController:
             )
         planned = plan_admitted_issue(item, registry=self.decisions)
         context = planned.envelope.as_reasoning_context()
+        acceptance_criteria=extract_acceptance_criteria(
+            str(item.get("body") or "")
+        )
+        context["acceptance_criteria"]=list(acceptance_criteria)
         context["durable_state"] = {
             "research_id": state.research_id,
             "revision": state.revision,
@@ -631,6 +636,20 @@ class SamuelController:
                         "production semantic provider emitted unsupported executor "
                         + candidate.executor.value
                     )
+                failure=preflight_semantic_plan(
+                    plan=candidate,
+                    progress=proposal.progress,
+                    completion_claim=proposal.completion_claim,
+                    issue_body=str(item.get("body") or ""),
+                    state=state,
+                    repository_context=context["repository_context"],
+                )
+                if failure is not None:
+                    raise ValueError(failure.as_validation_error())
+            elif proposal.progress is not None or proposal.completion_claim is not None:
+                raise ValueError(
+                    "progress and completion_claim require an executable ActionPlan"
+                )
             return proposal
 
         proposal = StructuredReasoningNode(
@@ -677,7 +696,14 @@ class SamuelController:
                     "Status/audit comments are controller-owned and are not valid "
                     "semantic implementation progress. A suspended action is verified failure "
                     "evidence: inspect durable_state.execution_results and do not repeat "
-                    "the same policy-invalid plan unchanged. "
+                    "the same policy-invalid plan unchanged. When the Issue contains "
+                    "a ## Acceptance section, every executable non-close ActionPlan must "
+                    "populate progress with one exact acceptance bullet it advances. "
+                    "A close_issue ActionPlan must leave progress null and populate "
+                    "completion_claim covering every exact acceptance bullet with only "
+                    "terminal-success durable evidence action ids. Preflight rejects "
+                    "duplicate plans, stale/missing targets, unready merge heads, and "
+                    "premature completion before dispatch. "
                     "Prefer the smallest verifiable next step; return null only "
                     "when no safe executable step exists."
                 ),
@@ -721,6 +747,11 @@ class SamuelController:
                         "Before declaring a scheduler capability exhausted, inspect "
                         "execution_contracts.scheduled_runtime and reuse an observed existing "
                         "scheduler with code-owned src/** phase routing when available."
+                    ),
+                    (
+                        "For Issues with ## Acceptance bullets, attach progress to the "
+                        "exact criterion advanced by non-close work; close_issue requires "
+                        "a completion_claim backed only by terminal-success durable evidence."
                     ),
                     (
                         "Prefer the smallest valid repository_mutation or github_native "
@@ -797,6 +828,8 @@ class SamuelController:
                 ),
                 "revision_requested": proposal.revision_requested,
                 "blocker": copy.deepcopy(proposal.blocker),
+                "progress": copy.deepcopy(proposal.progress),
+                "completion_claim": copy.deepcopy(proposal.completion_claim),
             },
             "action_plan": proposal.action_plan,
             "reasoning_context": {
@@ -810,6 +843,7 @@ class SamuelController:
                     "escalation_constraints", []
                 ),
                 "scheduled_runtime": copy.deepcopy(scheduled_runtime),
+                "acceptance_criteria": list(acceptance_criteria),
                 "durable_state": {
                     "research_id": durable_audit.get("research_id"),
                     "revision": durable_audit.get("revision"),
@@ -910,6 +944,14 @@ class SamuelController:
         proposed = copy.deepcopy(state)
         proposed.last_reasoning_head_sha = reasoning_head_sha
         enqueue_suspended_action(proposed, plan)
+        if proposal.progress is not None:
+            proposed.action_queue[plan.idempotency_key]["progress"]=copy.deepcopy(
+                proposal.progress
+            )
+        if proposal.completion_claim is not None:
+            proposed.action_queue[plan.idempotency_key]["completion_claim"]=copy.deepcopy(
+                proposal.completion_claim
+            )
         return (
             ReasoningConsumption(
                 "planned",
