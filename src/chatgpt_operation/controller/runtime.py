@@ -52,6 +52,10 @@ from chatgpt_operation.github.native_executor import (
     native_github_reasoning_contract,
 )
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
+from chatgpt_operation.weekly_schedule import (
+    SCHEDULER_CAPABILITY,
+    scheduled_runtime_reasoning_contract,
+)
 from chatgpt_operation.repository.mutation import (
     PolicyError,
     authorize_manifest,
@@ -492,11 +496,41 @@ class SamuelController:
                 },
             },
             "github_native": native_github_reasoning_contract(),
+            "scheduled_runtime": scheduled_runtime_reasoning_contract(self.now()),
         }
         def parse_provider_proposal(
             raw: dict[str, Any],
         ) -> IssueReasoningProposal:
             proposal = IssueReasoningProposal.from_dict(raw)
+            scheduled_runtime=context["execution_contracts"]["scheduled_runtime"]
+            blocker=proposal.blocker
+            if proposal.action_plan is not None and blocker is not None:
+                raise ValueError(
+                    "blocker must be null when an executable ActionPlan is produced"
+                )
+            if blocker is not None:
+                capability=blocker["capability"].lower()
+                scheduler_blockers={
+                    "workflow_file_mutation",
+                    "durable_scheduler",
+                    "scheduled_workflow",
+                }
+                if (
+                    scheduled_runtime.get("existing_durable_scheduler") is True
+                    and capability in scheduler_blockers
+                ):
+                    considered=set(blocker["alternatives_considered"])
+                    if SCHEDULER_CAPABILITY not in considered:
+                        raise ValueError(
+                            "known alternative existing_scheduled_runtime must be "
+                            "considered before scheduler-related blocking or revision"
+                        )
+                    if blocker["exhausted"] is True:
+                        raise ValueError(
+                            "scheduler alternative is not exhausted: the existing "
+                            "samuel-bootstrap schedule provides a durable UTC scheduler "
+                            "and code-owned phase routing can be implemented under src/**"
+                        )
             if (
                 proposal.operation == "implement_gap"
                 and not planned.envelope.implementation_gaps
@@ -580,7 +614,13 @@ class SamuelController:
                     "execution_contracts.repository_mutation.policy file-path and "
                     "branch allow/deny patterns. A suspended action is verified failure "
                     "evidence: inspect durable_state.execution_results and do not repeat "
-                    "the same policy-invalid plan unchanged. "
+                    "the same policy-invalid plan unchanged. Before proposing revision, "
+                    "blocking, or a comment-only escalation because an execution surface "
+                    "is unavailable, exhaust equivalent capabilities in execution_contracts. "
+                    "In particular, execution_contracts.scheduled_runtime describes an "
+                    "existing durable UTC scheduler; when workflow-file mutation is "
+                    "unavailable, reuse that scheduler and prefer code-owned phase routing "
+                    "under allowed src/** paths rather than requesting a new workflow. "
                     "Prefer the smallest verifiable next step; return null only "
                     "when no safe executable step exists."
                 ),
@@ -619,6 +659,12 @@ class SamuelController:
                         "completed durable branch-create action and still present in "
                         "repository_context.samuel_branches, even when main has advanced; "
                         "do not create another branch merely to defer file work."
+                    ),
+                    (
+                        "Before declaring a capability exhausted, inspect all equivalent "
+                        "capabilities in execution_contracts. For scheduling, the existing "
+                        "scheduled_runtime is a durable alternative to workflow-file mutation "
+                        "and supports code-owned phase routing under src/**."
                     ),
                     (
                         "Prefer the smallest valid repository_mutation or github_native "
@@ -694,6 +740,7 @@ class SamuelController:
                     proposal.compatible_with_locked_decisions
                 ),
                 "revision_requested": proposal.revision_requested,
+                "blocker": copy.deepcopy(proposal.blocker),
             },
             "action_plan": proposal.action_plan,
             "reasoning_context": {
@@ -705,6 +752,9 @@ class SamuelController:
                 ),
                 "escalation_constraints": context.get(
                     "escalation_constraints", []
+                ),
+                "scheduled_runtime": copy.deepcopy(
+                    context["execution_contracts"]["scheduled_runtime"]
                 ),
                 "durable_state": {
                     "research_id": durable_audit.get("research_id"),
