@@ -63,12 +63,29 @@ def decode_state(body: str) -> ResearchState:
     )
 
 
+def can_rollover_state(state: ResearchState) -> bool:
+    """Return whether a completed workload may yield the single durable state slot."""
+    if not state.action_queue:
+        return False
+    if any(
+        item.get("status") not in {"complete", "rejected"}
+        for item in state.action_queue.values()
+    ):
+        return False
+    return not any(
+        recovery.get("status") in {"open", "needs_evidence"}
+        for recovery in state.diagnostic_recoveries.values()
+    )
+
+
 def require_fresh_write(current: ResearchState | None, proposed: ResearchState) -> None:
-    """Reject stale or cross-research ledger replacement."""
+    """Reject stale writes; allow cross-workload replacement only after terminal proof."""
     if current is None:
         return
     if current.research_id != proposed.research_id:
-        raise DurableStateError("cannot overwrite a different research state")
+        if not can_rollover_state(current):
+            raise DurableStateError("cannot overwrite a different research state before terminal completion")
+        return
     if proposed.revision <= current.revision:
         raise DurableStateError(
             f"stale controller state revision {proposed.revision} <= {current.revision}"
@@ -154,12 +171,16 @@ def validate_state_write_precondition(
         raise DurableStateError("stale durable state create precondition")
     if request["method"] != "PATCH" or request["comment_id"] != int(comment["id"]):
         raise DurableStateError("durable state update target changed")
-    if current.research_id != proposed.research_id:
-        raise DurableStateError("cannot overwrite a different research state")
     if expected_previous != current.revision:
         raise DurableStateError(
             f"stale durable state precondition {expected_previous} != {current.revision}"
         )
+    if current.research_id != proposed.research_id:
+        if not can_rollover_state(current):
+            raise DurableStateError(
+                "cannot overwrite a different research state before terminal completion"
+            )
+        return
     if proposed.revision <= current.revision:
         raise DurableStateError("durable state revision did not advance")
 

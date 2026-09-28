@@ -17,7 +17,7 @@ from .action_plan import ActionPlan, ExecutorKind
 from .bootstrap import BootstrapWork, select_controller_work
 from .command import ControllerCommand, ControllerCommandKind
 from .decisions import DecisionRegistry, GuardOutcome
-from .durable_state import load_state_comment, state_write_request
+from .durable_state import can_rollover_state, load_state_comment, state_write_request
 from .diagnostic import (
     enqueue_suspended_action,
     record_action_dispatch_intent,
@@ -30,6 +30,7 @@ from .issue_ingestion import (
     ADMISSION_MARKER,
     admit_issue,
     decode_admission_ledger,
+    discover_admissible_issues,
     encode_admission_ledger,
     transition_issue_status,
 )
@@ -181,6 +182,87 @@ def _initial_state(work_id: str, item: dict[str, Any]) -> ResearchState:
         work_id,
         str(item.get("title") or item.get("body") or work_id),
     )
+
+
+def _owned_ready_pr_plan(
+    state: ResearchState,
+    repository_context: dict[str, Any] | None,
+) -> ActionPlan | None:
+    """Promote exactly one ready PR owned by the active workload into the action queue."""
+    if repository_context is None or not can_rollover_state(state):
+        return None
+    if any(
+        recovery.get("status") in {"open", "needs_evidence"}
+        for recovery in state.diagnostic_recoveries.values()
+    ):
+        return None
+
+    owned_branches: set[str] = set()
+    for item in state.action_queue.values():
+        plan_raw=item.get("plan")
+        if not isinstance(plan_raw,dict):
+            continue
+        payload=plan_raw.get("payload")
+        if not isinstance(payload,dict):
+            continue
+        target=payload.get("target")
+        if not isinstance(target,dict):
+            continue
+        branch=target.get("branch")
+        if isinstance(branch,str) and branch.startswith("samuel/"):
+            owned_branches.add(branch)
+        if payload.get("action")=="create_pr":
+            head=target.get("head")
+            if isinstance(head,str) and head.startswith("samuel/"):
+                owned_branches.add(head)
+
+    if not owned_branches:
+        return None
+
+    repository=str(repository_context.get("repository") or "").strip()
+    prs=repository_context.get("open_pull_requests",[])
+    if not repository or not isinstance(prs,list):
+        return None
+    candidates=[
+        item for item in prs
+        if isinstance(item,dict)
+        and item.get("state")=="open"
+        and not bool(item.get("draft"))
+        and item.get("ci_state")=="success"
+        and item.get("head_ref") in owned_branches
+        and isinstance(item.get("number"),int)
+        and isinstance(item.get("head_sha"),str)
+        and item.get("head_sha")
+    ]
+    if len(candidates)>1:
+        raise ControllerCompositionError(
+            "multiple ready pull requests belong to active workload"
+        )
+    if not candidates:
+        return None
+
+    pr=candidates[0]
+    plan=ActionPlan.from_dict({
+        "schema_version":1,
+        "research_id":state.research_id,
+        "stage":"execute",
+        "executor":"github_native",
+        "payload":{
+            "action":"merge_pr",
+            "repository":repository,
+            "target":{
+                "number":pr["number"],
+                "expected_head_sha":pr["head_sha"],
+            },
+            "desired_postcondition":{"merged":True},
+        },
+        "expected_observation":(
+            f"Pull request #{pr['number']} is merged at exact head "
+            f"{pr['head_sha']} after native safety checks."
+        ),
+    })
+    NativeGitHubCommand.from_plan(plan)
+    return plan
 
 
 class SamuelController:
@@ -700,6 +782,71 @@ class SamuelController:
                 admitted = decode_admission_ledger(admission["body"])
                 admission_comment_id = admission["comment_id"]
 
+        admission_write = None
+        if repository_context is not None:
+            open_issues = repository_context.get("open_issues", [])
+            if not isinstance(open_issues, list):
+                raise ControllerCompositionError(
+                    "repository context open_issues must be a list"
+                )
+            discovered = discover_admissible_issues(admitted, open_issues)
+            if discovered != admitted:
+                admitted = discovered
+                admission_write = _admission_write(
+                    admission_comment_id, admitted
+                )
+
+            if state is not None and can_rollover_state(state):
+                current = admitted.get(state.research_id)
+                open_numbers = {
+                    item.get("number")
+                    for item in open_issues
+                    if isinstance(item, dict)
+                    and item.get("state") in {None, "open"}
+                    and isinstance(item.get("number"), int)
+                }
+                if (
+                    isinstance(current, dict)
+                    and isinstance(current.get("issue_number"), int)
+                    and current["issue_number"] not in open_numbers
+                ):
+                    if current.get("status") != "complete":
+                        admitted = transition_issue_status(
+                            admitted, state.research_id, "complete"
+                        )
+                    admission_write = _admission_write(
+                        admission_comment_id, admitted
+                    )
+                    state = None
+
+        if state is not None:
+            ready_pr_plan=_owned_ready_pr_plan(state,repository_context)
+            if ready_pr_plan is not None:
+                proposed=copy.deepcopy(state)
+                enqueue_suspended_action(proposed,ready_pr_plan)
+                if state.research_id in admitted:
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"planned"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                return self._prepare_dispatch_intent(
+                    trigger=trigger,
+                    comments=comments,
+                    state=proposed,
+                    payload={
+                        "kind":"action",
+                        "action_id":ready_pr_plan.idempotency_key,
+                        "plan":proposed.action_queue[
+                            ready_pr_plan.idempotency_key
+                        ]["plan"],
+                        "reasoning_outcome":"deterministic_ready_pr",
+                        "work_id":state.research_id,
+                    },
+                    admission_write=admission_write,
+                )
+
         if state is not None and self.reasoning.status().available:
             current = admitted.get(state.research_id)
             if (
@@ -768,6 +915,7 @@ class SamuelController:
                 work_id=waiting[0],
                 state=state,
                 admission_comment_id=admission_comment_id,
+                prior_admission_write=admission_write,
                 repository_context=repository_context,
             )
 
@@ -845,6 +993,7 @@ class SamuelController:
                 comments=comments,
                 state=state,
                 payload=payload,
+                admission_write=admission_write,
             )
         if payload["kind"] == "pending":
             raise ControllerCompositionError(
@@ -855,7 +1004,7 @@ class SamuelController:
                 payload, state
             )
             return ControllerCycle(
-                trigger, payload, None, None, None, command
+                trigger, payload, None, admission_write, None, command
             )
 
         result = plan_admitted_issue(payload, registry=self.decisions)

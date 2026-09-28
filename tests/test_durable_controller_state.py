@@ -61,6 +61,28 @@ def test_cross_research_overwrite_fails_closed():
         raise AssertionError("cross-research overwrite must fail closed")
 
 
+def test_terminal_cross_research_rollover_is_allowed():
+    current=ResearchState(
+        "issue:44",
+        "completed root work",
+        stage=ResearchStage.EXECUTE,
+        action_queue={"done":{"status":"complete"}},
+        revision=5,
+    )
+    proposed=ResearchState(
+        "issue:24",
+        "next admitted work",
+        stage=ResearchStage.DEFINE_PROBLEM,
+        revision=2,
+    )
+    require_fresh_write(current,proposed)
+    comments=[{"id":99,"body":encode_state(current)}]
+    write=prepare_state_write(comments,proposed)
+    assert write["comment_id"]==99
+    assert write["expected_previous_revision"]==5
+    assert decode_state(write["body"]).research_id=="issue:24"
+
+
 def test_comment_loader_and_writer_use_single_authoritative_marker():
     current = state(4)
     comments = [{"id": 99, "body": encode_state(current)}]
