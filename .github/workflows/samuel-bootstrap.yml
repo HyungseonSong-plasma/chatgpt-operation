@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  checks: read
   actions: write
   issues: write
 
@@ -63,7 +64,9 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" > samuel-open-issues.json
           gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" > samuel-open-prs.json
           python3 - <<'PY'
-          import json, os, subprocess
+          import json, os, subprocess, sys
+          sys.path.insert(0,"src")
+          from chatgpt_operation.github.ci_state import synthesize_ci_state
           issues=[
               {
                   "number":item["number"],
@@ -94,14 +97,30 @@ jobs:
                   ],
                   check=False,capture_output=True,text=True,
               )
-              ci_state="unknown"
+              checks=subprocess.run(
+                  [
+                      "gh","api",
+                      "-H","Accept: application/vnd.github+json",
+                      "repos/"+os.environ["GITHUB_REPOSITORY"]
+                      +"/commits/"+head_sha+"/check-runs?per_page=100",
+                  ],
+                  check=False,capture_output=True,text=True,
+              )
+              status_payload=None
+              checks_payload=None
               if status.returncode==0:
                   try:
-                      ci_state=json.loads(status.stdout).get(
-                          "state","unknown"
-                      )
+                      status_payload=json.loads(status.stdout)
                   except json.JSONDecodeError:
                       pass
+              if checks.returncode==0:
+                  try:
+                      checks_payload=json.loads(checks.stdout)
+                  except json.JSONDecodeError:
+                      pass
+              ci_state=synthesize_ci_state(
+                  status_payload,checks_payload
+              )
               pull_requests.append({
                   "number":item["number"],
                   "title":item["title"],
