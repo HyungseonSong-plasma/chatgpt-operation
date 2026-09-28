@@ -711,7 +711,7 @@ class ControllerRuntimeTests(unittest.TestCase):
             repository_context={
                 "repository":"HyungseonSong-plasma/chatgpt-operation",
                 "observed_head_sha":"b"*40,
-                "open_issues":[repository_issue(44)],
+                "open_issues":[issue_payload()],
                 "open_pull_requests":[],
                 "samuel_branches":[],
                 "tracked_paths":[],
@@ -733,7 +733,7 @@ class ControllerRuntimeTests(unittest.TestCase):
             repository_context={
                 "repository":"HyungseonSong-plasma/chatgpt-operation",
                 "observed_head_sha":"b"*40,
-                "open_issues":[repository_issue(44)],
+                "open_issues":[issue_payload()],
                 "open_pull_requests":[],
                 "samuel_branches":[],
                 "tracked_paths":[],
