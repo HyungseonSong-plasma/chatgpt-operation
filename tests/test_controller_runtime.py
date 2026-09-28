@@ -293,6 +293,57 @@ class PolicyRepairProvider:
         }
 
 
+class RevisionThenSourceProvider:
+    name = "revision-then-source-fixture"
+
+    def __init__(self):
+        self.calls = 0
+        self.validation_errors = []
+        self.contexts = []
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.validation_errors.append(kwargs.get("validation_error"))
+        self.contexts.append(kwargs["context"])
+        if self.calls == 1:
+            return {
+                "operation":"propose_revision",
+                "decision_id":"workflow_file_mutation_governance",
+                "compatible_with_locked_decisions":True,
+                "revision_requested":True,
+                "action_plan":None,
+            }
+        repository=kwargs["context"]["repository_context"]
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":repository["repository"],
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":"src/chatgpt_operation/weekly_schedule.py",
+                        "branch":"samuel/issues-24-43-weekly-maintenance-v2",
+                    },
+                    "expected":{"absent":True},
+                    "desired":{
+                        "content":"CANONICAL_TIMEZONE='UTC'\nBOOTSTRAP_CRON='55 * * * *'\n"
+                    },
+                    "commit_message":"Add code-owned weekly schedule",
+                },
+                "expected_observation":"Code-owned schedule integration exists.",
+            },
+        }
+
+
 class ReuseWorkloadBranchProvider:
     name = "reuse-workload-branch-fixture"
 
@@ -1327,6 +1378,72 @@ class ControllerRuntimeTests(unittest.TestCase):
         ledger=decode_admission_ledger(result.admission_write["body"])
         self.assertEqual(ledger["issue:24"]["status"],"planned")
         self.assertEqual(ledger["issue:43"]["status"],"admitted")
+
+    def test_invented_governance_revision_repairs_to_existing_scheduler_path(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Weekly telemetry maintenance",
+                "body":(
+                    "Use GitHub Actions scheduled workflows or an equivalent "
+                    "durable scheduler."
+                ),
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"reasoning_required",
+            }
+        }
+        state=ResearchState("issue:24","Weekly telemetry maintenance",revision=20)
+        provider=RevisionThenSourceProvider()
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
+                "open_issues":[{
+                    "number":24,
+                    "title":"Weekly telemetry maintenance",
+                    "body":"Use an equivalent durable scheduler.",
+                    "state":"open",
+                    "labels":["samuel"],
+                }],
+                "open_pull_requests":[],
+                "samuel_branches":[{
+                    "head_sha":"a"*40,
+                    "ref":"refs/heads/samuel/issues-24-43-weekly-maintenance-v2",
+                }],
+                "tracked_paths_truncated":False,
+                "tracked_paths":["src/chatgpt_operation/weekly_maintenance.py"],
+                "workflow_files":[".github/workflows/samuel-bootstrap.yml"],
+            },
+        )
+        self.assertEqual(provider.calls,2)
+        self.assertIsNone(provider.validation_errors[0])
+        self.assertIn(
+            "propose_revision must reference an existing locked decision",
+            provider.validation_errors[1],
+        )
+        scheduler=provider.contexts[0]["repository_context"]["scheduler_surfaces"]
+        self.assertEqual(
+            scheduler,
+            [{
+                "workflow":".github/workflows/samuel-bootstrap.yml",
+                "event":"schedule",
+                "cron":"55 * * * *",
+                "mutation_required":False,
+            }],
+        )
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["work_id"],"issue:24")
+        self.assertEqual(
+            result.selected_work["plan"]["payload"]["target"]["path"],
+            "src/chatgpt_operation/weekly_schedule.py",
+        )
 
     def test_existing_submission_is_consumed_in_same_root_cycle(self):
         result=controller().run_cycle(
