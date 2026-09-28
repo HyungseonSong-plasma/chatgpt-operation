@@ -134,6 +134,48 @@ class NullPlanCapturingProvider:
         }
 
 
+
+class TrackedGapProvider:
+    name = "tracked-gap-fixture"
+
+    def __init__(self):
+        self.calls = 0
+        self.context = None
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.context = kwargs["context"]
+        repository = self.context["repository_context"]
+        required = ".github/workflows/samuel-weekly-maintenance.yml"
+        if required in repository.get("tracked_paths", []):
+            raise AssertionError("fixture expects the required workflow to be absent")
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":repository["repository"],
+                    "resource":"branch",
+                    "action":"create",
+                    "target":{"name":"samuel/issue-24-weekly-schedule"},
+                    "expected":{"absent":True},
+                    "desired":{"sha":repository["observed_head_sha"]},
+                },
+                "expected_observation":(
+                    "A fresh workload branch exists at the exact observed main head "
+                    "for implementing the missing weekly maintenance schedule."
+                ),
+            },
+        }
+
+
 def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
@@ -759,6 +801,80 @@ class ControllerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.selected_work["kind"],"action")
         self.assertIsNotNone(result.execution_command)
+
+    def test_tracked_repository_gap_can_plan_fresh_workload_branch(self):
+        work={
+            "issue:24":{
+                "work_id":"issue:24",
+                "issue_number":24,
+                "title":"Weekly telemetry maintenance",
+                "body":"Acceptance requires a durable scheduled workflow.",
+                "html_url":"https://github.com/o/r/issues/24",
+                "status":"reasoning_required",
+            }
+        }
+        state=ResearchState(
+            "issue:24",
+            "Weekly telemetry maintenance",
+            inherited_evidence=[{
+                "schema_version":1,
+                "source_research_id":"issue:44",
+                "source_action_id":"merged-pr-136",
+                "related_issue_number":24,
+                "executor":"github_native",
+                "action":"merge_pr",
+                "target":{"number":136},
+                "expected_observation":"PR #136 merged",
+                "verified_observation":"merge verified",
+                "verified_status":"pass",
+                "after":{"merged":True},
+            }],
+        )
+        provider=TrackedGapProvider()
+        head="d"*40
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[
+                {"id":7,"body":encode_admission_ledger(work)},
+                state_comment(state),
+            ],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":head,
+                "open_issues":[{
+                    "number":24,
+                    "title":"Weekly telemetry maintenance",
+                    "body":"Acceptance requires a durable scheduled workflow.",
+                    "state":"open",
+                    "labels":["samuel"],
+                }],
+                "open_pull_requests":[],
+                "samuel_branches":[],
+                "tracked_paths":[
+                    "src/chatgpt_operation/weekly_maintenance.py",
+                    "tests/test_operational_telemetry.py",
+                ],
+                "workflow_files":[".github/workflows/ci.yml"],
+            },
+        )
+        self.assertEqual(provider.calls,1)
+        self.assertEqual(result.selected_work["kind"],"action")
+        plan=result.selected_work["plan"]
+        self.assertEqual(plan["executor"],"repository_mutation")
+        self.assertEqual(plan["payload"]["resource"],"branch")
+        self.assertEqual(
+            plan["payload"]["desired"]["sha"],head
+        )
+        contract=provider.context["execution_contracts"]["repository_mutation"]
+        self.assertFalse(contract["payload"]["additional_fields"])
+        self.assertEqual(
+            result.execution_command.kind,
+            ControllerCommandKind.DISPATCH_ACTION,
+        )
+        proposed=decode_state(result.state_write["body"])
+        self.assertEqual(proposed.research_id,"issue:24")
+        self.assertEqual(proposed.inherited_evidence,state.inherited_evidence)
 
     def test_existing_submission_is_consumed_in_same_root_cycle(self):
         result=controller().run_cycle(
