@@ -319,6 +319,43 @@ def load_manifest(path: str | Path) -> dict[str, Any]:
     return validate_manifest(raw)
 
 
+def centralization_reasoning_contract(
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    """Expose ownership-transfer state to reasoning without granting deletion authority."""
+    normalized=validate_manifest(manifest)
+    return {
+        "canonical_repository":normalized["canonical_repository"],
+        "retirement_policy":dict(normalized["retirement_policy"]),
+        "components":[
+            {
+                "id":component["id"],
+                "phase":component["phase"],
+                "canonical_paths":list(component["canonical_paths"]),
+                "consumers":[
+                    {
+                        "repository":consumer["repository"],
+                        "duplicate_paths":list(consumer["duplicate_paths"]),
+                        "status":consumer["status"],
+                        "canonical_revision":consumer["canonical_revision"],
+                        "verification":dict(consumer["verification"]),
+                    }
+                    for consumer in component["consumers"]
+                ],
+            }
+            for component in normalized["components"]
+        ],
+        "rule":(
+            "Centralized ownership does not authorize consumer deletion. "
+            "A duplicate may be retired only when component.phase=retirement_ready "
+            "and that consumer has status=cutover_verified with an exact canonical "
+            "revision, compatibility verification, successful consumer CI, and "
+            "zero remaining local imports. Mutation must still pass the consumer "
+            "repository policy."
+        ),
+    }
+
+
 def retirement_candidates(
     manifest: dict[str, Any],
     *,
@@ -351,6 +388,7 @@ __all__ = [
     "CentralizationManifestError",
     "RetirementCandidate",
     "SCHEMA_VERSION",
+    "centralization_reasoning_contract",
     "load_manifest",
     "retirement_candidates",
     "validate_manifest",
