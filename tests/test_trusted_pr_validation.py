@@ -8,7 +8,17 @@ from chatgpt_operation.controller.command import (
     ControllerCommandKind,
 )
 from chatgpt_operation.controller.diagnostic import enqueue_suspended_action
-from chatgpt_operation.controller.durable_state import apply_dispatch_receipt
+from chatgpt_operation.controller.durable_state import (
+    apply_dispatch_receipt,
+    encode_state,
+)
+from chatgpt_operation.controller.decisions import DecisionRegistry
+from chatgpt_operation.controller.issue_ingestion import encode_admission_ledger
+from chatgpt_operation.controller.runtime import (
+    ControllerTrigger,
+    SamuelController,
+    TriggerKind,
+)
 from chatgpt_operation.controller.execution_gateway import (
     ExecutionGateway,
     GatewayStatus,
@@ -171,6 +181,66 @@ class TrustedValidationLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(kind,"trusted_validation")
         self.assertEqual(payload["pr"]["head_sha"],newer)
+
+
+class TrustedValidationControllerTests(unittest.TestCase):
+    def test_controller_prioritizes_unknown_ci_before_semantic_continuation(self):
+        state,plan=completed_state()
+        comments=[
+            {"id":10,"body":encode_state(state)},
+            {
+                "id":11,
+                "body":encode_admission_ledger({
+                    "issue:24":{
+                        "work_id":"issue:24",
+                        "issue_number":24,
+                        "title":"Weekly maintenance",
+                        "body":"## Acceptance\n\n- scheduler is durable\n",
+                        "html_url":"https://github.com/o/r/issues/24",
+                        "status":"planned",
+                    }
+                }),
+            },
+        ]
+        context=repository_context()
+        context.update({
+            "open_issues":[{
+                "number":24,
+                "title":"Weekly maintenance",
+                "body":"## Acceptance\n\n- scheduler is durable\n",
+                "state":"open",
+                "labels":["samuel"],
+            }],
+            "samuel_branches":[{
+                "ref":"refs/heads/"+BRANCH,
+                "head_sha":ACTION_HEAD,
+            }],
+            "tracked_paths":[],
+            "tracked_paths_truncated":False,
+            "workflow_files":[],
+        })
+        controller=SamuelController(
+            decisions=DecisionRegistry.load("automation/samuel/decisions.json")
+        )
+        cycle=controller.run_cycle(
+            ControllerTrigger(
+                TriggerKind.WORKFLOW_DISPATCH,
+                head_sha=MAIN_HEAD,
+                ref="refs/heads/main",
+                executor_ref="main",
+                executor_head_sha=MAIN_HEAD,
+            ),
+            comments=comments,
+            pending=[],
+            repository_context=context,
+        )
+        self.assertEqual(cycle.selected_work["kind"],"trusted_validation")
+        self.assertEqual(cycle.selected_work["action_id"],plan.idempotency_key)
+        self.assertEqual(
+            cycle.execution_command.kind,
+            ControllerCommandKind.DISPATCH_TRUSTED_VALIDATION,
+        )
+        self.assertIsNotNone(cycle.state_write)
 
 
 class TrustedValidationGatewayTests(unittest.TestCase):
