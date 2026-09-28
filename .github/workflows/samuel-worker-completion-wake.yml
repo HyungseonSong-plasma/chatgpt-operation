@@ -1,0 +1,32 @@
+name: Samuel Worker Completion Wake
+
+on:
+  workflow_run:
+    workflows:
+      - "Samuel Native GitHub Executor"
+      - "Samuel Repository Mutation"
+      - "Samuel Evidence Acquisition"
+      - "Samuel Diagnostic Recovery"
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: samuel-worker-completion-wake
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Wake Samuel after bounded worker completion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run samuel-bootstrap.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main
