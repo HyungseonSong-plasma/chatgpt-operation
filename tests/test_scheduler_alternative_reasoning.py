@@ -117,7 +117,10 @@ def repository_context():
         "open_issues":[{
             "number":24,
             "title":"Weekly telemetry maintenance",
-            "body":"Use a durable scheduler for weekly maintenance.",
+            "body":(
+                "Use a durable scheduler for Mon-Fri collection, Saturday analysis, "
+                "and Sunday bounded improvement."
+            ),
             "state":"open",
             "labels":["samuel"],
         }],
