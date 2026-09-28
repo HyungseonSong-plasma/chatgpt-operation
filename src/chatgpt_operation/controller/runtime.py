@@ -37,6 +37,13 @@ from .issue_ingestion import (
     transition_issue_status,
 )
 from .issue_planning import plan_admitted_issue
+from .merge_recovery import (
+    conflict_main_file_snapshots,
+    conflict_recovery_branch_name,
+    conflict_recovery_branch_plan,
+    conflicted_workload_pull_requests,
+    rejected_merge_targets,
+)
 from .preflight import extract_acceptance_criteria, preflight_semantic_plan
 from .issue_reasoning import (
     IssueReasoningProposal,
@@ -280,6 +287,9 @@ def _owned_ready_pr_plan(
         and not bool(item.get("draft"))
         and item.get("ci_state")=="success"
         and item.get("head_ref") in owned_branches
+        and (
+            item.get("number"),item.get("head_sha")
+        ) not in rejected_merge_targets(state)
         and isinstance(item.get("number"),int)
         and isinstance(item.get("head_sha"),str)
         and item.get("head_sha")
@@ -583,6 +593,25 @@ class SamuelController:
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
         }
         context["repository_context"] = copy.deepcopy(repository_context or {})
+        conflict_prs=conflicted_workload_pull_requests(
+            state,context["repository_context"]
+        )
+        context["repository_context"]["conflicted_workload_pull_requests"]=(
+            conflict_prs
+        )
+        context["repository_context"]["conflicted_workload_branches"]=[
+            item["head_ref"] for item in conflict_prs
+        ]
+        context["repository_context"]["conflict_recovery_branch"]=(
+            conflict_recovery_branch_name(
+                state,context["repository_context"]
+            )
+        )
+        context["repository_context"]["conflict_main_file_snapshots"]=(
+            conflict_main_file_snapshots(
+                state,context["repository_context"]
+            )
+        )
         context["repository_context"]["scheduler_surfaces"] = (
             _existing_scheduler_surfaces()
         )
@@ -774,8 +803,15 @@ class SamuelController:
                     "completed durable branch-create action and still present in "
                     "repository_context.samuel_branches, even if main advanced after "
                     "that branch was created. Do not create a replacement branch solely "
-                    "because repository_context.observed_head_sha changed. Create a fresh "
-                    "samuel/* branch only when no reusable workload-owned branch exists. "
+                    "because repository_context.observed_head_sha changed. However, a branch "
+                    "listed in repository_context.conflicted_workload_branches is proven "
+                    "non-reusable by a rejected exact-head merge and must never receive "
+                    "new mutations or a new PR. When repository_context.conflict_recovery_branch "
+                    "is present, continue on that fresh current-main branch. Use "
+                    "repository_context.conflict_main_file_snapshots to preserve current-main "
+                    "content for overlapping files; do not blindly replay stale branch content. "
+                    "Create a fresh samuel/* branch only when no reusable workload-owned branch "
+                    "or deterministic conflict-recovery branch exists. "
                     "After branch creation completes, advance the first unmet artifact "
                     "on that branch instead of repeating branch creation. Do not repeat completed actions. When implementation_gaps is "
                     "empty, operation must be analyze. Use implement_gap only for a "
@@ -844,7 +880,10 @@ class SamuelController:
                         "Reuse a workload-owned branch already proven by a "
                         "completed durable branch-create action and still present in "
                         "repository_context.samuel_branches, even when main has advanced; "
-                        "do not create another branch merely to defer file work."
+                        "except never reuse a branch listed in "
+                        "repository_context.conflicted_workload_branches. Prefer the "
+                        "deterministic conflict_recovery_branch when present and preserve "
+                        "overlapping main files from conflict_main_file_snapshots."
                     ),
                     (
                         "Before declaring a scheduler capability exhausted, inspect "
@@ -999,6 +1038,18 @@ class SamuelController:
                     ),
                     "scheduler_surfaces": copy.deepcopy(
                         repository_audit.get("scheduler_surfaces") or []
+                    ),
+                    "conflicted_workload_pull_requests": copy.deepcopy(
+                        repository_audit.get("conflicted_workload_pull_requests") or []
+                    ),
+                    "conflicted_workload_branches": copy.deepcopy(
+                        repository_audit.get("conflicted_workload_branches") or []
+                    ),
+                    "conflict_recovery_branch": repository_audit.get(
+                        "conflict_recovery_branch"
+                    ),
+                    "conflict_main_file_snapshots": copy.deepcopy(
+                        repository_audit.get("conflict_main_file_snapshots") or []
                     ),
                 },
             },
@@ -1263,6 +1314,35 @@ class SamuelController:
         )
 
         if state is not None and actions_quiescent:
+            recovery_branch_plan=conflict_recovery_branch_plan(
+                state,repository_context
+            )
+            if recovery_branch_plan is not None:
+                proposed=copy.deepcopy(state)
+                enqueue_suspended_action(proposed,recovery_branch_plan)
+                if state.research_id in admitted:
+                    admitted=transition_issue_status(
+                        admitted,state.research_id,"planned"
+                    )
+                    admission_write=_admission_write(
+                        admission_comment_id,admitted
+                    )
+                return self._prepare_dispatch_intent(
+                    trigger=trigger,
+                    comments=comments,
+                    state=proposed,
+                    payload={
+                        "kind":"action",
+                        "action_id":recovery_branch_plan.idempotency_key,
+                        "plan":proposed.action_queue[
+                            recovery_branch_plan.idempotency_key
+                        ]["plan"],
+                        "reasoning_outcome":"deterministic_merge_conflict_recovery",
+                        "work_id":state.research_id,
+                    },
+                    admission_write=admission_write,
+                )
+
             try:
                 validation_work=select_trusted_validation_work(
                     state,repository_context

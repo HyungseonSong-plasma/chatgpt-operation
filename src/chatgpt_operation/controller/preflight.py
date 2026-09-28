@@ -125,6 +125,13 @@ def _preflight_repository_target(
         return None
     if resource=="file":
         branch=target.get("branch")
+        conflicted=set(repository_context.get("conflicted_workload_branches") or [])
+        if isinstance(branch,str) and branch in conflicted:
+            return PreflightFailure(
+                "conflicted_workload_branch",
+                {"branch":branch},
+                "use repository_context.conflict_recovery_branch; rejected merge branches are immutable recovery evidence",
+            )
         if not isinstance(branch,str) or branch not in branches:
             return PreflightFailure(
                 "missing_target_branch",
@@ -153,6 +160,13 @@ def _preflight_native_target(
         )
     if action=="create_pr":
         head=target.get("head")
+        conflicted=set(repository_context.get("conflicted_workload_branches") or [])
+        if isinstance(head,str) and head in conflicted:
+            return PreflightFailure(
+                "conflicted_pr_head_branch",
+                {"head":head},
+                "open replacement work only from repository_context.conflict_recovery_branch",
+            )
         branches=_samuel_branch_heads(repository_context)
         if not isinstance(head,str) or head not in branches:
             return PreflightFailure(
