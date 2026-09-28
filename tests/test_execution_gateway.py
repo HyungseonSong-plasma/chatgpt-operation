@@ -8,6 +8,7 @@ from chatgpt_operation.controller.execution_gateway import (
     ExecutionGateway,
     ExecutionGatewayError,
     GatewayStatus,
+    terminal_gateway_result_from_completed_run,
 )
 from chatgpt_operation.controller.research import ResearchState
 
@@ -50,6 +51,65 @@ def command(kind, revision=2, action_id=ACTION):
 
 
 class ExecutionGatewayTests(unittest.TestCase):
+    def test_completed_bound_receipt_promotes_to_terminal_gateway_result(self):
+        raw={
+            "schema_version":1,
+            "surface":"action",
+            "action_id":ACTION,
+            "status":"receipt",
+            "receipt":{
+                "workflow_run_id":99,
+                "workflow_id":123,
+                "workflow_path":".github/workflows/samuel-repository-mutation.yml",
+                "correlation_id":ACTION,
+            },
+            "observation":None,
+            "terminal_run_id":None,
+        }
+        completed={
+            "id":99,
+            "workflow_id":123,
+            "path":".github/workflows/samuel-repository-mutation.yml",
+            "event":"workflow_dispatch",
+            "status":"completed",
+            "conclusion":"success",
+            "head_sha":HEAD,
+        }
+        result=terminal_gateway_result_from_completed_run(raw,completed)
+        self.assertEqual(result.status,GatewayStatus.TERMINAL)
+        self.assertEqual(result.terminal_run_id,99)
+        self.assertEqual(result.action_id,ACTION)
+        self.assertEqual(result.observation["status"],"MATCHED_TERMINAL")
+        self.assertEqual(result.observation["matched_run_ids"],[99])
+        self.assertEqual(result.observation["conclusion"],"success")
+
+    def test_completed_worker_must_match_bound_receipt_identity(self):
+        raw={
+            "schema_version":1,
+            "surface":"action",
+            "action_id":ACTION,
+            "status":"receipt",
+            "receipt":{
+                "workflow_run_id":99,
+                "workflow_id":123,
+                "workflow_path":".github/workflows/samuel-repository-mutation.yml",
+            },
+            "observation":None,
+            "terminal_run_id":None,
+        }
+        completed={
+            "id":100,
+            "workflow_id":123,
+            "path":".github/workflows/samuel-repository-mutation.yml",
+            "event":"workflow_dispatch",
+            "status":"completed",
+            "conclusion":"success",
+        }
+        with self.assertRaisesRegex(
+            ExecutionGatewayError,"does not match bound receipt"
+        ):
+            terminal_gateway_result_from_completed_run(raw,completed)
+
     def test_stale_command_is_rejected_before_runtime_access(self):
         state=ResearchState("r","work",revision=3)
         gateway=ExecutionGateway(object())
