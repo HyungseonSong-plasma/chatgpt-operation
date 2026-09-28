@@ -176,6 +176,77 @@ class TrackedGapProvider:
         }
 
 
+class NullThenFilePlanProvider:
+    name = "null-then-file-plan-fixture"
+
+    def __init__(self):
+        self.calls = 0
+        self.contexts = []
+        self.tasks = []
+        self.validation_errors = []
+
+    def reason(self, **kwargs):
+        self.calls += 1
+        self.contexts.append(kwargs["context"])
+        self.tasks.append(kwargs["task"])
+        self.validation_errors.append(kwargs.get("validation_error"))
+        if self.calls == 1:
+            return {
+                "operation":"analyze",
+                "decision_id":None,
+                "compatible_with_locked_decisions":True,
+                "revision_requested":False,
+                "action_plan":None,
+            }
+        context=kwargs["context"]
+        reconciliation=context.get("completion_reconciliation")
+        if not isinstance(reconciliation,dict) or reconciliation.get("required") is not True:
+            raise AssertionError("second pass must be completion reconciliation")
+        repository=context["repository_context"]
+        branch=None
+        for item in repository.get("samuel_branches",[]):
+            ref=str(item.get("ref") or "")
+            if (
+                item.get("head_sha")==repository["observed_head_sha"]
+                and ref.endswith("/samuel/issue-24-weekly")
+            ):
+                branch="samuel/issue-24-weekly"
+                break
+        if branch is None:
+            raise AssertionError("fixture expects a current-head workload branch")
+        return {
+            "operation":"analyze",
+            "decision_id":"github_execution_authority",
+            "compatible_with_locked_decisions":True,
+            "revision_requested":False,
+            "action_plan":{
+                "schema_version":1,
+                "research_id":"issue:24",
+                "stage":"implement",
+                "executor":"repository_mutation",
+                "payload":{
+                    "schema_version":1,
+                    "repository":repository["repository"],
+                    "resource":"file",
+                    "action":"create",
+                    "target":{
+                        "path":".github/workflows/samuel-weekly-maintenance.yml",
+                        "branch":branch,
+                    },
+                    "expected":{"absent":True},
+                    "desired":{
+                        "content":"name: Samuel Weekly Maintenance\non:\n  workflow_dispatch:\n"
+                    },
+                    "commit_message":"Add bounded weekly maintenance workflow",
+                },
+                "expected_observation":(
+                    "The missing weekly maintenance workflow exists on the current "
+                    "workload branch."
+                ),
+            },
+        }
+
+
 def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
@@ -540,7 +611,7 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(result.state_write["expected_previous_revision"],0)
         self.assertEqual(result.execution_command.research_id,"issue:24")
 
-    def test_rollover_persists_verified_inherited_evidence_when_reasoning_returns_null(self):
+    def test_rollover_reconciles_null_plan_and_preserves_inherited_evidence(self):
         work={
             "issue:44":{
                 "work_id":"issue:44",
@@ -636,7 +707,7 @@ class ControllerRuntimeTests(unittest.TestCase):
                 },
             },
         }
-        provider=NullPlanCapturingProvider()
+        provider=NullThenFilePlanProvider()
         result=controller(ReasoningProviderRegistry(provider)).run_cycle(
             trigger(),
             comments=[
@@ -646,6 +717,7 @@ class ControllerRuntimeTests(unittest.TestCase):
             pending=[],
             repository_context={
                 "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "observed_head_sha":"b"*40,
                 "open_issues":[{
                     "number":24,
                     "title":"Weekly telemetry",
@@ -654,25 +726,40 @@ class ControllerRuntimeTests(unittest.TestCase):
                     "labels":["samuel"],
                 }],
                 "open_pull_requests":[],
-                "samuel_branches":[],
+                "samuel_branches":[{
+                    "head_sha":"b"*40,
+                    "ref":"refs/heads/samuel/issue-24-weekly",
+                }],
+                "tracked_paths":[],
+                "tracked_paths_truncated":False,
+                "workflow_files":[],
             },
         )
-        self.assertEqual(provider.calls,1)
-        inherited=provider.context["durable_state"]["inherited_evidence"]
+        self.assertEqual(provider.calls,2)
+        inherited=provider.contexts[0]["durable_state"]["inherited_evidence"]
         self.assertEqual(
             [item["source_action_id"] for item in inherited],
             ["create-pr","merge-pr"],
         )
-        self.assertEqual(result.selected_work,{
-            "kind":"reasoning_required","work_id":"issue:24"
-        })
-        self.assertIsNotNone(result.state_write)
-        self.assertEqual(result.state_write["expected_previous_revision"],7)
+        self.assertTrue(
+            provider.contexts[1]["completion_reconciliation"]["required"]
+        )
+        self.assertEqual(result.selected_work["kind"],"action")
+        self.assertEqual(result.selected_work["work_id"],"issue:24")
+        self.assertEqual(
+            result.selected_work["plan"]["payload"]["resource"],"file"
+        )
+        self.assertEqual(
+            result.selected_work["plan"]["payload"]["target"]["branch"],
+            "samuel/issue-24-weekly",
+        )
+        self.assertTrue(
+            result.issue_planning["semantic_provider"]["reconciled_after_null"]
+        )
         proposed=decode_state(result.state_write["body"])
         self.assertEqual(proposed.research_id,"issue:24")
-        self.assertEqual(proposed.revision,0)
         self.assertEqual(proposed.inherited_evidence,inherited)
-        self.assertEqual(proposed.action_queue,{})
+        self.assertEqual(len(proposed.action_queue),1)
 
     def test_issue_trigger_admission_is_owned_by_root(self):
         issue_trigger=ControllerTrigger(
