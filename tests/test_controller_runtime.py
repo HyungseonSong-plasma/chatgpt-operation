@@ -967,6 +967,32 @@ class ControllerRuntimeTests(unittest.TestCase):
         persisted=decode_admission_ledger(result.admission_write["body"])
         self.assertEqual(persisted["issue:44"]["status"],"reasoning_required")
 
+    def test_issue_trigger_persists_legacy_empty_url_enrichment(self):
+        issue_trigger=ControllerTrigger(
+            TriggerKind.ISSUES,
+            action="labeled",
+            head_sha="a"*40,
+            ref="refs/heads/main",
+            executor_ref="main",
+            executor_head_sha="b"*40,
+        )
+        legacy=decode_admission_ledger(admitted_comment()["body"])
+        legacy["issue:44"]["html_url"]=""
+        comment={"id":7,"body":encode_admission_ledger(legacy)}
+        result=controller().run_cycle(
+            issue_trigger,
+            comments=[comment],
+            pending=[],
+            issue=issue_payload(),
+        )
+        self.assertIsNotNone(result.admission_write)
+        self.assertEqual(result.admission_write["method"],"PATCH")
+        persisted=decode_admission_ledger(result.admission_write["body"])
+        self.assertEqual(
+            persisted["issue:44"]["html_url"],
+            "https://github.com/o/r/issues/44",
+        )
+
     def test_issue_payload_on_non_issue_trigger_fails_closed(self):
         with self.assertRaisesRegex(
             ControllerCompositionError,"only valid for an issues trigger"
