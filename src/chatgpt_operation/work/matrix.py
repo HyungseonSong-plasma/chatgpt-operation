@@ -614,6 +614,8 @@ def self_test() -> int:
         planned = plan(
             manifest_path=matrix, control_root=control, issue=1, sequence=1
         )
+        assert planned["case_count"] == 1
+        assert planned["single_case"] == "a"
         assert planned["matrix"]["include"] == [{"id": "a"}]
         bundle = root / "bundle.tar.gz"
         try:
