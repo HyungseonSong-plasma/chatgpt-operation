@@ -27,16 +27,27 @@ issue number or sequence number.
 
 ```text
 cases absent       -> governed-work serial execution
-cases length >= 1  -> governed-matrix execution
+cases length >= 1  -> governed-matrix workflow
 cases = []         -> invalid manifest
 ```
+
+Inside `governed-matrix`, setup must always emit `case_count >= 1` and route
+execution by that count:
+
+```text
+case_count == 1 -> one ordinary single-case runner, no GitHub strategy.matrix
+case_count > 1  -> independent GitHub Actions matrix fan-out
+```
+
+The plan step also emits `single_case` when `case_count == 1`. A missing or
+non-positive case count is invalid and must fail during planning.
 
 When an experiment has one or more independent cases, the cases **must** be
 declared in the matrix manifest and executed through `governed-matrix`.
 A serial `governed-work` stage must not hide a multi-case sweep inside an
-internal Python/shell loop.  Prepare/build work belongs in the prepare manifest;
-independent cases fan out through matrix runners; cross-case interpretation
-belongs in the optional aggregate step.
+internal Python/shell loop. Prepare/build work belongs in the prepare manifest;
+independent cases fan out through matrix runners when there is more than one;
+cross-case interpretation belongs in the optional aggregate step.
 
 Consumer workflows must route from this manifest classification. They must not
 hard-code matrix eligibility by issue number, sequence number, case name, or
