@@ -268,6 +268,8 @@ def matrix_plan_cmd(args: argparse.Namespace) -> int:
         return 2
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
+            handle.write("case_count=" + str(result["case_count"]) + "\\n")
+            handle.write("single_case=" + str(result["single_case"]) + "\\n")
             handle.write("matrix=" + json.dumps(result["matrix"], separators=(",", ":")) + "\\n")
             handle.write("max_parallel=" + str(result["max_parallel"]) + "\\n")
             handle.write("prepare_manifest=" + str(result["prepare_manifest"]) + "\\n")
