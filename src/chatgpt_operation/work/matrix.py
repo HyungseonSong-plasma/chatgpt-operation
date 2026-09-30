@@ -287,7 +287,12 @@ def plan(
     _matrix_path(root, source)
     manifest = load_matrix_manifest(source)
     validate_matrix(manifest, control_root=root, issue=issue, sequence=sequence)
+    case_count = len(manifest.cases)
+    if case_count < 1:
+        raise MatrixError("case_count must be >= 1")
     return {
+        "case_count": case_count,
+        "single_case": manifest.cases[0].spec_id if case_count == 1 else "",
         "matrix": {"include": [{"id": case.spec_id} for case in manifest.cases]},
         "max_parallel": manifest.max_parallel,
         "prepare_manifest": manifest.prepare_manifest,
@@ -609,6 +614,8 @@ def self_test() -> int:
         planned = plan(
             manifest_path=matrix, control_root=control, issue=1, sequence=1
         )
+        assert planned["case_count"] == 1
+        assert planned["single_case"] == "a"
         assert planned["matrix"]["include"] == [{"id": "a"}]
         bundle = root / "bundle.tar.gz"
         try:
