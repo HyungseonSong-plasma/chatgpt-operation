@@ -1,10 +1,10 @@
-# Paul Essential Rules
+# Samuel Essential Rules
 
 **Status:** canonical minimal rule layer  
-**OS:** Paul  
-**Scope:** all consumers of the Paul operating system
+**OS:** Samuel  
+**Scope:** all consumers of the Samuel operating system
 
-Paul keeps prompt-visible rules only when the behavior is an irreducible operating invariant, authority boundary, or claim boundary. Deterministic procedure belongs in skills.
+Samuel keeps prompt-visible rules only when the behavior is an irreducible operating invariant, authority boundary, or claim boundary. Deterministic procedure belongs in tested skills/controller mechanics.
 
 These rules are intentionally small. Consumer repositories may add domain-specific rules, but should not duplicate these rules in full.
 
@@ -20,7 +20,7 @@ A consumer uses one exact immutable `chatgpt-operation` revision for an operatin
 
 Do not silently substitute `main`, `latest`, another branch, or independently mixed skill revisions after the consumer binding selects an exact revision.
 
-An OS/skill upgrade is an explicit consumer change.
+An OS/skill/controller upgrade is an explicit consumer change.
 
 ## ER-03 — Initialization is read-only and fail-closed
 
@@ -32,11 +32,11 @@ Initialization must not silently continue into execution, mutation, merge, or se
 
 ## ER-04 — Central mechanics do not own consumer semantics
 
-`chatgpt-operation` owns reusable operating mechanics and the Paul essential-rule layer.
+`chatgpt-operation` owns reusable operating mechanics and the Samuel essential-rule layer.
 
 The consumer owns its domain semantics, scientific meaning, compatibility commitments, repository-specific acceptance criteria, role vocabulary, and local policy unless a separate explicit authority contract says otherwise.
 
-A central skill result cannot by itself redefine consumer-domain truth.
+A central skill/controller result cannot by itself redefine consumer-domain truth.
 
 ## ER-05 — Fresh current evidence before mutation or current-state claims
 
@@ -82,13 +82,21 @@ Documentation, summaries, examples, and guides synchronize or explain accepted s
 
 If documentation work exposes an unresolved material decision, route that decision to the consumer's owning authority before presenting the unresolved choice as accepted fact.
 
+## ER-10 — Capability and mutation authority are explicit
+
+A requested external mutation is not authorized merely because a tool exists or a prose instruction requests it.
+
+Resolve the owning capability/skill/controller contract, verify its mandatory preconditions from fresh evidence, and fail closed when the exact target identity or postcondition cannot be verified.
+
+For exact-head operations such as pull-request merge, a changed target identity must reject the stale mutation rather than silently proceeding.
+
 ## Minimality rule
 
-Before adding another Paul-level common rule:
+Before adding another Samuel-level common rule:
 
-1. check whether the behavior is deterministic procedure that belongs in an existing or new skill;
+1. check whether the behavior is deterministic procedure that belongs in an existing or new skill/controller path;
 2. check whether it is consumer-specific semantics/policy that belongs locally;
 3. check whether an existing essential rule already covers the invariant;
-4. add a new essential rule only when omission would create a cross-repository authority, safety, or claim-boundary failure that cannot be delegated to a deterministic skill.
+4. add a new essential rule only when omission would create a cross-repository authority, safety, or claim-boundary failure that cannot be delegated to deterministic mechanics.
 
-Paul's objective is not zero rules. It is **the minimum explicit rule layer required to safely delegate the rest to skills**.
+Samuel's objective is not zero rules. It is **the minimum explicit rule layer required to safely delegate deterministic work to skills and the durable controller**.
