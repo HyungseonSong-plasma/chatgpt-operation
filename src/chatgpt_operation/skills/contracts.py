@@ -36,6 +36,7 @@ class ContractBinding:
 
 
 CAPABILITY_BINDINGS = {
+    "GITHUB_BRANCH_DELETE": "github-branch-delete",
     "GITHUB_WORKFLOW_DISPATCH": "github-native-dispatch",
 }
 
@@ -95,6 +96,9 @@ CONTRACT_BINDINGS = {
     ),
     "github-native-dispatch": ContractBinding(
         "github-native-dispatch", "chatgpt_operation.github.native_orchestration:dispatch_native_plan"
+    ),
+    "github-branch-delete": ContractBinding(
+        "github-branch-delete", "chatgpt_operation.repository.branch_delete:delete_branch"
     ),
 }
 
