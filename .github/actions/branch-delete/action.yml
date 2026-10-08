@@ -1,0 +1,44 @@
+name: Exact-SHA branch delete
+description: Delete one non-default GitHub branch only when its live head matches the expected SHA.
+inputs:
+  repository:
+    description: Exact owner/name repository binding.
+    required: true
+  branch:
+    description: Exact branch name to remove.
+    required: true
+  expected-sha:
+    description: Exact lowercase 40-hex live branch head required for deletion.
+    required: true
+  github-token:
+    description: Consumer workflow token with contents write permission.
+    required: true
+outputs:
+  status:
+    description: PASS or NO_MUTATION_NEEDED.
+    value: ${{ steps.delete.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: delete
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../src
+        REPOSITORY: ${{ inputs.repository }}
+        BRANCH: ${{ inputs.branch }}
+        EXPECTED_SHA: ${{ inputs.expected-sha }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        python3 - <<'PY'
+        import os
+        from chatgpt_operation.repository.branch_delete import delete_branch
+        result = delete_branch(
+            repository=os.environ["REPOSITORY"],
+            token=os.environ["GITHUB_TOKEN"],
+            branch=os.environ["BRANCH"],
+            expected_sha=os.environ["EXPECTED_SHA"],
+        )
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+            out.write(f"status={result.status}\n")
+        print(f"SAMUEL_BRANCH_DELETE={result.status} branch={result.branch} sha={result.expected_sha}")
+        PY
