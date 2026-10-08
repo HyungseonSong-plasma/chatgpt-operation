@@ -23,7 +23,7 @@ runs:
     - id: delete
       shell: bash
       env:
-        PYTHONPATH: ${{ github.action_path }}/../../src
+        PYTHONPATH: ${{ github.action_path }}/../../../src
         REPOSITORY: ${{ inputs.repository }}
         BRANCH: ${{ inputs.branch }}
         EXPECTED_SHA: ${{ inputs.expected-sha }}
