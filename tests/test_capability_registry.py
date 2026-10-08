@@ -10,10 +10,17 @@ class CapabilityRegistryTests(unittest.TestCase):
         self.assertEqual(providers[1].workflow,".github/workflows/samuel-controller.yml")
         self.assertEqual(providers[1].executor_workflow,".github/workflows/samuel-native-github.yml")
 
+    def test_branch_delete_is_skill_first_with_connector_fallback(self):
+        providers=resolve_providers("GITHUB_BRANCH_DELETE")
+        self.assertEqual([p.name for p in providers],["repository-native","github-connector"])
+        self.assertEqual(providers[0].kind,"skill")
+        self.assertEqual(providers[0].contract,"github-branch-delete")
+
     def test_repository_native_merge_provider_is_executable(self):
         result=validate_registry()
         self.assertEqual(result["status"],"PASS")
         self.assertIn("GITHUB_PR_MERGE:repository-native",result["checked"])
+        self.assertIn("GITHUB_BRANCH_DELETE:repository-native",result["checked"])
 
     def test_unsupported_prose_cannot_remove_registered_provider(self):
         for claim in ("OpenAI safety check","merge authority missing","workflow_dispatch API missing","no fallback merge provider exists"):

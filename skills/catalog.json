@@ -22,9 +22,16 @@
       "name": "repository-mutation",
       "path": "skills/repository-mutation/README.md",
       "load_on": [
-        "MUTATE"
+        "MUTATE",
+        "GITHUB_BRANCH_DELETE"
       ],
-      "activation": "trigger"
+      "activation": "trigger",
+      "contracts": [
+        "github-branch-delete"
+      ],
+      "capabilities": [
+        "GITHUB_BRANCH_DELETE"
+      ]
     },
     {
       "name": "governed-work",

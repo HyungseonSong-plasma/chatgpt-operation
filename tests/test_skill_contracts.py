@@ -16,6 +16,7 @@ class SkillContractTests(unittest.TestCase):
         result = validate_catalog("skills/catalog.json")
         self.assertEqual(result["status"], "PASS")
         self.assertIn("github-native-dispatch", result["resolved_contracts"])
+        self.assertIn("github-branch-delete", result["resolved_contracts"])
         self.assertIn("decision-guard", result["resolved_contracts"])
 
     def test_unbound_contract_fails_closed(self):
@@ -42,6 +43,13 @@ class SkillContractTests(unittest.TestCase):
         )
         self.assertEqual(resolution.provider, "skill")
         self.assertEqual(resolution.contract, "github-native-dispatch")
+
+    def test_branch_delete_resolves_to_repository_skill(self):
+        resolution = resolve_capability(
+            "GITHUB_BRANCH_DELETE", native_available=False
+        )
+        self.assertEqual(resolution.provider, "skill")
+        self.assertEqual(resolution.contract, "github-branch-delete")
 
     def test_native_dispatch_can_be_used_when_available(self):
         resolution = resolve_capability(

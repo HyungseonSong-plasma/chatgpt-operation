@@ -23,6 +23,22 @@
       ],
       "exhaustion_policy": "all_registered_providers_must_fail"
     },
+    "GITHUB_BRANCH_DELETE": {
+      "providers": [
+        {
+          "name": "repository-native",
+          "kind": "skill",
+          "priority": 10,
+          "contract": "github-branch-delete"
+        },
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 20
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
     "GITHUB_WORKFLOW_DISPATCH": {
       "providers": [
         {
