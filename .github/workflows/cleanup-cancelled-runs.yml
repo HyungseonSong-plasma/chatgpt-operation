@@ -47,12 +47,21 @@ jobs:
               "repos/$GITHUB_REPOSITORY/actions/runs/$run_id"
           done
 
-          remaining="$(
-            gh api \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "repos/$GITHUB_REPOSITORY/actions/runs?status=cancelled&per_page=1" \
-              --jq '.total_count'
-          )"
-          echo "CANCELLED_RUNS_REMAINING=$remaining"
+          remaining=-1
+          for attempt in 1 2 3 4 5; do
+            remaining="$(
+              gh api \
+                -H 'Accept: application/vnd.github+json' \
+                -H 'X-GitHub-Api-Version: 2026-03-10' \
+                "repos/$GITHUB_REPOSITORY/actions/runs?status=cancelled&per_page=1" \
+                --jq '.total_count'
+            )"
+            echo "CANCELLED_RUNS_REMAINING=$remaining verification_attempt=$attempt"
+            if [ "$remaining" = "0" ]; then
+              break
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep 2
+            fi
+          done
           test "$remaining" = "0"
