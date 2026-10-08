@@ -1,7 +1,7 @@
 # Session Bootstrap Skill
 
 **Status:** portable skill contract  
-**OS generation:** Paul  
+**OS generation:** Samuel  
 **Purpose:** restore a trustworthy minimum operating context for a new, resumed, or uncertain session without embedding consumer-domain semantics in the central layer.
 
 ## Owns
@@ -11,8 +11,8 @@ This skill owns the generic initialization sequence:
 ```text
 consumer binding
 -> exact central revision
--> Paul OS identity
--> Paul essential rules
+-> Samuel OS identity
+-> Samuel essential rules
 -> required init skills
 -> central skill catalog metadata
 -> consumer repository identity
@@ -45,7 +45,7 @@ A consumer bootstrap configuration or binding must identify:
 ```text
 consumer repository identity
 exact chatgpt-operation revision
-expected OS version = Paul
+expected OS version = Samuel
 consumer-local authority entry points
 durable work-state locator(s)
 current-evidence probes/queries
@@ -70,7 +70,7 @@ status = BLOCKED_OPERATING_SOURCE
 mutation_authority = false
 ```
 
-### SB-02 — Verify Paul authority
+### SB-02 — Verify Samuel authority
 
 At the exact revision, read:
 
@@ -79,7 +79,7 @@ docs/operating_system/README.md
 docs/operating_system/ESSENTIAL_RULES.md
 ```
 
-Require the OS registry to identify Paul as ACTIVE.
+Require the OS registry to identify Samuel as ACTIVE.
 
 If the expected version and central registry disagree, fail closed.
 
@@ -168,7 +168,33 @@ load               = skills/github-actions-execution/README.md
 current obligation = correlate an already-launched Actions run
 trigger            = GITHUB_ACTIONS_OBSERVATION
 load               = skills/github-actions-observation/README.md
+
+current obligation = delete a GitHub branch
+trigger            = GITHUB_BRANCH_DELETE
+load               = skills/repository-mutation/README.md
 ```
+
+#### Mandatory GitHub mutation routing
+
+For every GitHub state-changing operation, the owning Samuel trigger/skill and
+capability must be resolved **before** any direct provider invocation.
+
+```text
+GitHub mutation intent
+  -> resolve Samuel trigger/skill
+  -> resolve capability registry entry
+  -> evaluate providers in registered order
+  -> execute with fresh identity/precondition evidence
+  -> verify postcondition
+```
+
+A connector or other provider being visible is not permission to bypass this
+sequence. Failure or absence of one provider does not establish capability
+absence; capability exhaustion requires the registry's exhaustion policy to be
+satisfied.
+
+If the relevant GitHub mutation trigger/capability cannot be resolved, fail
+closed for that mutation rather than invoking an unowned provider directly.
 
 This activation is still read-only. Loading a mutation-capable skill does not
 grant mutation authority and does not execute the operation.
@@ -181,7 +207,7 @@ fail closed for the affected action instead of guessing a skill path.
 A successful init report should include at least:
 
 ```text
-OS = Paul
+OS = Samuel
 exact central revision
 essential rules loaded
 init skills loaded
@@ -201,7 +227,7 @@ It does not automatically execute the recommended next action.
 
 ## Composition
 
-Typical Paul init:
+Typical Samuel init:
 
 ```text
 session-bootstrap
@@ -215,6 +241,7 @@ next obligation after current state is known:
 ```text
 GITHUB_ACTIONS_EXECUTION   -> github-actions-execution
 GITHUB_ACTIONS_OBSERVATION -> github-actions-observation
+GITHUB_BRANCH_DELETE       -> repository-mutation
 MUTATE                     -> repository-mutation
 GOVERNED_WORK              -> governed-work
 SCHEDULED_CONTROLLER       -> state-refresh + controller-throughput + controller-lifecycle
@@ -225,12 +252,13 @@ during init means "ready to use after init", not "execute during init".
 
 ## Safety invariants
 
-- obey Paul ER-01 through ER-09;
+- obey Samuel ER-01 through ER-10;
 - never use chat memory as a substitute for unresolved durable authority;
 - never replace an exact pin with a floating ref;
 - never grant mutation authority merely because initialization succeeded;
+- never invoke a GitHub mutation provider before the owning Samuel skill/capability is resolved;
 - never infer domain/scientific acceptance from a central skill result;
-- never require historical operating metrics to complete Paul initialization.
+- never require historical operating metrics to complete Samuel initialization.
 
 ## Retry behavior
 
