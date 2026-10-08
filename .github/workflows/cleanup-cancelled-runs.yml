@@ -1,4 +1,4 @@
-name: Cleanup Cancelled Workflow Runs
+name: Cleanup Cancelled and Skipped Workflow Runs
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cleanup-cancelled-workflow-runs
+  group: cleanup-cancelled-and-skipped-workflow-runs
   cancel-in-progress: false
 
 jobs:
@@ -22,25 +22,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Delete cancelled workflow runs only
+      - name: Delete cancelled and skipped workflow runs only
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
-          mapfile -t run_ids < <(
+          tmp_ids="$(mktemp)"
+          for conclusion in cancelled skipped; do
             gh api --paginate \
               -H 'Accept: application/vnd.github+json' \
               -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "repos/$GITHUB_REPOSITORY/actions/runs?status=cancelled&per_page=100" \
-              --jq '.workflow_runs[] | select(.status == "completed" and .conclusion == "cancelled") | .id'
-          )
+              "repos/$GITHUB_REPOSITORY/actions/runs?status=$conclusion&per_page=100" \
+              --jq ".workflow_runs[] | select(.status == \"completed\" and .conclusion == \"$conclusion\") | .id" \
+              >> "$tmp_ids"
+          done
 
-          echo "CANCELLED_RUNS_FOUND=${#run_ids[@]}"
+          mapfile -t run_ids < <(sort -n -u "$tmp_ids")
+          rm -f "$tmp_ids"
+
+          echo "CANCELLED_OR_SKIPPED_RUNS_FOUND=${#run_ids[@]}"
           for run_id in "${run_ids[@]}"; do
             test "$run_id" != "$GITHUB_RUN_ID"
-            echo "Deleting cancelled workflow run $run_id"
+            echo "Deleting cancelled/skipped workflow run $run_id"
             gh api --method DELETE \
               -H 'Accept: application/vnd.github+json' \
               -H 'X-GitHub-Api-Version: 2026-03-10' \
@@ -49,14 +54,22 @@ jobs:
 
           remaining=-1
           for attempt in 1 2 3 4 5; do
-            remaining="$(
+            cancelled_remaining="$(
               gh api \
                 -H 'Accept: application/vnd.github+json' \
                 -H 'X-GitHub-Api-Version: 2026-03-10' \
                 "repos/$GITHUB_REPOSITORY/actions/runs?status=cancelled&per_page=1" \
                 --jq '.total_count'
             )"
-            echo "CANCELLED_RUNS_REMAINING=$remaining verification_attempt=$attempt"
+            skipped_remaining="$(
+              gh api \
+                -H 'Accept: application/vnd.github+json' \
+                -H 'X-GitHub-Api-Version: 2026-03-10' \
+                "repos/$GITHUB_REPOSITORY/actions/runs?status=skipped&per_page=1" \
+                --jq '.total_count'
+            )"
+            remaining=$((cancelled_remaining + skipped_remaining))
+            echo "CANCELLED_RUNS_REMAINING=$cancelled_remaining SKIPPED_RUNS_REMAINING=$skipped_remaining verification_attempt=$attempt"
             if [ "$remaining" = "0" ]; then
               break
             fi
