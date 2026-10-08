@@ -67,6 +67,21 @@ class SkillCatalogTests(unittest.TestCase):
             ],
         )
 
+    def test_branch_delete_is_immediately_resolvable(self):
+        result = resolve_triggers(
+            self.catalog(), ["GITHUB_BRANCH_DELETE"]
+        )
+        self.assertEqual(result["status"], "RESOLVED")
+        self.assertEqual(
+            result["skills"],
+            [
+                {
+                    "name": "repository-mutation",
+                    "path": "skills/repository-mutation/README.md",
+                }
+            ],
+        )
+
     def test_scheduled_controller_resolves_composed_skills(self):
         result = resolve_triggers(
             self.catalog(), ["SCHEDULED_CONTROLLER"]
