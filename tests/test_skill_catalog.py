@@ -52,6 +52,21 @@ class SkillCatalogTests(unittest.TestCase):
             ],
         )
 
+    def test_pr_merge_is_immediately_resolvable(self):
+        result = resolve_triggers(
+            self.catalog(), ["GITHUB_PR_MERGE"]
+        )
+        self.assertEqual(result["status"], "RESOLVED")
+        self.assertEqual(
+            result["skills"],
+            [
+                {
+                    "name": "pull-request-merge",
+                    "path": "skills/pull-request-merge/README.md",
+                }
+            ],
+        )
+
     def test_scheduled_controller_resolves_composed_skills(self):
         result = resolve_triggers(
             self.catalog(), ["SCHEDULED_CONTROLLER"]
