@@ -99,6 +99,20 @@
       "activation": "trigger"
     },
     {
+      "name": "pull-request-merge",
+      "path": "skills/pull-request-merge/README.md",
+      "load_on": [
+        "GITHUB_PR_MERGE"
+      ],
+      "activation": "trigger",
+      "contracts": [
+        "github-native-dispatch"
+      ],
+      "capabilities": [
+        "GITHUB_PR_MERGE"
+      ]
+    },
+    {
       "name": "research-controller",
       "path": "skills/research-controller/README.md",
       "load_on": [
