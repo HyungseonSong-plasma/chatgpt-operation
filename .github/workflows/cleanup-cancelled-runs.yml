@@ -1,6 +1,9 @@
 name: Cleanup Cancelled Workflow Runs
 
 on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-cancelled-runs.yml'
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
