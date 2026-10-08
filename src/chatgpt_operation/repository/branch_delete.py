@@ -20,7 +20,14 @@ class BranchDeleteResult:
     expected_sha: str
 
 
-def _request(repository: str, token: str, method: str, path: str) -> Any:
+def _request(
+    repository: str,
+    token: str,
+    method: str,
+    path: str,
+    *,
+    allow_not_found: bool = False,
+) -> Any:
     url = f"https://api.github.com/repos/{repository}{path}"
     req = Request(url, method=method)
     req.add_header("Accept", "application/vnd.github+json")
@@ -30,7 +37,7 @@ def _request(repository: str, token: str, method: str, path: str) -> Any:
         with urlopen(req, timeout=30) as response:
             body = response.read()
     except HTTPError as exc:
-        if exc.code == 404:
+        if exc.code == 404 and allow_not_found:
             return None
         raise BranchDeleteError(f"GitHub API {method} {path} -> {exc.code}") from exc
     if not body:
@@ -43,14 +50,19 @@ def delete_branch(*, repository: str, token: str, branch: str, expected_sha: str
         raise BranchDeleteError("default branch deletion is denied")
     if len(expected_sha) != 40 or any(c not in "0123456789abcdef" for c in expected_sha):
         raise BranchDeleteError("expected_sha must be lowercase 40-hex")
-    path = "/git/ref/heads/" + quote(branch, safe="/")
-    current = _request(repository, token, "GET", path)
+
+    encoded = quote(branch, safe="/")
+    get_path = "/git/ref/heads/" + encoded
+    delete_path = "/git/refs/heads/" + encoded
+
+    current = _request(repository, token, "GET", get_path, allow_not_found=True)
     if current is None:
         return BranchDeleteResult("NO_MUTATION_NEEDED", branch, expected_sha)
     actual = current.get("object", {}).get("sha")
     if actual != expected_sha:
         raise BranchDeleteError(f"stale branch identity: actual={actual} expected={expected_sha}")
-    _request(repository, token, "DELETE", path)
-    if _request(repository, token, "GET", path) is not None:
+
+    _request(repository, token, "DELETE", delete_path)
+    if _request(repository, token, "GET", get_path, allow_not_found=True) is not None:
         raise BranchDeleteError("post-delete verification mismatch: branch still exists")
     return BranchDeleteResult("PASS", branch, expected_sha)
