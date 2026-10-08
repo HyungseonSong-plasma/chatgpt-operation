@@ -18,7 +18,13 @@ class BranchDeleteTests(unittest.TestCase):
         ) as request:
             result = delete_branch(repository="o/r", token="t", branch="old", expected_sha=SHA)
         self.assertEqual(result.status, "PASS")
-        self.assertEqual(request.call_args_list[1].args[2], "DELETE")
+        first, delete, readback = request.call_args_list
+        self.assertEqual(first.args[2:], ("GET", "/git/ref/heads/old"))
+        self.assertTrue(first.kwargs["allow_not_found"])
+        self.assertEqual(delete.args[2:], ("DELETE", "/git/refs/heads/old"))
+        self.assertFalse(delete.kwargs.get("allow_not_found", False))
+        self.assertEqual(readback.args[2:], ("GET", "/git/ref/heads/old"))
+        self.assertTrue(readback.kwargs["allow_not_found"])
 
     def test_absent_is_idempotent_noop(self):
         with patch("chatgpt_operation.repository.branch_delete._request", return_value=None):
