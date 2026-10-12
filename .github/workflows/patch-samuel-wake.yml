@@ -1,0 +1,44 @@
+name: Patch Samuel Wake Boundary
+
+on:
+  push:
+    branches:
+      - samuel/issue-209-single-wake-contract
+    paths:
+      - .github/workflows/patch-samuel-wake.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: samuel/issue-209-single-wake-contract
+      - name: Patch bootstrap trigger boundary exactly once
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path=Path('.github/workflows/samuel-bootstrap.yml')
+          text=path.read_text(encoding='utf-8')
+          trigger="  issue_comment:\n    types: [created]\n"
+          guard="    if: ${{ github.event_name != 'issue_comment' || contains(github.event.comment.body, '<!-- samuel-reasoning-submission -->') }}\n"
+          if text.count(trigger) != 1:
+              raise SystemExit('expected exactly one issue_comment trigger')
+          if text.count(guard) != 1:
+              raise SystemExit('expected exactly one issue_comment job guard')
+          text=text.replace(trigger,'',1).replace(guard,'',1)
+          path.write_text(text,encoding='utf-8')
+          PY
+          rm .github/workflows/patch-samuel-wake.yml
+          git config user.name "samuel-operator"
+          git config user.email "samuel-operator@users.noreply.github.com"
+          git add .github/workflows/samuel-bootstrap.yml .github/workflows/patch-samuel-wake.yml
+          git diff --cached --check
+          git commit -m "Move comment filtering outside Samuel Bootstrap concurrency"
+          git push origin HEAD:samuel/issue-209-single-wake-contract
