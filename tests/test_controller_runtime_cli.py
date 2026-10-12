@@ -7,11 +7,11 @@ from chatgpt_operation.cli import controller_run_cycle
 from chatgpt_operation.controller.issue_ingestion import encode_admission_ledger
 
 
-def test_controller_run_cycle_cli_emits_selected_and_planning_artifacts():
+def test_controller_run_cycle_cli_ignores_missing_pending_path_and_emits_artifacts():
     with TemporaryDirectory() as directory:
         root=Path(directory)
         comments=root/"comments.json"
-        pending=root/"pending.json"
+        missing_pending=root/"does-not-exist.json"
         result=root/"cycle.json"
         selected=root/"selected.json"
         planning=root/"planning.json"
@@ -30,13 +30,9 @@ def test_controller_run_cycle_cli_emits_selected_and_planning_artifacts():
         comments.write_text(json.dumps([
             {"id":7,"body":encode_admission_ledger(work)}
         ]),encoding="utf-8")
-        pending.write_text(
-            json.dumps({"schema_version":1,"work":[]}),
-            encoding="utf-8",
-        )
         code=controller_run_cycle(Namespace(
             comments=str(comments),
-            pending=str(pending),
+            pending=str(missing_pending),
             decisions="automation/samuel/decisions.json",
             event_name="workflow_dispatch",
             event_action="",
@@ -63,21 +59,18 @@ def test_controller_run_cycle_cli_emits_selected_and_planning_artifacts():
         assert admission_payload["comment_id"]==7
         assert cycle["admission_write"]==admission_payload
         assert not state_write.exists()
+        assert not missing_pending.exists()
 
 
 def test_controller_run_cycle_cli_fails_closed_on_bad_comments():
     with TemporaryDirectory() as directory:
         root=Path(directory)
         comments=root/"comments.json"
-        pending=root/"pending.json"
+        missing_pending=root/"does-not-exist.json"
         comments.write_text("{}",encoding="utf-8")
-        pending.write_text(
-            json.dumps({"schema_version":1,"work":[]}),
-            encoding="utf-8",
-        )
         code=controller_run_cycle(Namespace(
             comments=str(comments),
-            pending=str(pending),
+            pending=str(missing_pending),
             decisions="automation/samuel/decisions.json",
             event_name="workflow_dispatch",
             event_action="",
