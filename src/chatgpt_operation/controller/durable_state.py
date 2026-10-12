@@ -8,10 +8,10 @@ import zlib
 from dataclasses import asdict
 from typing import Any
 
-from .research import ResearchState
+from .research import ResearchState, StateRetirement
 
 STATE_MARKER = "<!-- samuel-controller-state -->"
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
 STATE_ENCODING = "zlib+base64"
 STATE_INLINE_THRESHOLD = 48_000
 STATE_SAFE_COMMENT_LIMIT = 240_000
@@ -114,7 +114,7 @@ def decode_state(body: str) -> ResearchState:
         envelope = json.loads(body[start + 7:end].strip())
     except json.JSONDecodeError as exc:
         raise DurableStateError("controller state JSON is invalid") from exc
-    if envelope.get("schema_version") not in {1, STATE_SCHEMA_VERSION}:
+    if envelope.get("schema_version") not in {1, 2, STATE_SCHEMA_VERSION}:
         raise DurableStateError("unsupported controller state schema")
     encoding=envelope.get("encoding")
     if encoding is None:
@@ -146,11 +146,72 @@ def decode_state(body: str) -> ResearchState:
             if raw.get("last_reasoning_head_sha") is not None
             else None
         ),
+        retirement=(
+            StateRetirement.from_dict(raw["retirement"])
+            if raw.get("retirement") is not None
+            else None
+        ),
     )
 
 
+def _has_unresolved_recovery(state: ResearchState) -> bool:
+    return any(
+        recovery.get("status") in {"open", "needs_evidence"}
+        for recovery in state.diagnostic_recoveries.values()
+        if isinstance(recovery, dict)
+    )
+
+
+def _quiescent_execution_surfaces(state: ResearchState) -> bool:
+    return (
+        not state.action_queue
+        and not state.execution_results
+        and not _has_unresolved_recovery(state)
+    )
+
+
+def is_quiescent_unexecuted_state(state: ResearchState) -> bool:
+    """Return whether retirement may be proposed without hiding execution work."""
+    return _quiescent_execution_surfaces(state) and state.retirement is None
+
+
+def has_durable_retirement(state: ResearchState) -> bool:
+    retirement = state.retirement
+    return (
+        retirement is not None
+        and _quiescent_execution_surfaces(state)
+        and retirement.retired_from_revision + 1 == state.revision
+    )
+
+
+def retire_quiescent_state(
+    state: ResearchState,
+    *,
+    issue_number: int,
+    workload_mode: str,
+) -> ResearchState:
+    """Persist one explicit retirement revision for a closed quiescent workload."""
+    if not is_quiescent_unexecuted_state(state):
+        raise DurableStateError(
+            "state retirement requires no queued actions, execution results, or open recovery"
+        )
+    import copy
+
+    proposed = copy.deepcopy(state)
+    proposed.retirement = StateRetirement(
+        reason="closed_quiescent_unexecuted_workload",
+        issue_number=issue_number,
+        workload_mode=workload_mode,
+        retired_from_revision=state.revision,
+    )
+    proposed.revision = state.revision + 1
+    return proposed
+
+
 def can_rollover_state(state: ResearchState) -> bool:
-    """Return whether a completed workload may yield the single durable state slot."""
+    """Return whether terminal or explicitly retired work may yield the state slot."""
+    if state.retirement is not None:
+        return has_durable_retirement(state)
     if not state.action_queue:
         return False
     if any(
