@@ -149,7 +149,10 @@ class StateRetirementTests(unittest.TestCase):
                 "open_issues_complete": False,
             },
         )
-        self.assertEqual(result.selected_work["kind"], "blocked")
+        self.assertEqual(
+            result.selected_work,
+            {"kind": "reasoning_required", "work_id": "issue:43"},
+        )
         self.assertIsNone(result.state_write)
 
     def test_pending_dispatched_suspended_and_open_recovery_block_retirement(self):
