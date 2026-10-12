@@ -204,6 +204,7 @@ class ResearchState:
     revision: int = 0
     inherited_evidence: list[dict[str, Any]] = field(default_factory=list)
     last_reasoning_head_sha: str | None = None
+    predispatch_failures: dict[str, dict[str, Any]] = field(default_factory=dict)
     retirement: StateRetirement | None = None
 
     def transition(self, target: ResearchStage, *, execution_evidence: bool = False) -> None:
@@ -256,6 +257,7 @@ class ResearchState:
                 if raw.get("last_reasoning_head_sha") is not None
                 else None
             ),
+            predispatch_failures=dict(raw.get("predispatch_failures", {})),
             retirement=(
                 StateRetirement.from_dict(raw["retirement"])
                 if raw.get("retirement") is not None
