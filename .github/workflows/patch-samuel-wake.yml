@@ -27,7 +27,10 @@ jobs:
           path=Path('.github/workflows/samuel-bootstrap.yml')
           text=path.read_text(encoding='utf-8')
           trigger="  issue_comment:\n    types: [created]\n"
-          guard="    if: ${{ github.event_name != 'issue_comment' || contains(github.event.comment.body, '<!-- samuel-reasoning-submission -->') }}\n"
+          guard=(
+              "    if: $" +
+              "{{ github.event_name != 'issue_comment' || contains(github.event.comment.body, '<!-- samuel-reasoning-submission -->') }}\n"
+          )
           if text.count(trigger) != 1:
               raise SystemExit('expected exactly one issue_comment trigger')
           if text.count(guard) != 1:
