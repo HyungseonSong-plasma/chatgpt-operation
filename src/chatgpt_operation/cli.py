@@ -34,7 +34,6 @@ from chatgpt_operation.controller.execution_gateway import (
     GatewayStatus,
 )
 from chatgpt_operation.controller.research import ResearchState
-from chatgpt_operation.controller.bootstrap import load_pending
 from chatgpt_operation.controller.decisions import DecisionRegistry
 from chatgpt_operation.controller.reasoning_provider import (
     ProviderUnavailable,
@@ -591,7 +590,7 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
         cycle=controller.run_cycle(
             trigger,
             comments=comments,
-            pending=load_pending(args.pending),
+            pending=[],
             issue=issue,
             repository_context=repository_context,
         )
