@@ -21,7 +21,13 @@ from .centralization import (
     load_manifest as load_centralization_manifest,
 )
 from .decisions import DecisionRegistry, GuardOutcome
-from .durable_state import can_rollover_state, load_state_comment, state_write_request
+from .durable_state import (
+    can_rollover_state,
+    is_quiescent_unexecuted_state,
+    load_state_comment,
+    retire_quiescent_state,
+    state_write_request,
+)
 from .diagnostic import (
     enqueue_suspended_action,
     record_action_dispatch_intent,
@@ -1387,6 +1393,55 @@ class SamuelController:
                 and item.get("state") in {None, "open"}
                 and isinstance(item.get("number"), int)
             }
+            open_issues_complete = (
+                repository_context.get("open_issues_complete") is True
+            )
+            if state is not None and not can_rollover_state(state):
+                current = admitted.get(state.research_id)
+                current_issue_number = (
+                    current.get("issue_number")
+                    if isinstance(current, dict)
+                    else None
+                )
+                if (
+                    open_issues_complete
+                    and isinstance(current, dict)
+                    and isinstance(current_issue_number, int)
+                    and current_issue_number not in open_issue_numbers
+                    and is_quiescent_unexecuted_state(state)
+                ):
+                    workload_mode = (
+                        "observability_only"
+                        if is_observability_only_workload(
+                            str(current.get("body") or "")
+                        )
+                        else "actionable"
+                    )
+                    proposed = retire_quiescent_state(
+                        state,
+                        issue_number=current_issue_number,
+                        workload_mode=workload_mode,
+                    )
+                    if current.get("status") != "complete":
+                        admitted = transition_issue_status(
+                            admitted, state.research_id, "complete"
+                        )
+                        admission_write = _admission_write(
+                            admission_comment_id, admitted
+                        )
+                    return ControllerCycle(
+                        trigger,
+                        {
+                            "kind": "state_retirement",
+                            "work_id": state.research_id,
+                            "issue_number": current_issue_number,
+                            "reason": "closed_quiescent_unexecuted_workload",
+                        },
+                        None,
+                        admission_write,
+                        state_write_request(comments, proposed),
+                        None,
+                    )
             if state is not None and can_rollover_state(state):
                 current = admitted.get(state.research_id)
                 if (

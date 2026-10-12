@@ -139,6 +139,59 @@ class AnalysisResult:
         )
 
 
+@dataclass(frozen=True)
+class StateRetirement:
+    reason: str
+    issue_number: int
+    workload_mode: str
+    retired_from_revision: int
+    schema_version: int = 1
+    status: str = "retired"
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ResearchStateError("retirement schema_version must be 1")
+        if self.status != "retired":
+            raise ResearchStateError("retirement status must be retired")
+        if self.reason != "closed_quiescent_unexecuted_workload":
+            raise ResearchStateError("unsupported retirement reason")
+        if (
+            not isinstance(self.issue_number, int)
+            or isinstance(self.issue_number, bool)
+            or self.issue_number < 1
+        ):
+            raise ResearchStateError("retirement issue_number must be positive")
+        if self.workload_mode not in {"observability_only", "actionable"}:
+            raise ResearchStateError("unsupported retirement workload_mode")
+        if (
+            not isinstance(self.retired_from_revision, int)
+            or isinstance(self.retired_from_revision, bool)
+            or self.retired_from_revision < 0
+        ):
+            raise ResearchStateError("retired_from_revision must be non-negative")
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "StateRetirement":
+        required = {
+            "schema_version",
+            "status",
+            "reason",
+            "issue_number",
+            "workload_mode",
+            "retired_from_revision",
+        }
+        if not isinstance(raw, dict) or set(raw) != required:
+            raise ResearchStateError("invalid retirement evidence schema")
+        return cls(
+            schema_version=raw["schema_version"],
+            status=raw["status"],
+            reason=raw["reason"],
+            issue_number=raw["issue_number"],
+            workload_mode=raw["workload_mode"],
+            retired_from_revision=raw["retired_from_revision"],
+        )
+
+
 @dataclass
 class ResearchState:
     research_id: str
@@ -151,6 +204,7 @@ class ResearchState:
     revision: int = 0
     inherited_evidence: list[dict[str, Any]] = field(default_factory=list)
     last_reasoning_head_sha: str | None = None
+    retirement: StateRetirement | None = None
 
     def transition(self, target: ResearchStage, *, execution_evidence: bool = False) -> None:
         if target not in ALLOWED_TRANSITIONS[self.stage]:
@@ -200,6 +254,11 @@ class ResearchState:
             last_reasoning_head_sha=(
                 str(raw["last_reasoning_head_sha"])
                 if raw.get("last_reasoning_head_sha") is not None
+                else None
+            ),
+            retirement=(
+                StateRetirement.from_dict(raw["retirement"])
+                if raw.get("retirement") is not None
                 else None
             ),
         )

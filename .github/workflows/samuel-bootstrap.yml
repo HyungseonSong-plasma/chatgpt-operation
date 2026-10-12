@@ -58,12 +58,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" > samuel-open-issues.json
+          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100&page=1" > samuel-open-issues.json
+          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100&page=2" > samuel-open-issues-page2.json
           gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" > samuel-open-prs.json
           python3 - <<'PY'
           import json, os, subprocess, sys
           sys.path.insert(0,"src")
           from chatgpt_operation.github.ci_state import synthesize_ci_state
+          open_issue_page2=json.load(open("samuel-open-issues-page2.json"))
           issues=[
               {
                   "number":item["number"],
@@ -160,6 +162,7 @@ jobs:
               "repository":os.environ["GITHUB_REPOSITORY"],
               "observed_head_sha":os.environ["GITHUB_SHA"],
               "open_issues":issues,
+              "open_issues_complete":not bool(open_issue_page2),
               "open_pull_requests":pull_requests,
               "samuel_branches":branches,
               "tracked_paths":tracked_paths,
