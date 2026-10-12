@@ -22,7 +22,7 @@ class BootstrapKind(str, Enum):
 
 @dataclass(frozen=True)
 class BootstrapWork:
-    """Legacy bootstrap-work value retained outside the production workload path."""
+    """Legacy bootstrap-work value retained only for fail-closed compatibility."""
 
     work_id: str
     kind: BootstrapKind
@@ -52,7 +52,7 @@ def load_pending(path: str | Path) -> list[BootstrapWork]:
     """Accept the legacy CLI argument without reading or requiring its path.
 
     GitHub Issue admission plus durable StateKernel lifecycle state is the normal
-    workload ingress.  The workflow-facing ``--pending`` option remains temporarily
+    workload ingress. The workflow-facing ``--pending`` option remains temporarily
     compatible, but file-backed bootstrap work is intentionally no longer loaded.
     """
     del path
@@ -90,10 +90,11 @@ def select_controller_work(
 ) -> tuple[str, Any] | None:
     """Select recovery, durable action, or admitted Issue work deterministically.
 
-    ``pending`` is retained only as an API compatibility parameter.  Legacy
-    file-backed bootstrap work is never selected as production controller work.
+    ``pending`` is retained only as a fail-closed compatibility parameter. Normal
+    production execution receives an empty value from ``load_pending``. A caller
+    that directly injects legacy work surfaces it only so the root can reject it;
+    it is never a normal executable workload source.
     """
-    del pending
     actions = action_queue or {}
     valid_action_statuses = {
         ActionLifecycle.PENDING.value,
@@ -282,4 +283,6 @@ def select_controller_work(
         if item.get("work_id") != work_id:
             raise BootstrapError("admitted work identity mismatch")
         return ("issue", dict(item))
+    if pending:
+        return ("pending", pending[0])
     return None
