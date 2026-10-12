@@ -1,6 +1,11 @@
-name: Cleanup Cancelled and Skipped Workflow Runs
+name: Samuel Actions History Cleanup
 
 on:
+  workflow_run:
+    workflows:
+      - Samuel Bootstrap
+    types:
+      - completed
   push:
     paths:
       - '.github/workflows/cleanup-cancelled-runs.yml'
@@ -29,6 +34,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "SAMUEL_ACTIONS_CLEANUP_TRIGGER=$GITHUB_EVENT_NAME"
           snapshot_ids="$(mktemp)"
           for conclusion in cancelled skipped; do
             gh api --paginate \
