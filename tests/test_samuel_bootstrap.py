@@ -92,12 +92,13 @@ def test_open_diagnostic_recovery_preempts_legacy_compatibility_input():
     assert selected[1]["action_id"] == "a" * 64
 
 
-def test_selector_never_surfaces_legacy_pending_work():
+def test_explicit_legacy_pending_injection_surfaces_only_for_root_rejection():
+    pending = synthetic_pending()
     selected = select_controller_work(
-        synthetic_pending(),
+        pending,
         diagnostic_recoveries={"a" * 64: {"status": "resolved"}},
     )
-    assert selected is None
+    assert selected == ("pending", pending[0])
 
 
 def test_admitted_issue_is_canonical_normal_workload_ingress():
