@@ -10,6 +10,17 @@ from .research import AnalysisResult, HypothesisResult, ResearchStateError
 class ReasoningNodeError(RuntimeError):
     """Raised when a reasoning node cannot produce a valid typed result."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        validation_error: str | None = None,
+        attempts: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.validation_error = validation_error
+        self.attempts = attempts
+
 
 T = TypeVar("T")
 RawReasoningRunner = Callable[
@@ -63,7 +74,9 @@ class StructuredReasoningNode(Generic[T]):
 
         raise ReasoningNodeError(
             f"{request.task} failed typed validation after "
-            f"{self.max_attempts} attempts: {validation_error}"
+            f"{self.max_attempts} attempts: {validation_error}",
+            validation_error=validation_error,
+            attempts=self.max_attempts,
         )
 
 

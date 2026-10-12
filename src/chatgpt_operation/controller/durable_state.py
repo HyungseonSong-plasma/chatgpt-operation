@@ -11,7 +11,7 @@ from typing import Any
 from .research import ResearchState, StateRetirement
 
 STATE_MARKER = "<!-- samuel-controller-state -->"
-STATE_SCHEMA_VERSION = 3
+STATE_SCHEMA_VERSION = 4
 STATE_ENCODING = "zlib+base64"
 STATE_INLINE_THRESHOLD = 48_000
 STATE_SAFE_COMMENT_LIMIT = 240_000
@@ -114,7 +114,7 @@ def decode_state(body: str) -> ResearchState:
         envelope = json.loads(body[start + 7:end].strip())
     except json.JSONDecodeError as exc:
         raise DurableStateError("controller state JSON is invalid") from exc
-    if envelope.get("schema_version") not in {1, 2, STATE_SCHEMA_VERSION}:
+    if envelope.get("schema_version") not in {1, 2, 3, STATE_SCHEMA_VERSION}:
         raise DurableStateError("unsupported controller state schema")
     encoding=envelope.get("encoding")
     if encoding is None:
@@ -146,6 +146,7 @@ def decode_state(body: str) -> ResearchState:
             if raw.get("last_reasoning_head_sha") is not None
             else None
         ),
+        predispatch_failures=dict(raw.get("predispatch_failures", {})),
         retirement=(
             StateRetirement.from_dict(raw["retirement"])
             if raw.get("retirement") is not None
@@ -167,6 +168,11 @@ def _quiescent_execution_surfaces(state: ResearchState) -> bool:
         not state.action_queue
         and not state.execution_results
         and not _has_unresolved_recovery(state)
+        and not any(
+            isinstance(item, dict)
+            and item.get("status") in {"retryable", "escalated", "blocked"}
+            for item in state.predispatch_failures.values()
+        )
     )
 
 
@@ -210,6 +216,12 @@ def retire_quiescent_state(
 
 def can_rollover_state(state: ResearchState) -> bool:
     """Return whether terminal or explicitly retired work may yield the state slot."""
+    if any(
+        isinstance(item, dict)
+        and item.get("status") in {"retryable", "escalated", "blocked"}
+        for item in state.predispatch_failures.values()
+    ):
+        return False
     if state.retirement is not None:
         return has_durable_retirement(state)
     if not state.action_queue:

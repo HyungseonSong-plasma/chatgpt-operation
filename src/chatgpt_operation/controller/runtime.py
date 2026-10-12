@@ -64,12 +64,17 @@ from .issue_reasoning import (
     IssueReasoningProposal,
     compile_guarded_action,
 )
-from .reasoning import ReasoningRequest, StructuredReasoningNode
+from .reasoning import ReasoningNodeError, ReasoningRequest, StructuredReasoningNode
 from .reasoning_consumption import (
     ReasoningConsumption,
     consume_reasoning_submission,
 )
 from .reasoning_provider import ReasoningProviderRegistry
+from .predispatch_recovery import (
+    record_predispatch_failure,
+    resolve_predispatch_failure,
+    unresolved_predispatch_failure,
+)
 from .research import ResearchState
 from .rollover_evidence import inherited_evidence_for_issue
 from .trusted_validation import (
@@ -662,6 +667,7 @@ class SamuelController:
             "action_queue": copy.deepcopy(state.action_queue),
             "execution_results": copy.deepcopy(state.execution_results),
             "diagnostic_recoveries": copy.deepcopy(state.diagnostic_recoveries),
+            "predispatch_failures": copy.deepcopy(state.predispatch_failures),
             "inherited_evidence": copy.deepcopy(state.inherited_evidence),
             "integrated_acceptance_evidence": {
                 criterion:list(action_ids)
@@ -1259,6 +1265,40 @@ class SamuelController:
             item,
             inherited_evidence=inherited_evidence,
         )
+        recovery_criteria = eligible_acceptance_criteria(
+            str(item.get("body") or ""), working_state
+        )
+        recovery_target = recovery_criteria[0] if recovery_criteria else None
+        active_failure = unresolved_predispatch_failure(
+            working_state, recovery_target
+        )
+        if active_failure is not None and active_failure.get("status") in {
+            "escalated", "blocked"
+        }:
+            kind = (
+                "controller_escalated"
+                if active_failure.get("status") == "escalated"
+                else "controller_blocked"
+            )
+            return ControllerCycle(
+                trigger,
+                {
+                    "kind": kind,
+                    "work_id": work_id,
+                    "failure_fingerprint": active_failure.get("fingerprint"),
+                    "failure_class": active_failure.get("failure_class"),
+                    "target_acceptance_criterion": recovery_target,
+                },
+                {
+                    "schema_version": 1,
+                    "work_id": work_id,
+                    "outcome": kind,
+                    "predispatch_failure": copy.deepcopy(active_failure),
+                },
+                prior_admission_write,
+                None,
+                None,
+            )
         if not self.reasoning_enabled:
             return ControllerCycle(
                 trigger,
@@ -1267,14 +1307,64 @@ class SamuelController:
                 prior_admission_write,
                 None,
             )
+        initial_revision = working_state.revision
         if self.reasoning.status().available:
-            result, provider_planning = self._consume_provider_reasoning(
-                work=work,
-                work_id=work_id,
-                state=working_state,
-                repository_context=repository_context,
-            )
+            try:
+                result, provider_planning = self._consume_provider_reasoning(
+                    work=work,
+                    work_id=work_id,
+                    state=working_state,
+                    repository_context=repository_context,
+                )
+            except ReasoningNodeError as exc:
+                proposed = copy.deepcopy(working_state)
+                validation_error = exc.validation_error or str(exc)
+                failure = record_predispatch_failure(
+                    proposed,
+                    work_id=work_id,
+                    target_acceptance_criterion=recovery_target,
+                    error=validation_error,
+                    node_attempts=exc.attempts,
+                    repository_context=repository_context,
+                )
+                status = str(failure.get("status"))
+                kind = {
+                    "retryable": "controller_recovery",
+                    "escalated": "controller_escalated",
+                    "blocked": "controller_blocked",
+                }[status]
+                failure_planning = {
+                    "schema_version": 1,
+                    "work_id": work_id,
+                    "outcome": kind,
+                    "reason": validation_error,
+                    "predispatch_failure": copy.deepcopy(failure),
+                }
+                return ControllerCycle(
+                    trigger,
+                    {
+                        "kind": kind,
+                        "work_id": work_id,
+                        "failure_fingerprint": failure.get("fingerprint"),
+                        "failure_class": failure.get("failure_class"),
+                        "target_acceptance_criterion": recovery_target,
+                    },
+                    failure_planning,
+                    prior_admission_write,
+                    state_write_request(comments, proposed),
+                    None,
+                )
             planning = provider_planning
+            resolved = resolve_predispatch_failure(
+                result.state, recovery_target
+            )
+            if resolved:
+                planning = dict(planning)
+                planning["predispatch_recovery"] = {
+                    "status": "resolved",
+                    "fingerprints": list(resolved),
+                    "target_acceptance_criterion": recovery_target,
+                }
         else:
             result = consume_reasoning_submission(
                 comments,
@@ -1285,9 +1375,12 @@ class SamuelController:
             )
         if result.outcome == "reasoning_required":
             initial_state_write = None
-            if state is None and working_state.inherited_evidence:
+            if (
+                result.state.revision > initial_revision
+                or (state is None and working_state.inherited_evidence)
+            ):
                 initial_state_write = state_write_request(
-                    comments, working_state
+                    comments, result.state
                 )
             return ControllerCycle(
                 trigger,
