@@ -1,5 +1,4 @@
 import pathlib
-import tempfile
 import unittest
 
 from chatgpt_operation.controller.bootstrap import (
@@ -23,8 +22,8 @@ def synthetic_pending():
 
 
 class SamuelBootstrapTests(unittest.TestCase):
-    def test_repository_queue_retires_one_shot_qualification(self):
-        pending=load_pending("automation/samuel/bootstrap.json")
+    def test_legacy_pending_path_is_ignored_even_when_missing(self):
+        pending=load_pending("/definitely/missing/bootstrap.json")
         self.assertEqual(pending, [])
 
     def test_schedule_is_root_trigger_not_plan_injection(self):
@@ -76,19 +75,12 @@ class SamuelBootstrapTests(unittest.TestCase):
         self.assertEqual(provider.name, "repository-actions")
         self.assertEqual(provider.contract, "github-native-dispatch")
 
-    def test_duplicate_work_ids_fail_closed(self):
-        with tempfile.NamedTemporaryFile("w+", suffix=".json") as f:
-            f.write('{"schema_version":1,"work":[{"work_id":"x","kind":"workflow","workflow":"a"},{"work_id":"x","kind":"workflow","workflow":"b"}]}')
-            f.flush()
-            with self.assertRaises(BootstrapError):
-                load_pending(f.name)
-
 
 if __name__ == "__main__":
     unittest.main()
 
 
-def test_open_diagnostic_recovery_preempts_pending_work():
+def test_open_diagnostic_recovery_preempts_legacy_compatibility_input():
     selected = select_controller_work(
         synthetic_pending(),
         diagnostic_recoveries={
@@ -100,16 +92,15 @@ def test_open_diagnostic_recovery_preempts_pending_work():
     assert selected[1]["action_id"] == "a" * 64
 
 
-def test_selector_can_surface_legacy_pending_work_for_explicit_rejection():
-    pending = synthetic_pending()
+def test_selector_never_surfaces_legacy_pending_work():
     selected = select_controller_work(
-        pending,
+        synthetic_pending(),
         diagnostic_recoveries={"a" * 64: {"status": "resolved"}},
     )
-    assert selected == ("pending", pending[0])
+    assert selected is None
 
 
-def test_admitted_issue_preempts_legacy_pending_work():
+def test_admitted_issue_is_canonical_normal_workload_ingress():
     pending = synthetic_pending()
     admitted = {
         "issue:44": {
