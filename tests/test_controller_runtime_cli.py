@@ -7,6 +7,13 @@ from chatgpt_operation.cli import controller_run_cycle
 from chatgpt_operation.controller.issue_ingestion import encode_admission_ledger
 
 
+def test_controller_cli_no_longer_imports_or_invokes_load_pending():
+    source=Path("src/chatgpt_operation/cli.py").read_text(encoding="utf-8")
+    assert "load_pending" not in source
+    assert "args.pending" not in source
+    assert 'crc.add_argument("--pending"' in source
+
+
 def test_controller_run_cycle_cli_ignores_missing_pending_path_and_emits_artifacts():
     with TemporaryDirectory() as directory:
         root=Path(directory)
