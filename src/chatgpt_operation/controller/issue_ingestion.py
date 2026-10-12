@@ -85,7 +85,13 @@ def discover_admissible_issues(
     current: dict[str, dict[str, Any]],
     issues: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Admit explicit Samuel opt-ins discovered during any controller wake."""
+    """Reconcile Samuel opt-ins from any surviving useful controller wake.
+
+    Wake events are edge triggers, not workload truth. Replaying a useful wake
+    reconstructs the admission set from the durable ledger plus the observed
+    open-Issue snapshot, so replacement of an event-specific pending wake does
+    not lose an actionable explicit opt-in.
+    """
     updated={key:dict(value) for key,value in current.items()}
     ordered=sorted(
         (item for item in issues if isinstance(item,dict)),
