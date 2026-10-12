@@ -1122,19 +1122,26 @@ class ControllerRuntimeTests(unittest.TestCase):
             },
             "expected_observation":"status comment exists",
         })
-        with self.assertRaisesRegex(
-            ReasoningNodeError,
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[admitted_comment()],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "open_issues":[{"number":44}],
+            },
+        )
+        self.assertEqual(result.selected_work["kind"],"controller_recovery")
+        self.assertIsNone(result.execution_command)
+        self.assertIsNotNone(result.state_write)
+        recovered=decode_state(result.state_write["body"])
+        failure=next(iter(recovered.predispatch_failures.values()))
+        self.assertEqual(failure["failure_class"],"reasoning_validation")
+        self.assertEqual(failure["status"],"retryable")
+        self.assertIn(
             "not qualified for semantic planning: comment_issue",
-        ):
-            controller(ReasoningProviderRegistry(provider)).run_cycle(
-                trigger(),
-                comments=[admitted_comment()],
-                pending=[],
-                repository_context={
-                    "repository":"HyungseonSong-plasma/chatgpt-operation",
-                    "open_issues":[{"number":44}],
-                },
-            )
+            failure["last_error"],
+        )
         self.assertEqual(provider.calls,2)
 
     def test_semantic_provider_cannot_use_unverified_workflow_dispatch(self):
@@ -1155,19 +1162,26 @@ class ControllerRuntimeTests(unittest.TestCase):
             },
             "expected_observation":"workflow dispatch verified",
         })
-        with self.assertRaisesRegex(
-            ReasoningNodeError,
+        result=controller(ReasoningProviderRegistry(provider)).run_cycle(
+            trigger(),
+            comments=[admitted_comment()],
+            pending=[],
+            repository_context={
+                "repository":"HyungseonSong-plasma/chatgpt-operation",
+                "open_issues":[{"number":44}],
+            },
+        )
+        self.assertEqual(result.selected_work["kind"],"controller_recovery")
+        self.assertIsNone(result.execution_command)
+        self.assertIsNotNone(result.state_write)
+        recovered=decode_state(result.state_write["body"])
+        failure=next(iter(recovered.predispatch_failures.values()))
+        self.assertEqual(failure["failure_class"],"reasoning_validation")
+        self.assertEqual(failure["status"],"retryable")
+        self.assertIn(
             "not qualified for semantic planning: dispatch_workflow",
-        ):
-            controller(ReasoningProviderRegistry(provider)).run_cycle(
-                trigger(),
-                comments=[admitted_comment()],
-                pending=[],
-                repository_context={
-                    "repository":"HyungseonSong-plasma/chatgpt-operation",
-                    "open_issues":[{"number":44}],
-                },
-            )
+            failure["last_error"],
+        )
         self.assertEqual(provider.calls,2)
 
     def test_tracked_repository_gap_can_plan_fresh_workload_branch(self):
