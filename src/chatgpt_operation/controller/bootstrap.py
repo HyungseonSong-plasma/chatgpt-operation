@@ -1,8 +1,7 @@
-"""Deterministic root entrypoint for waking Samuel from persistent pending work."""
+"""Deterministic Samuel controller work selection and compatibility surfaces."""
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-import json
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +22,8 @@ class BootstrapKind(str, Enum):
 
 @dataclass(frozen=True)
 class BootstrapWork:
+    """Legacy bootstrap-work value retained outside the production workload path."""
+
     work_id: str
     kind: BootstrapKind
     workflow: str
@@ -48,14 +49,14 @@ class BootstrapWork:
 
 
 def load_pending(path: str | Path) -> list[BootstrapWork]:
-    raw=json.loads(Path(path).read_text(encoding="utf-8"))
-    if raw.get("schema_version") != 1 or not isinstance(raw.get("work"),list):
-        raise BootstrapError("invalid bootstrap queue")
-    items=[BootstrapWork.from_dict(x) for x in raw["work"]]
-    ids=[x.work_id for x in items]
-    if len(ids) != len(set(ids)):
-        raise BootstrapError("duplicate bootstrap work_id")
-    return [x for x in items if x.status == "pending"]
+    """Accept the legacy CLI argument without reading or requiring its path.
+
+    GitHub Issue admission plus durable StateKernel lifecycle state is the normal
+    workload ingress.  The workflow-facing ``--pending`` option remains temporarily
+    compatible, but file-backed bootstrap work is intentionally no longer loaded.
+    """
+    del path
+    return []
 
 
 def resolve_bootstrap_provider(
@@ -63,7 +64,7 @@ def resolve_bootstrap_provider(
     *,
     registry_path: str | Path = "skills/capability-registry.json",
 ) -> RegisteredProvider:
-    """Resolve bootstrap dispatch from repository-owned capability truth."""
+    """Resolve legacy bootstrap dispatch outside the production workload path."""
     if work.kind is not BootstrapKind.WORKFLOW:
         raise BootstrapError(f"unsupported bootstrap kind: {work.kind}")
     providers = resolve_providers("GITHUB_WORKFLOW_DISPATCH", path=registry_path)
@@ -87,7 +88,12 @@ def select_controller_work(
     action_queue: dict[str, dict[str, Any]] | None = None,
     admitted_work: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, Any] | None:
-    """Prioritize unresolved recovery work over ordinary pending work."""
+    """Select recovery, durable action, or admitted Issue work deterministically.
+
+    ``pending`` is retained only as an API compatibility parameter.  Legacy
+    file-backed bootstrap work is never selected as production controller work.
+    """
+    del pending
     actions = action_queue or {}
     valid_action_statuses = {
         ActionLifecycle.PENDING.value,
@@ -276,6 +282,4 @@ def select_controller_work(
         if item.get("work_id") != work_id:
             raise BootstrapError("admitted work identity mismatch")
         return ("issue", dict(item))
-    if pending:
-        return ("pending", pending[0])
     return None
