@@ -82,6 +82,21 @@ class SkillCatalogTests(unittest.TestCase):
             ],
         )
 
+    def test_negative_mutation_capability_verdict_is_immediately_resolvable(self):
+        result = resolve_triggers(
+            self.catalog(), ["GITHUB_MUTATION_CAPABILITY_VERDICT"]
+        )
+        self.assertEqual(result["status"], "RESOLVED")
+        self.assertEqual(
+            result["skills"],
+            [
+                {
+                    "name": "repository-mutation",
+                    "path": "skills/repository-mutation/README.md",
+                }
+            ],
+        )
+
     def test_scheduled_controller_resolves_composed_skills(self):
         result = resolve_triggers(
             self.catalog(), ["SCHEDULED_CONTROLLER"]
