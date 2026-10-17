@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 class CapabilityRegistryError(ValueError):
     pass
@@ -46,6 +46,58 @@ def resolve_providers(capability: str, path: str | Path = "skills/capability-reg
             required_permissions=item.get("required_permissions"),
         ))
     return tuple(sorted(providers,key=lambda p:(p.priority,p.name)))
+
+def assert_capability_exhausted(
+    capability: str,
+    provider_failures: Mapping[str, str],
+    path: str | Path = "skills/capability-registry.json",
+) -> dict[str, Any]:
+    """Guard any user-facing verdict that a registered capability is unavailable.
+
+    A provider-local tool/action absence is only evidence about that provider.  A
+    global negative verdict is legal only after the registry exhaustion policy
+    is satisfied with fresh, explicit failure evidence for every registered
+    provider.
+    """
+    registry=load_registry(path)
+    entry=registry["capabilities"].get(capability)
+    if not isinstance(entry,dict):
+        raise CapabilityRegistryError(f"unbound capability: {capability}")
+    if entry.get("exhaustion_policy") != "all_registered_providers_must_fail":
+        raise CapabilityRegistryError(
+            f"unsupported exhaustion policy for {capability}: {entry.get('exhaustion_policy')!r}"
+        )
+
+    providers=resolve_providers(capability,path)
+    registered={provider.name for provider in providers}
+    supplied=set(provider_failures)
+    unknown=sorted(supplied-registered)
+    if unknown:
+        raise CapabilityRegistryError(
+            f"unknown provider failure evidence for {capability}: {unknown}"
+        )
+
+    invalid=sorted(
+        name for name, reason in provider_failures.items()
+        if not isinstance(reason,str) or not reason.strip()
+    )
+    if invalid:
+        raise CapabilityRegistryError(
+            f"empty provider failure evidence for {capability}: {invalid}"
+        )
+
+    missing=[provider.name for provider in providers if provider.name not in supplied]
+    if missing:
+        raise CapabilityRegistryError(
+            "negative capability verdict forbidden before registry exhaustion: "
+            f"{capability} still has unexhausted providers {missing}"
+        )
+
+    return {
+        "status":"CAPABILITY_EXHAUSTED",
+        "capability":capability,
+        "failed_providers":[provider.name for provider in providers],
+    }
 
 def validate_registry(path: str | Path = "skills/capability-registry.json", root: str | Path = ".") -> dict[str,Any]:
     from chatgpt_operation.skills.contracts import CONTRACT_BINDINGS
