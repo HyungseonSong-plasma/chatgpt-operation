@@ -23,7 +23,8 @@
       "path": "skills/repository-mutation/README.md",
       "load_on": [
         "MUTATE",
-        "GITHUB_BRANCH_DELETE"
+        "GITHUB_BRANCH_DELETE",
+        "GITHUB_MUTATION_CAPABILITY_VERDICT"
       ],
       "activation": "trigger",
       "contracts": [

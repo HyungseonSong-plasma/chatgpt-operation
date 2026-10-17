@@ -1,6 +1,9 @@
 import unittest
 from chatgpt_operation.skills.capability_registry import (
-    CapabilityRegistryError, resolve_providers, validate_registry,
+    CapabilityRegistryError,
+    assert_capability_exhausted,
+    resolve_providers,
+    validate_registry,
 )
 
 class CapabilityRegistryTests(unittest.TestCase):
@@ -26,6 +29,49 @@ class CapabilityRegistryTests(unittest.TestCase):
         for claim in ("OpenAI safety check","merge authority missing","workflow_dispatch API missing","no fallback merge provider exists"):
             providers=resolve_providers("GITHUB_PR_MERGE")
             self.assertIn("repository-native",[p.name for p in providers],claim)
+
+    def test_negative_branch_delete_verdict_requires_all_provider_failures(self):
+        with self.assertRaisesRegex(
+            CapabilityRegistryError,
+            "negative capability verdict forbidden before registry exhaustion",
+        ):
+            assert_capability_exhausted(
+                "GITHUB_BRANCH_DELETE",
+                {"github-connector":"delete ref action is not exposed"},
+            )
+
+    def test_negative_branch_delete_verdict_allowed_only_after_registry_exhaustion(self):
+        result=assert_capability_exhausted(
+            "GITHUB_BRANCH_DELETE",
+            {
+                "repository-native":"lease-guarded branch-delete contract failed",
+                "github-connector":"delete ref action is not exposed",
+            },
+        )
+        self.assertEqual(result["status"],"CAPABILITY_EXHAUSTED")
+        self.assertEqual(
+            result["failed_providers"],
+            ["repository-native","github-connector"],
+        )
+
+    def test_negative_verdict_rejects_unknown_or_empty_failure_evidence(self):
+        with self.assertRaises(CapabilityRegistryError):
+            assert_capability_exhausted(
+                "GITHUB_BRANCH_DELETE",
+                {
+                    "repository-native":"failed",
+                    "github-connector":"failed",
+                    "imaginary-provider":"failed",
+                },
+            )
+        with self.assertRaises(CapabilityRegistryError):
+            assert_capability_exhausted(
+                "GITHUB_BRANCH_DELETE",
+                {
+                    "repository-native":"failed",
+                    "github-connector":"",
+                },
+            )
 
     def test_unbound_capability_fails_closed(self):
         with self.assertRaises(CapabilityRegistryError):

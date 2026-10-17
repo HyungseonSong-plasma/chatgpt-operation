@@ -172,6 +172,10 @@ load               = skills/github-actions-observation/README.md
 current obligation = delete a GitHub branch
 trigger            = GITHUB_BRANCH_DELETE
 load               = skills/repository-mutation/README.md
+
+current obligation = claim a GitHub mutation capability is unavailable or unsupported
+trigger            = GITHUB_MUTATION_CAPABILITY_VERDICT
+load               = skills/repository-mutation/README.md
 ```
 
 #### Mandatory GitHub mutation routing
@@ -193,8 +197,20 @@ sequence. Failure or absence of one provider does not establish capability
 absence; capability exhaustion requires the registry's exhaustion policy to be
 satisfied.
 
+This routing rule also governs **negative capability verdicts before execution**.
+Before saying that a GitHub mutation is unavailable, unsupported, not exposed,
+or impossible with the available tools, resolve `GITHUB_MUTATION_CAPABILITY_VERDICT`,
+load `repository-mutation`, resolve the concrete capability, and satisfy its
+registry exhaustion policy. Provider-local action/tool absence is never by
+itself a global capability verdict.
+
+For `all_registered_providers_must_fail`, the machine guard
+`assert_capability_exhausted(...)` must accept fresh failure evidence for every
+registered provider before the negative verdict may be emitted.
+
 If the relevant GitHub mutation trigger/capability cannot be resolved, fail
-closed for that mutation rather than invoking an unowned provider directly.
+closed for that mutation rather than invoking an unowned provider directly or
+claiming the operation is globally unavailable.
 
 This activation is still read-only. Loading a mutation-capable skill does not
 grant mutation authority and does not execute the operation.
@@ -239,12 +255,13 @@ The init cycle may also trigger-load the exact skill needed for the immediate
 next obligation after current state is known:
 
 ```text
-GITHUB_ACTIONS_EXECUTION   -> github-actions-execution
-GITHUB_ACTIONS_OBSERVATION -> github-actions-observation
-GITHUB_BRANCH_DELETE       -> repository-mutation
-MUTATE                     -> repository-mutation
-GOVERNED_WORK              -> governed-work
-SCHEDULED_CONTROLLER       -> state-refresh + controller-throughput + controller-lifecycle
+GITHUB_ACTIONS_EXECUTION          -> github-actions-execution
+GITHUB_ACTIONS_OBSERVATION        -> github-actions-observation
+GITHUB_BRANCH_DELETE              -> repository-mutation
+GITHUB_MUTATION_CAPABILITY_VERDICT -> repository-mutation
+MUTATE                            -> repository-mutation
+GOVERNED_WORK                     -> governed-work
+SCHEDULED_CONTROLLER              -> state-refresh + controller-throughput + controller-lifecycle
 ```
 
 Other cataloged skills remain dormant until their trigger applies. Trigger-load
@@ -257,6 +274,7 @@ during init means "ready to use after init", not "execute during init".
 - never replace an exact pin with a floating ref;
 - never grant mutation authority merely because initialization succeeded;
 - never invoke a GitHub mutation provider before the owning Samuel skill/capability is resolved;
+- never emit a global GitHub mutation capability-unavailable verdict from provider-local absence; require registry exhaustion and the machine guard;
 - never infer domain/scientific acceptance from a central skill result;
 - never require historical operating metrics to complete Samuel initialization.
 
