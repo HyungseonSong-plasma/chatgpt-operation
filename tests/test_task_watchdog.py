@@ -138,7 +138,7 @@ class TaskWatchdogTests(unittest.TestCase):
     def test_watchdog_workflow_hourly_only_resumes_admitted_work(self):
         config = Path(".github/workflows/samuel-task-watchdog.yml").read_text()
         assert "0 * * * *" in config
-        assert "samuel-task-watchdog.py" in config
+        assert "samuel_task_watchdog.py" in config
         assert "if [ \"$decision\" = \"WAKE\" ]; then" in config
         assert "gh workflow run samuel-bootstrap.yml" in config
         assert "SAMUEL_WATCHDOG=$decision no dispatch" in config
