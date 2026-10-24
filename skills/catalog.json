@@ -24,14 +24,20 @@
       "load_on": [
         "MUTATE",
         "GITHUB_BRANCH_DELETE",
-        "GITHUB_MUTATION_CAPABILITY_VERDICT"
+        "GITHUB_MUTATION_CAPABILITY_VERDICT",
+        "GITHUB_FILE_CREATE",
+        "GITHUB_FILE_UPDATE",
+        "GITHUB_BRANCH_CREATE"
       ],
       "activation": "trigger",
       "contracts": [
         "github-branch-delete"
       ],
       "capabilities": [
-        "GITHUB_BRANCH_DELETE"
+        "GITHUB_BRANCH_DELETE",
+        "GITHUB_FILE_CREATE",
+        "GITHUB_FILE_UPDATE",
+        "GITHUB_BRANCH_CREATE"
       ]
     },
     {
@@ -105,6 +111,17 @@
         "SCIENTIFIC_DISCRIMINATOR_CONTROLLER"
       ],
       "activation": "trigger"
+    },
+    {
+      "name": "pull-request-create",
+      "path": "skills/pull-request-create/README.md",
+      "load_on": [
+        "GITHUB_PR_CREATE"
+      ],
+      "activation": "trigger",
+      "capabilities": [
+        "GITHUB_PR_CREATE"
+      ]
     },
     {
       "name": "pull-request-merge",
