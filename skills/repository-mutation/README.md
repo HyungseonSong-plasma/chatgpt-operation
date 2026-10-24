@@ -18,6 +18,32 @@ mutation intent
 
 Direct provider availability does not bypass skill resolution. A missing operation on one provider does not establish capability absence; all providers registered for the resolved capability must be evaluated according to the registry exhaustion policy.
 
+## Explicit file and branch creation/update capabilities
+
+Samuel's `MUTATE` trigger selects this skill; concrete operations additionally resolve
+`GITHUB_FILE_CREATE`, `GITHUB_FILE_UPDATE`, or `GITHUB_BRANCH_CREATE`
+from the **exact pinned** `skills/capability-registry.json`.
+
+Registered ordered providers are:
+
+1. `github-connector` (external API; caller holds no GitHub token);
+2. `repository-native` (`.github/workflows/samuel-repository-mutation.yml`,
+   restricted by `automation/samuel/repository-mutation-policy.json`).
+
+Before execution, re-read file blob SHA (update) or absence (create), target
+branch and expected head SHA. After execution, verify created/updated content,
+branch head and resulting commit; a provider's success response alone is not
+postcondition proof. Repository-native policy denial is a real denial for that
+provider, **not** authority to bypass it via a connector. Creation of a PR is
+a separate `GITHUB_PR_CREATE` trigger owned by `pull-request-create`.
+
+Changing the capability registry itself is a privileged OS-adoption/bootstrap
+change. The repository-native policy deliberately denies this path. Such
+changes must proceed by an explicitly authorized, reviewable change through
+an eligible privileged execution route; no scheduler or consumer may silently
+rewrite its own trusted routing authority. Pin upgrades in consumers remain
+separate explicit repository changes.
+
 ## Negative capability verdict hard guard
 
 A user-facing claim that a GitHub mutation capability is unavailable is itself a governed routing decision.
