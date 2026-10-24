@@ -28,7 +28,7 @@ class SamuelBootstrapTests(unittest.TestCase):
 
     def test_schedule_is_root_trigger_not_plan_injection(self):
         text=pathlib.Path(".github/workflows/samuel-bootstrap.yml").read_text()
-        self.assertIn("schedule:", text)
+        self.assertNotIn("schedule:", text.split("jobs:", 1)[0])
         self.assertIn("actions: write", text)
         self.assertIn("issues: write", text)
         self.assertNotIn("dispatch_and_wait", text)
