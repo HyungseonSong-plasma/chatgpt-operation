@@ -139,6 +139,6 @@ def test_watchdog_workflow_hourly_only_resumes_admitted_work():
     assert "samuel-task-watchdog.py" in config
     assert "if [ \"$decision\" = \"WAKE\" ]; then" in config
     assert "gh workflow run samuel-bootstrap.yml" in config
-    assert "SAMUEL_WATCHDOG=IDLE" in config
+    assert "SAMUEL_WATCHDOG=$decision no dispatch" in config
     assert "samuel-task-recovery" in config
     assert "actions: write" in config
