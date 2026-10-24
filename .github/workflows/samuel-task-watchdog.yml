@@ -1,0 +1,90 @@
+name: Samuel Task Watchdog
+
+# The hourly schedule is only a liveness probe. It is NOT a periodic issue
+# discovery/start trigger; the planner must prove unfinished admitted work,
+# no in-flight bootstrap, and >= 3600s since the last completed bootstrap.
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  actions: write
+
+concurrency:
+  group: samuel-task-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover-stalled:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact watchdog code
+        uses: actions/checkout@v4
+
+      - name: Observe only opted-in open Issues, durable ledger and bootstrap runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&labels=samuel&per_page=100" > samuel-opted-issues.json
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/44/comments?per_page=100" > samuel-comment-pages.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/samuel-bootstrap.yml/runs?per_page=100" > samuel-bootstrap-runs.json
+          for state in in_progress queued waiting; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/samuel-bootstrap.yml/runs?status=$state&per_page=100" > "samuel-$state-runs.json"
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          names=["in_progress","queued","waiting"]
+          sets=[json.loads(Path(f"samuel-{n}-runs.json").read_text()) for n in names]
+          if any(not isinstance(x.get("workflow_runs"),list) for x in sets):
+              raise SystemExit("SAMUEL_WATCHDOG=HARD_STOP malformed active runs")
+          count=sum(x.get("total_count",0) for x in sets)
+          runs=[run for x in sets for run in x["workflow_runs"]]
+          Path("samuel-active-runs.json").write_text(
+              json.dumps({"total_count":count,"workflow_runs":runs}),encoding="utf-8"
+          )
+          PY
+
+      - name: Evaluate bounded task recovery predicate
+        env:
+          PYTHONPATH: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/samuel_task_watchdog.py \
+            --issues samuel-opted-issues.json \
+            --comments samuel-comment-pages.json \
+            --runs samuel-bootstrap-runs.json \
+            --active-runs samuel-active-runs.json \
+            --result samuel-task-recovery-result.json
+
+      - name: Dispatch only an eligible stalled task
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          decision="$(python3 -c 'import json; print(json.load(open("samuel-task-recovery-result.json"))["status"])')"
+          if [ "$decision" = "WAKE" ]; then
+            gh workflow run samuel-bootstrap.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              --ref main
+            echo "SAMUEL_WATCHDOG=WAKE dispatched"
+          else
+            echo "SAMUEL_WATCHDOG=$decision no dispatch"
+          fi
+
+      - name: Preserve recovery decision receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-task-recovery-${{ github.run_id }}
+          path: samuel-task-recovery-result.json
+          if-no-files-found: ignore
+          retention-days: 14
