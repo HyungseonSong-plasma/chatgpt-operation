@@ -3,8 +3,6 @@ name: Samuel Bootstrap
 on:
   issues:
     types: [opened, reopened, labeled]
-  schedule:
-    - cron: '20 13 * * *'
   workflow_dispatch:
 
 permissions:
