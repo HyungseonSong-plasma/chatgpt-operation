@@ -20,7 +20,7 @@ class WeeklyScheduleTests(unittest.TestCase):
             ["collect","collect","collect","collect","collect","analyze","close"],
         )
 
-    def test_existing_bootstrap_is_the_durable_scheduler_contract(self):
+    def test_task_watchdog_is_the_durable_liveness_scheduler_contract(self):
         surfaces=existing_scheduler_surfaces()
         self.assertEqual(len(surfaces),1)
         self.assertEqual(surfaces[0]["workflow"],SCHEDULER_WORKFLOW)
