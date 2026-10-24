@@ -134,7 +134,7 @@ def repository_context():
             "src/chatgpt_operation/weekly_maintenance.py",
         ],
         "tracked_paths_truncated":False,
-        "workflow_files":[".github/workflows/samuel-bootstrap.yml"],
+        "workflow_files":[".github/workflows/samuel-bootstrap.yml", ".github/workflows/samuel-task-watchdog.yml"],
     }
 
 
