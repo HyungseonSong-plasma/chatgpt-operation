@@ -17,6 +17,8 @@ concurrency:
 
 jobs:
   wake:
+    # Issue events are useful only for an explicit Samuel task opt-in.
+    if: ${{ github.event_name != 'issues' || contains(github.event.issue.labels.*.name, 'samuel') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
