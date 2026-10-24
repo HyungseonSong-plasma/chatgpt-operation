@@ -77,5 +77,32 @@ class CapabilityRegistryTests(unittest.TestCase):
         with self.assertRaises(CapabilityRegistryError):
             resolve_providers("UNBOUND_CAPABILITY")
 
+    def test_create_write_capabilities_are_explicitly_registered(self):
+        expected = ("GITHUB_FILE_CREATE", "GITHUB_FILE_UPDATE", "GITHUB_BRANCH_CREATE")
+        for capability in expected:
+            with self.subTest(capability=capability):
+                providers = resolve_providers(capability)
+                self.assertEqual([p.name for p in providers], ["github-connector", "repository-native"])
+                self.assertEqual(providers[1].workflow, ".github/workflows/samuel-repository-mutation.yml")
+        self.assertEqual([p.name for p in resolve_providers("GITHUB_PR_CREATE")], ["github-connector"])
+
+    def test_create_provider_route_is_validated_and_awaits_all_failures(self):
+        validated = validate_registry()
+        self.assertEqual(validated["status"], "PASS")
+        for capability in ("GITHUB_FILE_CREATE", "GITHUB_FILE_UPDATE",
+                           "GITHUB_BRANCH_CREATE", "GITHUB_PR_CREATE"):
+            self.assertIn(capability + ":github-connector", validated["checked"])
+        with self.assertRaisesRegex(CapabilityRegistryError, "unexhausted providers"):
+            assert_capability_exhausted(
+                "GITHUB_FILE_CREATE", {"github-connector": "temporary connector failure"}
+            )
+
+    def test_native_repository_mutation_still_denies_registry_self_edit(self):
+        from pathlib import Path
+        import json
+        policy=json.loads(Path("automation/samuel/repository-mutation-policy.json").read_text())
+        self.assertIn("skills/capability-registry.json",
+                      policy["mutation"]["file_paths"]["deny"])
+
 if __name__=="__main__":
     unittest.main()
