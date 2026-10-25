@@ -98,6 +98,17 @@ class ForeignWorkState:
             raise ForeignWorkError("orphan foreign action id")
         if raw.get("receipt") is not None and raw.get("action_plan") is None:
             raise ForeignWorkError("orphan execution receipt")
+        if raw["phase"] in {"review_required","dispatch_ready","dispatched","ci_pending","ci_verified"} and raw["action_plan"] is None:
+            raise ForeignWorkError("active foreign phase lacks typed ActionPlan")
+        if raw["phase"] in {"dispatched","ci_pending","ci_verified"} and raw["receipt"] is None:
+            raise ForeignWorkError("observed foreign phase lacks dispatch receipt")
+        if raw["phase"]=="ci_verified" and (
+            not isinstance(raw["target_pr"],dict)
+            or not raw["ci_evidence"]
+            or any(item.get("conclusion")!="success" or item.get("status")!="completed"
+                   for item in raw["ci_evidence"] if isinstance(item,dict))
+        ):
+            raise ForeignWorkError("completed CI phase lacks independent success evidence")
         return cls(
             raw["work_id"],raw["issue_sha"],raw["base_sha"],raw["criteria_sha"],
             raw["revision"],raw["phase"],raw["admission_run_id"],
@@ -124,8 +135,12 @@ def select_authoritative_ledger(comments: list[dict[str, Any]]) -> tuple[int | N
     if not matches:
         return None,None
     item=matches[0]
-    if type(item.get("id")) is not int:
-        raise ForeignWorkError("foreign ledger comment identity malformed")
+    actor=item.get("user")
+    if (type(item.get("id")) is not int
+        or not isinstance(actor,dict)
+        or actor.get("login")!="github-actions[bot]"
+        or actor.get("id")!=41898282):
+        raise ForeignWorkError("foreign ledger must be authored by source GitHub Actions bot")
     return item["id"],decode_ledger(item.get("body",""))
 
 
