@@ -7,7 +7,7 @@ import hashlib
 import unittest
 
 from chatgpt_operation.controller.cross_repository_issue_admission import (
-    CrossRepositoryAdmissionError, admit_cross_repository_issue, extract_target_issue_acceptance,
+    CrossRepositoryAdmissionError, FOREIGN_CYCLE_WORKFLOW, admit_cross_repository_issue, extract_target_issue_acceptance,
     serialise_admission, SOURCE, TARGET, WORK_ID,
 )
 from chatgpt_operation.controller.issue_planning import plan_admitted_issue
@@ -128,6 +128,49 @@ class CrossRepositoryIssueAdmissionTests(unittest.TestCase):
             registry=DecisionRegistry.load(Path("automation/samuel/decisions.json")),
         )
         self.assertEqual(native.work_id, "issue:92")
+
+    def test_real_foreign_cycle_workflow_attested_by_exact_source_run(self):
+        run = {
+            **run_record(),
+            "id": 40233089845,
+            "head_sha": "81e7906de9bc01f5db64f78ff483c3ffc21af19e",
+            "path": ".github/workflows/samuel-codeqa-foreign-cycle.yml",
+        }
+        snap, context = prepare(
+            source_run=run,
+            source_run_id=40233089845,
+            controller_sha=run["head_sha"],
+            workflow_filename=FOREIGN_CYCLE_WORKFLOW,
+        )
+        self.assertEqual(snap.verified_source_run_id, 40233089845)
+        self.assertEqual(snap.work_id, WORK_ID)
+        self.assertIsNone(snap.action_plan)
+        self.assertFalse(context["completion_allowed"])
+        # Default original ingress is *not* loosened to any approved workflow.
+        with self.assertRaisesRegex(CrossRepositoryAdmissionError, "unverified"):
+            prepare(
+                source_run=run, source_run_id=40233089845,
+                controller_sha=run["head_sha"],
+            )
+
+    def test_foreign_cycle_rejects_unlisted_or_spoofed_workflow(self):
+        for path in (
+            ".github/workflows/samuel-codeqa-write-execute.yml",
+            ".github/workflows/fake-foreign-cycle.yml",
+            ".github/workflows/samuel-codeqa-foreign-cycle.yml@refs/heads/develop",
+        ):
+            run = {**run_record(), "path": path}
+            with self.subTest(path=path), self.assertRaises(CrossRepositoryAdmissionError):
+                prepare(source_run=run, workflow_filename=FOREIGN_CYCLE_WORKFLOW)
+        with self.assertRaisesRegex(CrossRepositoryAdmissionError, "not approved"):
+            prepare(workflow_filename="untrusted.yml")
+        with self.assertRaisesRegex(CrossRepositoryAdmissionError, "unverified"):
+            prepare(
+                source_run={**run_record(),
+                            "path":".github/workflows/samuel-codeqa-foreign-cycle.yml",
+                            "head_branch":"develop"},
+                workflow_filename=FOREIGN_CYCLE_WORKFLOW,
+            )
 
     def test_unauthorized_source_workflow_ref_actor_sha(self):
         for changed in (
