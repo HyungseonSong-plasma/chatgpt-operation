@@ -19,10 +19,41 @@ from chatgpt_operation.controller.codeqa_governed_write import (
     SOURCE, TARGET, HEAD, PATH, check_policy, build_governed_write_proof,
     execute_branch_and_file,
 )
-from chatgpt_operation.repository.mutation import GitHubTransport
+from chatgpt_operation.repository.mutation import GitHubTransport, ApiError
 
 POLICY_FILE = Path("automation/samuel/codeqa-write-target-candidate-v1.json")
 RESULT_FILE = Path("samuel-codeqa-write-result.json")
+
+
+class AuditedMutationTransport:
+    """Record just a closed-world endpoint and method; never request bodies/tokens.
+
+    The journal identifies the *attempted* call. A successful mutation is
+    recorded separately by the Engine's read-after-write postcondition.
+    """
+    _ROUTES = {
+        ("GET", "/git/ref/heads/" + HEAD),
+        ("POST", "/git/refs"),
+        ("GET", "/contents/" + PATH),
+        ("PUT", "/contents/" + PATH),
+    }
+
+    def __init__(self, delegate, on_request):
+        self.delegate = delegate
+        self.on_request = on_request
+
+    def _check(self, method, path):
+        if (method, path) not in self._ROUTES:
+            raise ValueError("unexpected repository mutation transport endpoint")
+        self.on_request(method, path)
+
+    def get(self, path, *, query=None):
+        self._check("GET", path)
+        return self.delegate.get(path, query=query)
+
+    def request(self, method, path, *, payload=None):
+        self._check(method, path)
+        return self.delegate.request(method, path, payload=payload)
 
 
 class API:
@@ -190,7 +221,14 @@ def run():
         journal["phase"] = "repository_mutation_verified"
         record()
 
-    transport = GitHubTransport(TARGET, target_token)
+    def record_request(method, path):
+        journal["last_api_request"] = {"method": method, "path": path}
+        journal["phase"] = "repository_mutation_request_attempted"
+        record()
+
+    transport = AuditedMutationTransport(
+        GitHubTransport(TARGET, target_token), record_request,
+    )
     execute_branch_and_file(proof, transport=transport, on_result=record_mutation)
     assert_target_base()
     pr = _create_draft_pr(target, proof)
@@ -227,6 +265,11 @@ def main() -> int:
             "merge_authorized": False, "merge_performed": False,
             "general_issue_execution": False,
         }
+        # The precise API HTTP status is safe to report. Never serialize
+        # GitHub's untrusted error message, authorization headers, or token.
+        if isinstance(exc, ApiError):
+            code = exc.status
+            result["api_http_status"] = code if type(code) is int else None
     RESULT_FILE.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print("SAMUEL_CODEQA_WRITE=" + result["status"])
     return 0 if result["status"] == "CONTROLLER_GOVERNED_DOC_WRITE_PR_CI_CONFIRMED" else 2
