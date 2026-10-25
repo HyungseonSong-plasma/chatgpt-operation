@@ -21,6 +21,7 @@ class TargetRequest:
     repository: str
     repository_id: int
     base_branch: str
+    head_branch: str
     base_sha: str
     paths: tuple[str, ...]
     workflows: tuple[str, ...]
@@ -56,10 +57,14 @@ def validate_target_request(
         reasons.append("repository_not_allowlisted")
     if type(request.repository_id) is not int or request.repository_id <= 0 or request.repository_id != policy.get("repository_id"):
         reasons.append("repository_id_mismatch")
-    if not isinstance(request.base_branch, str) or not request.base_branch or request.base_branch in _FORBIDDEN_BRANCHES:
-        reasons.append("invalid_target_branch")
+    if not isinstance(request.base_branch, str) or not request.base_branch:
+        reasons.append("invalid_base_branch")
     if request.base_branch != policy.get("base_branch"):
-        reasons.append("branch_mismatch")
+        reasons.append("base_branch_mismatch")
+    if not isinstance(request.head_branch, str) or not request.head_branch or request.head_branch in _FORBIDDEN_BRANCHES:
+        reasons.append("invalid_head_branch")
+    if request.head_branch != policy.get("head_branch"):
+        reasons.append("head_branch_mismatch")
     if not isinstance(request.base_sha, str) or not _SHA.fullmatch(request.base_sha):
         reasons.append("invalid_base_sha")
     if request.base_sha != policy.get("base_sha"):
