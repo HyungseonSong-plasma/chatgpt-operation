@@ -179,8 +179,12 @@ class GovernedWriteTests(unittest.TestCase):
     def test_branch_file_engine_and_readback(self):
         p = make_proof()
         transport = FakeRepositoryTransport()
-        result = execute_branch_and_file(p, transport=transport)
+        persisted = []
+        result = execute_branch_and_file(
+            p, transport=transport, on_result=persisted.append,
+        )
         self.assertEqual([v["status"] for v in result], ["PASS", "PASS"])
+        self.assertEqual(persisted, result)
         self.assertEqual(transport.branch, 'd' * 40)
         self.assertIn("Source workflow run: 123", transport.content)
         self.assertEqual([v[:2] for v in transport.writes], [
