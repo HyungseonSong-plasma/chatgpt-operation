@@ -277,7 +277,7 @@ class WorkflowStepTests(unittest.TestCase):
                 if path.endswith("/pulls/77"):
                     return {"number": 77, "head": {"sha": "e" * 40}, "draft": False}
                 raise AssertionError(path)
-        with self.assertRaisesRegex(ValueError, "postcondition"):
+        with self.assertRaisesRegex(ValueError, "Draft PR failed exact-head/scope readback"):
             script["_create_draft_pr"](WrongHead(), proof)
 
     def test_ci_does_not_accept_unrelated_pr_branch(self):
