@@ -45,6 +45,10 @@ from .issue_ingestion import (
     transition_issue_status,
 )
 from .issue_planning import plan_admitted_issue
+from .cross_repository_issue_admission import CrossRepositoryIssueSnapshot
+from .cross_repository_workflow import (
+    ForeignWorkState, reconcile_admission, plan_next_cycle,
+)
 from .merge_recovery import (
     conflict_main_file_snapshots,
     conflict_recovery_branch_name,
@@ -1436,7 +1440,43 @@ class SamuelController:
         pending: list[BootstrapWork],
         issue: dict[str, Any] | None = None,
         repository_context: dict[str, Any] | None = None,
+        foreign_snapshot: CrossRepositoryIssueSnapshot | None = None,
+        foreign_context: dict[str, Any] | None = None,
+        foreign_ledger: ForeignWorkState | None = None,
+        foreign_policy: dict[str, Any] | None = None,
     ) -> ControllerCycle:
+        if foreign_snapshot is not None:
+            # A separate authenticated ingestion workflow must independently
+            # reconstruct the snapshot on EACH foreign cycle. Source-native
+            # admission comments and issue:92 never grant this capability.
+            if (trigger.kind is not TriggerKind.WORKFLOW_DISPATCH
+                or issue is not None or pending
+                or foreign_context is None or foreign_policy is None):
+                raise ControllerCompositionError(
+                    "foreign cycle requires distinct authenticated mainline ingress"
+                )
+            from .cross_repository_workflow import ForeignWorkError
+            state = reconcile_admission(foreign_ledger,foreign_snapshot)
+            runner = None
+            if self.reasoning_enabled and self.reasoning.status().available:
+                runner = self.reasoning.runner()
+            if state.phase == "reasoning_required":
+                state=plan_next_cycle(
+                    state,foreign_context,registry=self.decisions,
+                    reasoning_runner=runner,execution_policy=foreign_policy,
+                )
+            return ControllerCycle(
+                trigger,
+                {"kind":"foreign_issue","work_id":state.work_id,
+                 "phase":state.phase,"revision":state.revision},
+                {"schema_version":1,"work_id":state.work_id,
+                 "outcome":state.phase,"foreign_ledger":state.to_dict(),
+                 "action_plan":state.action_plan,
+                 "execution_authorized":state.phase=="dispatch_ready"},
+                None,None,None,
+            )
+        if foreign_context is not None or foreign_ledger is not None or foreign_policy is not None:
+            raise ControllerCompositionError("foreign cycle arguments require verified snapshot")
         if not isinstance(comments, list) or any(
             not isinstance(item, dict) for item in comments
         ):
