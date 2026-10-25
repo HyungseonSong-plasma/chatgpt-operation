@@ -3,7 +3,7 @@ import unittest
 from dataclasses import replace
 
 from chatgpt_operation.controller.cross_repository_policy import TargetRequest
-from chatgpt_operation.controller.cross_repository_live_attestation import attest_live_target
+from chatgpt_operation.controller.cross_repository_live_attestation import attest_live_target, verify_controller_origin
 
 SHA = "a" * 40
 REPO = "owner/codeQA"
@@ -130,3 +130,33 @@ class LiveAttestationTests(unittest.TestCase):
         t = FakeTransport()
         t.responses["/repos/owner/codeQA"]["default_branch"] = "development"
         self.assertIn("target_default_branch_mismatch", self.assert_denied(t).reasons)
+
+class SourceOriginTests(unittest.TestCase):
+    def run_record(self):
+        return {
+            "id": 12345, "event": "workflow_dispatch", "head_branch": "main",
+            "head_sha": SHA,
+            "path": ".github/workflows/samuel-codeqa-write-preflight.yml@refs/heads/main",
+            "actor": {"login": "HyungseonSong-plasma"},
+            "repository": {"full_name": "HyungseonSong-plasma/chatgpt-operation"},
+        }
+
+    def test_exact_source_event(self):
+        self.assertTrue(verify_controller_origin(self.run_record(), expected_run_id=12345, expected_sha=SHA))
+
+    def test_source_spoofing_denied(self):
+        mutations = [
+            ("id", 7), ("event", "pull_request"), ("head_branch", "feature"),
+            ("head_sha", "b" * 40), ("path", ".github/workflows/untrusted.yml@refs/heads/main"),
+            ("actor", {"login": "someone-else"}),
+            ("repository", {"full_name": "attacker/chatgpt-operation"}),
+        ]
+        for field, value in mutations:
+            with self.subTest(field=field):
+                run = self.run_record()
+                run[field] = value
+                self.assertFalse(verify_controller_origin(run, expected_run_id=12345, expected_sha=SHA))
+
+    def test_missing_run_fails_closed(self):
+        self.assertFalse(verify_controller_origin({}, expected_run_id=12345, expected_sha=SHA))
+        self.assertFalse(verify_controller_origin(self.run_record(), expected_run_id=True, expected_sha=SHA))
