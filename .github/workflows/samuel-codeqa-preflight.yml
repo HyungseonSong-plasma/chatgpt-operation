@@ -1,0 +1,166 @@
+name: Samuel → codeQA Governed Read-only Preflight
+run-name: samuel-codeqa-preflight:source-${{ github.run_id }}
+
+on:
+  pull_request:
+    paths:
+      - 'automation/samuel/codeqa-readonly-target-v1.json'
+      - 'src/chatgpt_operation/controller/cross_repo_preflight.py'
+      - '.github/scripts/codeqa_readonly_dispatch_plan.py'
+      - '.github/workflows/samuel-codeqa-preflight.yml'
+      - 'tests/test_cross_repo_preflight.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  actions: read
+
+concurrency:
+  group: samuel-codeqa-governed-preflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run guarded cross-repository contract adversarial tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p test_cross_repo_preflight.py -v
+
+      - name: Independently read live authorized Samuel + codeQA Issue and branch identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          PYTHONPATH: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "HyungseonSong-plasma/chatgpt-operation"
+          gh api "repos/HyungseonSong-plasma/chatgpt-operation/issues/220" > source-issue.json
+          gh api "repos/HyungseonSong-plasma/codeQA/issues/92" > target-issue.json
+          source_head="$(gh api "repos/HyungseonSong-plasma/chatgpt-operation/commits/main" --jq .sha)"
+          target_head="$(gh api "repos/HyungseonSong-plasma/codeQA/commits/main" --jq .sha)"
+          SOURCE_HEAD="$source_head" TARGET_HEAD="$target_head" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          source = os.environ["SOURCE_HEAD"]
+          target = os.environ["TARGET_HEAD"]
+          record = dict(observed_source_sha=source, expected_source_sha=source,
+                        observed_target_sha=target, expected_target_sha=target)
+          Path("independent-head-observations.json").write_text(
+              json.dumps(record, sort_keys=True, indent=2)+"\n")
+          PY
+          PYTHONPATH=src python .github/scripts/codeqa_readonly_dispatch_plan.py \
+            --policy automation/samuel/codeqa-readonly-target-v1.json \
+            --source-issue source-issue.json \
+            --target-issue target-issue.json \
+            --head-snapshot independent-head-observations.json \
+            --actor "$ACTOR" --run-id "$SOURCE_RUN_ID" \
+            --output crossrepo-preflight-plan.json \
+            --dispatch target-dispatch.json
+          echo "SAMUEL_CROSSREPO=READ_ONLY_PLAN_VALIDATED"
+
+      - name: Dispatch the target-owned read-only preflight only with owner-configured token
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          TARGET_ACTIONS_TOKEN: ${{ secrets.SAMUEL_CODEQA_DISPATCH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$TARGET_ACTIONS_TOKEN" ]; then
+            echo "SAMUEL_CROSSREPO=BLOCKED_MISSING_TARGET_ACTIONS_TOKEN" >&2
+            exit 2
+          fi
+          # Only codeQA's own read-only workflow, never mutation or merge.
+          GH_TOKEN="$TARGET_ACTIONS_TOKEN" gh api --method POST \
+            "repos/HyungseonSong-plasma/codeQA/actions/workflows/samuel-crossrepo-preflight.yml/dispatches" \
+            --input target-dispatch.json
+          echo "SAMUEL_CROSSREPO=DISPATCH_REQUEST_ACCEPTED awaiting correlated run"
+
+      - name: Confirm exact target run and validated target-owned receipt
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ secrets.SAMUEL_CODEQA_DISPATCH_TOKEN }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=""
+          for attempt in {1..18}; do
+            gh api "repos/HyungseonSong-plasma/codeQA/actions/workflows/samuel-crossrepo-preflight.yml/runs?event=workflow_dispatch&per_page=50" > target-runs.json
+            found="$(python - <<'PY'
+          import json, os
+          runs=json.load(open("target-runs.json"))["workflow_runs"]
+          title="samuel-codeqa-handoff:source-"+os.environ["SOURCE_RUN_ID"]
+          hits=[r for r in runs if r.get("display_title")==title and r.get("event")=="workflow_dispatch"]
+          if len(hits)>1:
+              raise SystemExit("TARGET_RUN_ID_COLLISION")
+          print(hits[0]["id"] if hits else "")
+          PY
+            )"
+            if [ -n "$found" ]; then break; fi
+            sleep 5
+          done
+          if [ -z "$found" ]; then
+            echo "SAMUEL_CROSSREPO=PENDING_VISIBILITY target run not proven" >&2
+            exit 2
+          fi
+          for attempt in {1..60}; do
+            gh api "repos/HyungseonSong-plasma/codeQA/actions/runs/$found" > target-run.json
+            status="$(python -c 'import json; print(json.load(open("target-run.json"))["status"])')"
+            if [ "$status" = "completed" ]; then break; fi
+            sleep 5
+          done
+          python - <<'PY'
+          import json
+          run=json.load(open("target-run.json"))
+          if run.get("status")!="completed" or run.get("conclusion")!="success":
+              raise SystemExit("SAMUEL_CROSSREPO=BLOCKED_TARGET_CI_NOT_SUCCESS")
+          expected=json.load(open("crossrepo-preflight-plan.json"))
+          if run.get("head_sha")!=expected["target_head_sha"]:
+              raise SystemExit("SAMUEL_CROSSREPO=BLOCKED_STALE_TARGET_SHA")
+          PY
+          mkdir target-receipt
+          gh run download "$found" --repo HyungseonSong-plasma/codeQA \
+            --dir target-receipt \
+            --name "samuel-codeqa-readonly-preflight-$found"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          plan=json.load(open("crossrepo-preflight-plan.json"))
+          receipts=list(Path("target-receipt").rglob("samuel-target-preflight-receipt.json"))
+          if len(receipts)!=1:
+              raise SystemExit("TARGET_RECEIPT_MISSING_OR_AMBIGUOUS")
+          receipt=json.loads(receipts[0].read_text())
+          required={
+              "status":"READ_ONLY_PREFLIGHT_CONFIRMED",
+              "origin":"WORKFLOW_DISPATCH_ACTOR_ATTESTED",
+              "work_id":plan["work_id"],
+              "source_run_id":plan["source_run_id"],
+              "controller_sha":plan["source_head_sha"],
+              "target_sha":plan["target_head_sha"],
+              "execution_mode":"READ_ONLY_NO_PR_NO_MERGE",
+          }
+          if any(receipt.get(k)!=v for k,v in required.items()) or receipt.get("allowed_mutations")!=[]:
+              raise SystemExit("TARGET_RECEIPT_SCOPE_OR_PROVENANCE_MISMATCH")
+          print("SAMUEL_CROSSREPO=TARGET_READ_ONLY_E2E_CONFIRMED"
+                +" source_run="+plan["source_run_id"])
+          PY
+
+      - name: Upload independently inspected preflight receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-codeqa-handoff-${{ github.run_id }}
+          path: |
+            crossrepo-preflight-plan.json
+            target-dispatch.json
+            target-run.json
+            target-receipt/
+          if-no-files-found: ignore
+          retention-days: 30
