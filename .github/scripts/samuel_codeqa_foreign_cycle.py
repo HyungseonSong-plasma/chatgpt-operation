@@ -12,7 +12,9 @@ import os
 from pathlib import Path
 
 from codeqa_governed_write import API, POLICY_FILE, SOURCE, TARGET, _identity_env
-from chatgpt_operation.controller.cross_repository_issue_admission import admit_cross_repository_issue
+from chatgpt_operation.controller.cross_repository_issue_admission import (
+    FOREIGN_CYCLE_WORKFLOW, CrossRepositoryAdmissionError, admit_cross_repository_issue,
+)
 from chatgpt_operation.controller.cross_repository_workflow import (
     ForeignWorkState, MARKER, decode_ledger, encode_ledger, select_authoritative_ledger,
 )
@@ -21,6 +23,23 @@ from chatgpt_operation.controller.reasoning_provider import ReasoningProviderReg
 from chatgpt_operation.controller.runtime import SamuelController, ControllerTrigger, TriggerKind
 
 RESULT_FILE=Path("samuel-codeqa-foreign-cycle.json")
+
+_SAFE_FOREIGN_ADMISSION_ERRORS = {
+    "unverified Controller planning workflow": "SOURCE_WORKFLOW_NOT_ATTESTED",
+    "workflow not approved for foreign issue admission": "UNAPPROVED_SOURCE_WORKFLOW",
+    "target acceptance criteria absent": "TARGET_ACCEPTANCE_NOT_FOUND",
+    "ambiguous acceptance section": "AMBIGUOUS_TARGET_ACCEPTANCE",
+    "live GitHub Issue identity invalid": "ISSUE_IDENTITY_MISMATCH",
+}
+
+
+def safe_foreign_cycle_error(exc: Exception) -> str:
+    """Constant-only diagnostics; never leak PAT, issue body or remote messages."""
+    if isinstance(exc, CrossRepositoryAdmissionError):
+        if str(exc).startswith("target identity/readback denied:"):
+            return "TARGET_READBACK_DENIED"
+        return _SAFE_FOREIGN_ADMISSION_ERRORS.get(str(exc), "FOREIGN_ADMISSION_REJECTED")
+    return "OTHER_FOREIGN_CYCLE_ERROR"
 EXECUTION_POLICY=Path("automation/samuel/codeqa-issue92-execution-candidate-v1.json")
 
 
@@ -86,6 +105,7 @@ def run() -> dict:
         source_issue=source.get(source_path+"/issues/220"),
         target_issue=target.get(target_path+"/issues/92"),
         policy=policy,target_reader=target,
+        workflow_filename=FOREIGN_CYCLE_WORKFLOW,
     )
     comments=_comments(source)
     _,before=select_authoritative_ledger(comments)
@@ -128,6 +148,7 @@ def main() -> int:
         result={
             "schema_version":1,"status":"HARD_STOP",
             "error_type":type(exc).__name__,
+            "error_code":safe_foreign_cycle_error(exc),
             "target_mutation_performed":False,"merge_authorized":False,
         }
         rc=2
