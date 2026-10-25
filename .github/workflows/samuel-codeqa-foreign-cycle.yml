@@ -11,6 +11,8 @@ on:
       - '.github/scripts/samuel_codeqa_foreign_cycle.py'
       - '.github/workflows/samuel-codeqa-foreign-cycle.yml'
       - 'tests/test_cross_repository_workflow.py'
+      - 'tests/test_cross_repository_proposal.py'
+      - 'src/chatgpt_operation/controller/cross_repository_proposal.py'
   workflow_dispatch:
     inputs:
       approve_target_base_rollover:
@@ -51,6 +53,7 @@ jobs:
           PYTHONPATH: src
         run: |
           python -m unittest discover -s tests -p 'test_cross_repository_workflow.py' -v
+          python -m unittest discover -s tests -p 'test_cross_repository_proposal.py' -v
           python -m unittest discover -s tests -p 'test_codeqa_cross_repository_issue_admission.py' -v
       - name: Perform verified source-ledger cycle only
         if: ${{ github.event_name == 'workflow_dispatch' }}
