@@ -74,3 +74,65 @@ After reviewing and explicitly accepting the separate codeQA write capability:
 A successful *read-only* permission probe **does not prove actual write or
 PR-create permission**. Neither staged workflow automatically merges PRs,
 closes codeQA #92 or changes central protected mutation policy.
+
+## Implemented bounded write-proof lane (2026-10-25)
+
+Source-only implementation:
+- `src/chatgpt_operation/controller/codeqa_governed_write.py` produces three
+  typed, deterministic `ActionPlan` objects after separately reading the
+  actual source Controller run and both GitHub Issues.
+- `.github/scripts/codeqa_governed_write.py` uses the scoped target credential
+  to execute exact-target branch and file actions using the existing mutation
+  engine, open a **Draft** PR only, and validate exact HEAD and `layout.yml`
+  PR CI. Success is evidenced by an Actions receipt artifact.
+- `.github/workflows/samuel-codeqa-write-execute.yml` runs negative tests on
+  pull requests **without credentials or target mutations**. Its
+  `workflow_dispatch` stage is fail-closed unless invoked on source `main`,
+  the source run/actor/path/commit are independently verified, the
+  fixed target policy is explicitly enabled, and a distinct
+  `SAMUEL_CODEQA_WRITE_TOKEN` exists.
+- `automation/samuel/codeqa-write-target-candidate-v1.json` remains
+  **`enabled: false`**. It pins target repo ID, `main` base commit,
+  exact isolated branch, a single `docs/samuel/` file, required `layout.yml`
+  and a closed operation allowlist. The protected central mutation policy
+  is unmodified.
+- PR readback requires `draft: true`; no `merge_pr`, issue closure, workflow
+  modification or general-purpose file mutation can be requested.
+- Runtime CI is correlated using independently read target PR number,
+  exact PR head commit and branch, rather than the often-empty
+  GitHub Actions `pull_requests` array. Only named `layout.yml` success
+  is required for this **bounded proof**, not full codeQA release acceptance.
+
+**Important provenance distinction:** These plans originate deterministically
+inside an owner-dispatched Controller-owned workflow and are not arbitrary
+user-supplied `plan_json`. This is **not yet** Samuel's full durable Issue
+#92 admission → autonomous `SamuelController.run_cycle` → execution
+gateway → target code changes. That requires a separate reviewed controller
+task-routing tranche after this bounded E2E.
+
+### How to activate the isolated write proof
+
+1. Review and merge the guarded implementation PR **with the target policy
+   disabled**. Run CI on the exact implementation head first.
+2. Owner provisions a **separate** fine-grained token with **only codeQA**
+   repository access. Target permissions: Contents read/write, Pull requests
+   read/write, Actions read, Issues read, Metadata read. Do not enable repo
+   administration or repository workflow modifications. Save it as
+   `SAMUEL_CODEQA_WRITE_TOKEN` in **source chatgpt-operation** Actions
+   secrets. Preserve the previously verified read-only
+   `SAMUEL_CODEQA_DISPATCH_TOKEN` unchanged.
+3. Separately approve a reviewed policy PR changing only `enabled` to true
+   and, if codeQA `main` moved, repin exact `base_sha` based on current
+   authenticated GitHub data. No wildcard paths, additional operations,
+   workflow edits or automatic merge.
+4. On source `main`, manually trigger
+   `Actions → Samuel → codeQA Governed Draft PR Proof → Run workflow`.
+   PR-triggered tests never execute the target mutation. A missing/stale
+   credential or policy results in `HARD_STOP` and no authorization.
+5. Verify the resulting source run, codeQA branch, **Draft** PR, exact PR
+   head, required target CI success and saved ActionPlan/operation IDs. Do
+   not merge the codeQA proof PR without separate human review. Only after
+   live success can this isolated proof be marked complete.
+
+This implementation does not grant auto-merge, background execution or
+unbounded Controller work. Never reuse the dispatch-only token for writing.
