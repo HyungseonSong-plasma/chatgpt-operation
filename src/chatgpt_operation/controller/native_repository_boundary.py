@@ -21,7 +21,7 @@ def require_native_repository_scope(repository: str, workflow_repository: str | 
     # independently verified grant or live target policy; fail closed even
     # when the requested repository is present in an untrusted plan.
     provisional = TargetRequest(
-        repository=repository, repository_id=0, base_branch="",
+        repository=repository, repository_id=0, base_branch="", head_branch="",
         base_sha="", paths=(), workflows=(), operations=(),
     )
     decision = validate_target_request(provisional, {}, authorization_verified=False)
