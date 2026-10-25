@@ -174,7 +174,7 @@ def run():
         "general_issue_execution": False,
     }
     def record():
-        RESULT_FILE.write_text(json.dumps(journal, indent=2, sort_keys=True) + "\\n")
+        RESULT_FILE.write_text(json.dumps(journal, indent=2, sort_keys=True) + "\n")
     record()
     def record_mutation(receipt):
         journal["action_plans"].append(receipt)
