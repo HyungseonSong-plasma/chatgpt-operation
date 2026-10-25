@@ -23,6 +23,8 @@ from .decisions import DecisionRegistry
 from .issue_planning import plan_admitted_issue
 
 INGRESS_WORKFLOW = "samuel-codeqa-issue-plan.yml"
+FOREIGN_CYCLE_WORKFLOW = "samuel-codeqa-foreign-cycle.yml"
+_APPROVED_INGRESS_WORKFLOWS = frozenset((INGRESS_WORKFLOW, FOREIGN_CYCLE_WORKFLOW))
 TARGET_ISSUE_NUMBER = 92
 SOURCE_ISSUE_NUMBER = 220
 
@@ -142,14 +144,17 @@ def admit_cross_repository_issue(
     target_issue: dict[str, Any],
     policy: dict[str, Any],
     target_reader: Any,
+    workflow_filename: str = INGRESS_WORKFLOW,
 ) -> tuple[CrossRepositoryIssueSnapshot, dict[str, Any]]:
     """Produce a scoped reasoning request, not an executable write plan."""
+    if workflow_filename not in _APPROVED_INGRESS_WORKFLOWS:
+        raise CrossRepositoryAdmissionError("workflow not approved for foreign issue admission")
     check_policy(policy)
     if not verify_controller_origin(
         source_run,
         expected_run_id=source_run_id,
         expected_sha=controller_sha,
-        workflow_filename=INGRESS_WORKFLOW,
+        workflow_filename=workflow_filename,
     ):
         raise CrossRepositoryAdmissionError("unverified Controller planning workflow")
     _verified_issue(source_issue, SOURCE, SOURCE_ISSUE_NUMBER)
