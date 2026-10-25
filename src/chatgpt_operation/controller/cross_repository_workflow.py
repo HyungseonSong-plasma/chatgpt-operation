@@ -186,6 +186,31 @@ def reconcile_admission(
     return previous
 
 
+def advance_reviewed_base(
+    existing: ForeignWorkState,
+    snapshot: CrossRepositoryIssueSnapshot,
+) -> ForeignWorkState:
+    """Explicitly acknowledge only an unchanged Issue and empty prior work."""
+    current=from_verified_admission(snapshot)
+    if (
+        existing.work_id!=current.work_id
+        or existing.issue_sha!=current.issue_sha
+        or existing.criteria_sha!=current.criteria_sha
+        or existing.base_sha==current.base_sha
+        or existing.phase!="revision_required"
+        or existing.last_failure!="ADMISSION_FACTS_CHANGED"
+        or existing.action_plan is not None or existing.action_id is not None
+        or existing.receipt is not None or existing.target_pr is not None
+        or bool(existing.ci_evidence)
+    ):
+        raise ForeignWorkError("reviewed base transition preconditions not met")
+    return replace(
+        current,
+        revision=existing.revision+1,
+        admission_run_id=snapshot.verified_source_run_id,
+    )
+
+
 def _plan_to_dict(plan: ActionPlan) -> dict[str, Any]:
     return {
         "schema_version":1,"research_id":plan.research_id,
