@@ -107,7 +107,9 @@ def _create_draft_pr(api: API, proof):
 
 def _verify_ci(api: API, *, pr_number: int, head_sha: str):
     path = "/repos/" + TARGET
-    # Only a separately approved exact workflow is considered required.
+    # PR run records can legitimately contain an empty pull_requests array.
+    # Correlate with an independently verified exact PR head and branch,
+    # not that optional field. Only the reviewed workflow is required.
     for _ in range(30):
         query = urlencode({"event": "pull_request", "head_sha": head_sha, "per_page": "100"})
         records = api.get(path + "/actions/workflows/layout.yml/runs?" + query)
@@ -118,7 +120,7 @@ def _verify_ci(api: API, *, pr_number: int, head_sha: str):
             r for r in runs if r.get("head_sha") == head_sha
             and r.get("event") == "pull_request"
             and r.get("path") == ".github/workflows/layout.yml"
-            and any(p.get("number") == pr_number for p in r.get("pull_requests", []) if isinstance(p, dict))
+            and r.get("head_branch") == HEAD
         ]
         if len(matching) > 1:
             raise ValueError("ambiguous exact-head target CI result")
