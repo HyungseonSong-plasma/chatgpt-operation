@@ -161,24 +161,41 @@ def run():
             raise ValueError("target base SHA changed before mutation")
 
     assert_target_base()
-    transport = GitHubTransport(TARGET, target_token)
-    mutations = execute_branch_and_file(proof, transport=transport)
-    assert_target_base()
-    pr = _create_draft_pr(target, proof)
-    ci = _verify_ci(target, pr_number=pr["number"], head_sha=pr["head_sha"])
-    assert_target_base()
-    return {
-        "status": "CONTROLLER_GOVERNED_DOC_WRITE_PR_CI_CONFIRMED",
+    # Persist independently verified facts and each postcondition as soon as
+    # it completes, including on a subsequent CI failure or workflow timeout.
+    journal = {
+        "status": "IN_PROGRESS", "phase": "plan_validated",
         "source_workflow_run_id": source_run_id, "source_sha": source_sha,
         "target_repository": TARGET, "target_repository_id": proof.target_repository_id,
         "target_base_sha": proof.target_base_sha,
-        "action_plans": mutations,
-        "pr": pr,
-        "required_ci": [ci],
+        "action_plans": [], "pr": None, "required_ci": [],
         "merge_authorized": False, "merge_performed": False,
         "scope": "ONE_FIXED_DOCUMENT_DRAFT_PR_ONLY",
         "general_issue_execution": False,
     }
+    def record():
+        RESULT_FILE.write_text(json.dumps(journal, indent=2, sort_keys=True) + "\\n")
+    record()
+    def record_mutation(receipt):
+        journal["action_plans"].append(receipt)
+        journal["phase"] = "repository_mutation_verified"
+        record()
+
+    transport = GitHubTransport(TARGET, target_token)
+    execute_branch_and_file(proof, transport=transport, on_result=record_mutation)
+    assert_target_base()
+    pr = _create_draft_pr(target, proof)
+    journal["pr"] = pr
+    journal["phase"] = "draft_pr_verified"
+    record()
+    ci = _verify_ci(target, pr_number=pr["number"], head_sha=pr["head_sha"])
+    journal["required_ci"] = [ci]
+    journal["phase"] = "exact_head_ci_verified"
+    record()
+    assert_target_base()
+    journal["status"] = "CONTROLLER_GOVERNED_DOC_WRITE_PR_CI_CONFIRMED"
+    journal["phase"] = "complete"
+    return journal
 
 
 def main() -> int:
@@ -187,9 +204,19 @@ def main() -> int:
     except Exception as exc:
         # Avoid logging API credentials, untrusted server response bodies,
         # or exception strings that could contain token-derived material.
+        # Preserve previously confirmed branch/file/PR IDs. Never silently
+        # discard partial side effects by overwriting their receipt.
+        try:
+            previous = json.loads(RESULT_FILE.read_text()) if RESULT_FILE.exists() else {}
+            if not isinstance(previous, dict):
+                previous = {}
+        except (OSError, json.JSONDecodeError):
+            previous = {}
         result = {
-            "status": "HARD_STOP", "error_type": type(exc).__name__,
-            "merge_authorized": False, "general_issue_execution": False,
+            **previous, "status": "HARD_STOP",
+            "error_type": type(exc).__name__,
+            "merge_authorized": False, "merge_performed": False,
+            "general_issue_execution": False,
         }
     RESULT_FILE.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print("SAMUEL_CODEQA_WRITE=" + result["status"])
