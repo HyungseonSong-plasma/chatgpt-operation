@@ -111,7 +111,8 @@ class DurableLedgerTests(unittest.TestCase):
         self.assertEqual(s.revision,0)
         self.assertEqual(decode_ledger(encode_ledger(s)),s)
         self.assertEqual(reconcile_admission(s,snapshot()),s)
-        cid,recovered=select_authoritative_ledger([{"id":37,"body":encode_ledger(s)}])
+        cid,recovered=select_authoritative_ledger([{"id":37,"body":encode_ledger(s),
+            "user":{"login":"github-actions[bot]","id":41898282}}])
         self.assertEqual(cid,37)
         self.assertEqual(recovered,s)
 
@@ -119,8 +120,8 @@ class DurableLedgerTests(unittest.TestCase):
         s=from_verified_admission(snapshot())
         with self.assertRaisesRegex(ForeignWorkError,"ambiguous"):
             select_authoritative_ledger([
-                {"id":1,"body":encode_ledger(s)},
-                {"id":2,"body":encode_ledger(s)},
+                {"id":1,"body":encode_ledger(s),"user":{"login":"github-actions[bot]","id":41898282}},
+                {"id":2,"body":encode_ledger(s),"user":{"login":"github-actions[bot]","id":41898282}},
             ])
         with self.assertRaisesRegex(ForeignWorkError,"marker"):
             decode_ledger("some other GitHub Issue comment")
@@ -132,6 +133,24 @@ class DurableLedgerTests(unittest.TestCase):
         raw["action_id"]="spoofed"
         with self.assertRaisesRegex(ForeignWorkError,"orphan"):
             ForeignWorkState.from_dict(raw)
+
+    def test_user_edited_comment_does_not_gain_controller_authority(self):
+        state=from_verified_admission(snapshot())
+        with self.assertRaisesRegex(ForeignWorkError,"authored"):
+            select_authoritative_ledger([{
+                "id":97,"body":encode_ledger(state),
+                "user":{"login":"random-user","id":999},
+            }])
+        forged={**state.to_dict(),"phase":"dispatch_ready"}
+        with self.assertRaisesRegex(ForeignWorkError,"active"):
+            ForeignWorkState.from_dict(forged)
+        finished={**state.to_dict(),"phase":"ci_verified",
+                  "action_plan":file_plan(),
+                  "action_id":ActionPlan.from_dict(file_plan()).idempotency_key,
+                  "receipt":{"workflow_run_id":999,"ref":"main"},
+                  "ci_evidence":["fake-success"]}
+        with self.assertRaisesRegex(ForeignWorkError,"success evidence"):
+            ForeignWorkState.from_dict(finished)
 
     def test_stale_issue_and_head_enter_revision_required_without_plan(self):
         s=from_verified_admission(snapshot())
