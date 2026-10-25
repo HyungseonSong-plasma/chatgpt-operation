@@ -171,6 +171,14 @@ def admit_cross_repository_issue(
         merge_authorized=False,
     )
     context = planned.envelope.as_reasoning_context()
+    # The original Issue body is untrusted remote content. Its accepted
+    # criteria remain visible below, but do not pass raw instructions as
+    # observations to any later semantic reasoning provider.
+    context["goal"] = "Assess governed codeQA Issue #92 acceptance evidence"
+    context["observations"] = [
+        "Untrusted target Issue body omitted; its exact SHA256 is pinned "
+        "in cross_repository_scope and only scoped acceptance text is exposed."
+    ]
     context["cross_repository_scope"] = {
         "verified": True,
         "work_id": WORK_ID,
