@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "policy_id": "samuel-codeqa-issue92-readonly-preflight-v1",
+  "source_repository": "HyungseonSong-plasma/chatgpt-operation",
+  "source_issue": 220,
+  "target_repository": "HyungseonSong-plasma/codeQA",
+  "target_issue": 92,
+  "work_id": "github:HyungseonSong-plasma/codeQA:issue:92",
+  "workflow": "samuel-crossrepo-preflight.yml",
+  "ref": "main",
+  "approved_actors": [
+    "HyungseonSong-plasma"
+  ],
+  "operations": [
+    "READ_ONLY_PREFLIGHT_DISPATCH"
+  ],
+  "target_issue_write": false,
+  "target_pr_create": false,
+  "target_merge": false,
+  "authorization": "EXPLICIT_USER_TASK_DIRECTED_READONLY_PREFLIGHT",
+  "credential_name": "SAMUEL_CODEQA_DISPATCH_TOKEN",
+  "credential_scope": "target_actions_write_only",
+  "owner_controlled_secret": true
+}
