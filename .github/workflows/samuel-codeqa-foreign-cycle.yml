@@ -18,6 +18,11 @@ on:
         type: boolean
         required: false
         default: false
+      propose_foreign_action:
+        description: Ask configured reasoning provider for ONE review-only codeQA #92 test-file ActionPlan
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -53,6 +58,9 @@ jobs:
           PYTHONPATH: src
           GITHUB_TOKEN: ${{ github.token }}
           SAMUEL_APPROVE_BASE_ROLLOVER: ${{ inputs.approve_target_base_rollover }}
+          SAMUEL_PROPOSE_FOREIGN_ACTION: ${{ inputs.propose_foreign_action }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SAMUEL_OPENAI_MODEL: ${{ vars.SAMUEL_OPENAI_MODEL }}
           SAMUEL_CODEQA_WRITE_TOKEN: ${{ secrets.SAMUEL_CODEQA_WRITE_TOKEN }}
         run: python .github/scripts/samuel_codeqa_foreign_cycle.py
       - name: Preserve source-owned cycle receipt
