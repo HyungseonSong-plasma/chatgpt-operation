@@ -6,7 +6,7 @@
   "repository_id": 1424293498,
   "base_branch": "main",
   "head_branch": "samuel/220-controller-crossrepo-preflight",
-  "base_sha": "b48b50e00e0be6dd2b66181a8deed046a2c18ce0",
+  "base_sha": "489f42e86f17a051d2c6d5843d56a809c994c2ed",
   "path_prefixes": [
     "docs/samuel/"
   ],
