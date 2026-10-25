@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.parse import quote
 
 from codeqa_governed_write import API, POLICY_FILE, SOURCE, TARGET, _identity_env
 from chatgpt_operation.controller.cross_repository_issue_admission import (
@@ -20,7 +22,15 @@ from chatgpt_operation.controller.cross_repository_workflow import (
     advance_reviewed_base,
 )
 from chatgpt_operation.controller.decisions import DecisionRegistry
-from chatgpt_operation.controller.reasoning_provider import ReasoningProviderRegistry
+from chatgpt_operation.controller.reasoning_provider import (
+    ProviderUnavailable, ProviderRequestFailure, ReasoningProviderRegistry,
+)
+from chatgpt_operation.controller.openai_reasoning_provider import OpenAIReasoningProvider
+from chatgpt_operation.controller.reasoning import ReasoningNodeError
+from chatgpt_operation.controller.cross_repository_proposal import (
+    PROPOSAL_PATH, ProposalPreflightError,
+    proposed_reasoning_context, verify_proposal_preflight, verify_proposed_review,
+)
 from chatgpt_operation.controller.runtime import SamuelController, ControllerTrigger, TriggerKind
 
 RESULT_FILE=Path("samuel-codeqa-foreign-cycle.json")
@@ -49,6 +59,12 @@ def safe_foreign_cycle_error(exc: Exception) -> str:
             "target base rollover needs distinct clean owner approval": "ROLLOVER_PRECONDITION_FAILED",
             "reviewed base transition preconditions not met": "ROLLOVER_PRECONDITION_FAILED",
         }.get(str(exc), "FOREIGN_STATE_VALIDATION_FAILED")
+    if isinstance(exc, (ProviderUnavailable, ProviderRequestFailure)):
+        return "REASONING_PROVIDER_UNAVAILABLE"
+    if isinstance(exc, (ProposalPreflightError, ReasoningNodeError)):
+        return "FOREIGN_PROPOSAL_PREFLIGHT_OR_VALIDATION_FAILED"
+    if isinstance(exc, ForeignCycleError):
+        return "FOREIGN_CYCLE_INPUT_OR_READBACK_FAILED"
     return "OTHER_FOREIGN_CYCLE_ERROR"
 EXECUTION_POLICY=Path("automation/samuel/codeqa-issue92-execution-candidate-v1.json")
 
@@ -97,6 +113,21 @@ def _cas_write(api: API, before: list[dict], after: ForeignWorkState) -> dict:
     return {"operation":action,"comment_id":number,"revision":after.revision}
 
 
+def _target_file_is_absent(target: API, base_sha: str) -> bool:
+    # A target-scoped GET only. A 403/5xx must never be misclassified as absent.
+    endpoint = (
+        "/repos/" + TARGET + "/contents/" + quote(PROPOSAL_PATH, safe="/")
+        + "?ref=" + quote(base_sha, safe="")
+    )
+    try:
+        target.get(endpoint)
+    except HTTPError as exc:
+        if exc.code == 404:
+            return True
+        raise
+    return False
+
+
 def run() -> dict:
     run_id,sha=_identity_env()
     policy=json.loads(POLICY_FILE.read_text(encoding="utf-8"))
@@ -119,11 +150,30 @@ def run() -> dict:
     )
     comments=_comments(source)
     _,before=select_authoritative_ledger(comments)
+    propose=os.environ.get("SAMUEL_PROPOSE_FOREIGN_ACTION")=="true"
+    approved_rollover=os.environ.get("SAMUEL_APPROVE_BASE_ROLLOVER")=="true"
+    if propose and approved_rollover:
+        raise ForeignCycleError("proposal and base rollover require separate manual runs")
+    if propose:
+        # Must pass LIVE state/data inspection before any LLM call.
+        target_main=target.get(target_path+"/git/ref/heads/main")
+        target_sha=target_main.get("object",{}).get("sha")
+        verify_proposal_preflight(
+            before,snapshot,future_policy,
+            target_main_sha=target_sha,
+            candidate_absent=_target_file_is_absent(target,target_sha),
+        )
+        if not os.environ.get("OPENAI_API_KEY","").strip():
+            raise ProviderUnavailable("semantic provider secret not configured")
+        context=proposed_reasoning_context(context,snapshot)
+        provider=OpenAIReasoningProvider.from_env(allow_action_plan=True)
+    else:
+        provider=None
     decisions=DecisionRegistry.load("automation/samuel/decisions.json")
     controller=SamuelController(
         decisions=decisions,
-        reasoning=ReasoningProviderRegistry(),
-        reasoning_enabled=False,
+        reasoning=ReasoningProviderRegistry(provider=provider),
+        reasoning_enabled=propose,
     )
     cycle=controller.run_cycle(
         ControllerTrigger(kind=TriggerKind.WORKFLOW_DISPATCH,head_sha=sha,ref="main"),
@@ -137,12 +187,22 @@ def run() -> dict:
         or planned.get("execution_authorized") is not False):
         raise ForeignCycleError("foreign controller unexpectedly authorized execution")
     proposed=ForeignWorkState.from_dict(planned["foreign_ledger"])
-    approved_rollover=os.environ.get("SAMUEL_APPROVE_BASE_ROLLOVER")=="true"
     if approved_rollover:
         proposed=advance_reviewed_base(proposed,snapshot)
+    if propose:
+        verify_proposed_review(before,proposed,future_policy)
+        # The model may only propose, never exercise the write policy.
+        latest_sha=target.get(target_path+"/git/ref/heads/main").get("object",{}).get("sha")
+        if latest_sha!=snapshot.target_base_sha or not _target_file_is_absent(target,latest_sha):
+            raise ProposalPreflightError("target changed while constructing proposal")
     proof=_cas_write(source,comments,proposed)
+    status=(
+        "FOREIGN_PLAN_REVIEW_REQUIRED" if proposed.phase=="review_required" and propose
+        else "FOREIGN_PROPOSAL_NO_ACTION" if propose
+        else "FOREIGN_LEDGER_CYCLE_VERIFIED"
+    )
     return {
-        "schema_version":1,"status":"FOREIGN_LEDGER_CYCLE_VERIFIED",
+        "schema_version":1,"status":status,
         "work_id":snapshot.work_id,"source_run_id":run_id,
         "controller_sha":sha,"target_base_sha":snapshot.target_base_sha,
         "issue_body_sha256":snapshot.issue_body_sha256,
@@ -151,6 +211,10 @@ def run() -> dict:
         "target_mutation_performed":False,"merge_authorized":False,
         "execution_policy_enabled":False,
         "reviewed_base_transition":approved_rollover,
+        "reasoning_proposal_requested":propose,
+        "reasoning_plan_generated":propose and proposed.phase=="review_required",
+        "review_required":proposed.phase=="review_required",
+        "action_id":proposed.action_id,
     }
 
 
