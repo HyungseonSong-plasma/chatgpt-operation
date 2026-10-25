@@ -107,6 +107,7 @@ class FakeRepositoryTransport:
             return {"ref": payload["ref"], "object": {"sha": payload["sha"]}}
         if method == "PUT" and path == "/contents/" + PATH:
             self.content = base64.b64decode(payload["content"]).decode()
+            self.branch = "d" * 40  # GitHub content writes advance branch HEAD.
             return {"content": {"sha": "c" * 40}}
         raise AssertionError("unexpected write " + method + " " + path)
 
@@ -180,7 +181,7 @@ class GovernedWriteTests(unittest.TestCase):
         transport = FakeRepositoryTransport()
         result = execute_branch_and_file(p, transport=transport)
         self.assertEqual([v["status"] for v in result], ["PASS", "PASS"])
-        self.assertEqual(transport.branch, BASE)
+        self.assertEqual(transport.branch, 'd' * 40)
         self.assertIn("Source workflow run: 123", transport.content)
         self.assertEqual([v[:2] for v in transport.writes], [
             ("POST", "/git/refs"), ("PUT", "/contents/" + PATH),
