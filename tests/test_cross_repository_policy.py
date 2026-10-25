@@ -10,13 +10,13 @@ SHA = "a" * 40
 POLICY = {
     "schema_version": 1, "enabled": True,
     "repository": "HyungseonSong-plasma/codeQA", "repository_id": 123,
-    "base_branch": "samuel/preflight", "base_sha": SHA,
+    "base_branch": "main", "head_branch": "samuel/preflight", "base_sha": SHA,
     "path_prefixes": ["docs/"], "workflows": ["CI"],
     "operations": ["branch.create", "file.create", "pr.create", "ci.inspect"],
     "merge_enabled": False,
 }
 REQUEST = TargetRequest(
-    "HyungseonSong-plasma/codeQA", 123, "samuel/preflight", SHA,
+    "HyungseonSong-plasma/codeQA", 123, "main", "samuel/preflight", SHA,
     ("docs/preflight.md",), ("CI",), ("branch.create", "file.create", "pr.create", "ci.inspect"),
 )
 
@@ -47,7 +47,9 @@ class TargetPolicyTests(unittest.TestCase):
         self.check_denied(replace(REQUEST, base_sha="main"))
 
     def test_wrong_branch(self):
-        self.check_denied(replace(REQUEST, base_branch="main"))
+        self.check_denied(replace(REQUEST, base_branch="release"))
+        self.check_denied(replace(REQUEST, head_branch="main"))
+        self.check_denied(replace(REQUEST, head_branch="samuel/other"))
 
     def test_unknown_workflow(self):
         self.check_denied(replace(REQUEST, workflows=("Renamed CI",)))
