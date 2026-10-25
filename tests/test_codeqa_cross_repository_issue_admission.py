@@ -190,17 +190,17 @@ class CrossRepositoryIssueAdmissionTests(unittest.TestCase):
         # Exact heading topology independently observed in live codeQA #92,
         # not the generic source-Issue "## Acceptance" fixture.
         body = (
-            "## Deferred from B-scoped v0.2 acceptance: #70 and #71\\n\\n"
-            "### Acceptance\\n"
-            "- Obtain and pin actual external SDK/framework artifacts.\\n"
-            "- Separate STATIC_DECLARATION_MATCH and UNRESOLVED.\\n"
-            "- Preserve Naming v0.1/CCG/QA contracts.\\n\\n"
-            "### Existing partial deliverables\\n"
-            "- #70 PR #89 should NOT count as acceptance.\\n"
-            "### Done only when\\n"
-            "- A separate future condition should NOT count either.\\n"
-            "## Architecture alignment\\n"
-            "- Nor should any later section count.\\n"
+            "## Deferred from B-scoped v0.2 acceptance: #70 and #71\n\n"
+            "### Acceptance\n"
+            "- Obtain and pin actual external SDK/framework artifacts.\n"
+            "- Separate STATIC_DECLARATION_MATCH and UNRESOLVED.\n"
+            "- Preserve Naming v0.1/CCG/QA contracts.\n\n"
+            "### Existing partial deliverables\n"
+            "- #70 PR #89 should NOT count as acceptance.\n"
+            "### Done only when\n"
+            "- A separate future condition should NOT count either.\n"
+            "## Architecture alignment\n"
+            "- Nor should any later section count.\n"
         )
         expected = (
             "Obtain and pin actual external SDK/framework artifacts.",
@@ -216,16 +216,16 @@ class CrossRepositoryIssueAdmissionTests(unittest.TestCase):
 
     def test_flat_acceptance_heading_and_nested_sections(self):
         body = (
-            "## Acceptance\\n- First condition\\n"
-            "#### Nonacceptance subtopic\\n- Excluded item\\n"
+            "## Acceptance\n- First condition\n"
+            "#### Nonacceptance subtopic\n- Excluded item\n"
         )
         self.assertEqual(extract_target_issue_acceptance(body), ("First condition",))
 
     def test_duplicate_ambiguous_acceptance_section_blocks(self):
         body = (
-            "## Acceptance\\n- First\\n"
-            "### Existing partial deliverables\\n"
-            "### Acceptance\\n- Second\\n"
+            "## Acceptance\n- First\n"
+            "### Existing partial deliverables\n"
+            "### Acceptance\n- Second\n"
         )
         with self.assertRaisesRegex(CrossRepositoryAdmissionError, "ambiguous"):
             extract_target_issue_acceptance(body)
