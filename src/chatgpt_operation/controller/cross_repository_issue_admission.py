@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+from pathlib import Path
 from typing import Any, Mapping
 
 from .codeqa_governed_write import (
@@ -144,7 +145,7 @@ def admit_cross_repository_issue(
     # independently verified entrypoint supplies the explicit trust bit.
     planned = plan_admitted_issue(
         work,
-        registry=DecisionRegistry(),
+        registry=DecisionRegistry.load(Path('automation/samuel/decisions.json')),
         cross_repository_verified=True,
     )
     if planned.work_id != WORK_ID or planned.action_plan is not None:
