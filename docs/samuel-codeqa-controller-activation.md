@@ -136,3 +136,16 @@ task-routing tranche after this bounded E2E.
 
 This implementation does not grant auto-merge, background execution or
 unbounded Controller work. Never reuse the dispatch-only token for writing.
+
+### Failure and scope evidence
+
+The worker writes a structured result journal after each verified mutation,
+then after the Draft PR and exact-head CI checks. If CI or a later API read
+fails, the `HARD_STOP` artifact preserves previously confirmed operation IDs
+and PR identity rather than misrepresenting partial execution as no work.
+
+Before PR creation, codeQA's immutable base-to-current-head compare must
+report **exactly one newly added file** at the fixed
+`docs/samuel/220-controller-preflight.md` path. Unexpected modified files,
+unrelated files, stale main/head SHA, missing Draft state or ambiguous existing
+PRs reject the execution. The target is never merged by this workflow.
