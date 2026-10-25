@@ -229,6 +229,8 @@ class WorkflowStepTests(unittest.TestCase):
             def get(self, path):
                 if "/git/ref/heads/" in path:
                     return {"object": {"sha": sha}}
+                if "/compare/" in path:
+                    return {"files": [{"filename": PATH, "status": "added"}]}
                 if "/contents/" in path:
                     return {"type": "file"}
                 if "/pulls?" in path:
@@ -283,6 +285,24 @@ class WorkflowStepTests(unittest.TestCase):
                 raise AssertionError(path)
         with self.assertRaisesRegex(ValueError, "Draft PR failed exact-head/scope readback"):
             script["_create_draft_pr"](WrongHead(), proof)
+
+    def test_unrelated_target_file_blocks_draft_pr(self):
+        script = self.script()
+        proof = make_proof()
+        class MixedDiff:
+            def get(self, path):
+                if "/git/ref/heads/" in path:
+                    return {"object": {"sha": "d" * 40}}
+                if "/compare/" in path:
+                    return {"files": [
+                        {"filename": PATH, "status": "added"},
+                        {"filename": "src/unsafe.py", "status": "modified"},
+                    ]}
+                raise AssertionError("should block before creating PR or fetching files")
+            def call(self, method, path, payload):
+                raise AssertionError("unauthorized PR creation")
+        with self.assertRaisesRegex(ValueError, "unexpected PR file diff"):
+            script["_create_draft_pr"](MixedDiff(), proof)
 
     def test_ci_does_not_accept_unrelated_pr_branch(self):
         from unittest.mock import patch
