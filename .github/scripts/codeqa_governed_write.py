@@ -70,8 +70,17 @@ def _create_draft_pr(api: API, proof):
     branch_sha = head_ref.get("object", {}).get("sha")
     if not isinstance(branch_sha, str) or len(branch_sha) != 40:
         raise ValueError("missing exact branch head")
-    # Verify our planned file exists on this head, not merely that a branch
-    # could be created or some other actor pushed a different commit.
+    # Verify the *entire* proposed PR delta, not only the branch and one
+    # content API readback. Otherwise unrelated changes could hitchhike.
+    diff = api.get(
+        path + "/compare/" + proof.target_base_sha + "..." + branch_sha
+    )
+    changed = diff.get("files") if isinstance(diff, dict) else None
+    if (not isinstance(changed, list) or len(changed) != 1
+        or changed[0].get("filename") != PATH
+        or changed[0].get("status") != "added"
+        or diff.get("too_large") is True):
+        raise ValueError("unexpected PR file diff; refusing Draft PR")
     file = api.get(path + "/contents/" + quote(PATH, safe="/") + "?ref=" + quote(HEAD, safe=""))
     if file.get("type") != "file":
         raise ValueError("planned file not readable from target branch")
