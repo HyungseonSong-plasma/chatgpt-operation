@@ -130,7 +130,14 @@ def decode_ledger(body: str) -> ForeignWorkState:
 
 
 def select_authoritative_ledger(comments: list[dict[str, Any]]) -> tuple[int | None, ForeignWorkState | None]:
-    matches = [c for c in comments if isinstance(c,dict) and MARKER in str(c.get("body",""))]
+    # Only a ledger whose very first bytes are the canonical envelope is
+    # authoritative. Ordinary incident comments may quote the marker as text.
+    # A malformed leading marker still fails when decode_ledger runs.
+    matches = [
+        c for c in comments
+        if isinstance(c,dict) and isinstance(c.get("body"),str)
+        and c["body"].startswith(MARKER)
+    ]
     if len(matches) > 1:
         raise ForeignWorkError("ambiguous authoritative foreign ledgers")
     if not matches:

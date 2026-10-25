@@ -134,6 +134,82 @@ class DurableLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ForeignWorkError,"orphan"):
             ForeignWorkState.from_dict(raw)
 
+    def test_live_220_incident_comment_quoting_marker_is_not_second_ledger(self):
+        state=from_verified_admission(snapshot())
+        ledger={"id":6403217419,"body":encode_ledger(state),
+                "user":{"login":"github-actions[bot]","id":41898282}}
+        # Regression for the real run 40236219415: an assistant-written
+        # retrospective comment 6403235073 mentioned the literal marker,
+        # although it did not begin with a valid Ledger envelope.
+        retrospective={
+            "id":6403235073,
+            "user":{"login":"HyungseonSong-plasma","id":123},
+            "body":"Verified exactly ONE `<!-- samuel-codeqa-foreign-work-ledger-v1 -->` comment, ID 6403217419.",
+        }
+        self.assertIn(MARKER,retrospective["body"])
+        actual=select_authoritative_ledger([retrospective,ledger])
+        self.assertEqual(actual,(6403217419,state))
+        self.assertEqual(
+            select_authoritative_ledger([retrospective]),(None,None)
+        )
+        # A second genuine envelope remains an unambiguous HARD_STOP.
+        second={"id":6403217420,"body":encode_ledger(state),
+                "user":{"login":"github-actions[bot]","id":41898282}}
+        with self.assertRaisesRegex(ForeignWorkError,"ambiguous"):
+            select_authoritative_ledger([retrospective,ledger,second])
+        # Malformed leading marker is NOT ignored.
+        with self.assertRaisesRegex(ForeignWorkError,"marker"):
+            select_authoritative_ledger([{
+                "id":6403217419,"body":MARKER+" malformed",
+                "user":{"login":"github-actions[bot]","id":41898282},
+            }])
+
+    def test_actual_ledger_and_quoted_marker_can_enter_reviewed_base_rollover(self):
+        previous=from_verified_admission(snapshot())
+        stored={"id":6403217419,"body":encode_ledger(previous),
+                "user":{"login":"github-actions[bot]","id":41898282}}
+        report={"id":6403235073,
+                "body":"The marker was `<!-- samuel-codeqa-foreign-work-ledger-v1 -->`.",
+                "user":{"login":"HyungseonSong-plasma","id":189476866}}
+        _,authoritative=select_authoritative_ledger([stored,report])
+        changed=replace(snapshot(),target_base_sha="f"*40,
+                        verified_source_run_id=40236219415)
+        pending=reconcile_admission(authoritative,changed)
+        self.assertEqual(pending.phase,"revision_required")
+        self.assertEqual(pending.last_failure,"ADMISSION_FACTS_CHANGED")
+        reviewed=advance_reviewed_base(pending,changed)
+        self.assertEqual(reviewed.phase,"reasoning_required")
+        self.assertEqual(reviewed.base_sha,"f"*40)
+        self.assertEqual(reviewed.revision,2)
+        self.assertIsNone(reviewed.action_plan)
+
+    def test_foreign_cycle_receipt_codes_do_not_publish_untrusted_messages(self):
+        import runpy
+        import sys
+        from pathlib import Path
+        scripts=Path(".github/scripts").resolve()
+        sys.path.insert(0,str(scripts))
+        try:
+            mod=runpy.run_path(
+                str(scripts/"samuel_codeqa_foreign_cycle.py"),
+                run_name="safe_reason_test",
+            )
+        finally:
+            sys.path.pop(0)
+        classify=mod["safe_foreign_cycle_error"]
+        self.assertEqual(
+            classify(ForeignWorkError("ambiguous authoritative foreign ledgers")),
+            "DUPLICATE_CANONICAL_LEDGER",
+        )
+        self.assertEqual(
+            classify(ForeignWorkError("reviewed base transition preconditions not met")),
+            "ROLLOVER_PRECONDITION_FAILED",
+        )
+        self.assertEqual(
+            classify(ForeignWorkError("token value might be in arbitrary exception")),
+            "FOREIGN_STATE_VALIDATION_FAILED",
+        )
+
     def test_user_edited_comment_does_not_gain_controller_authority(self):
         state=from_verified_admission(snapshot())
         with self.assertRaisesRegex(ForeignWorkError,"authored"):
