@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 import hashlib
 import unittest
 
@@ -124,7 +125,7 @@ class CrossRepositoryIssueAdmissionTests(unittest.TestCase):
             )
         native = plan_admitted_issue(
             {"work_id": "issue:92", "title": "source-local"},
-            registry=DecisionRegistry(),
+            registry=DecisionRegistry.load(Path("automation/samuel/decisions.json")),
         )
         self.assertEqual(native.work_id, "issue:92")
 
