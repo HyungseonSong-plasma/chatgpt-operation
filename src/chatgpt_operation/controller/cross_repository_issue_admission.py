@@ -100,7 +100,9 @@ def extract_target_issue_acceptance(body: str) -> tuple[str, ...]:
             active_depth = len(match.group(1))
             continue
         header = any_heading.match(stripped)
-        if header and active_depth is not None and len(header.group(1)) <= active_depth:
+        # Acceptance is a flat list: a child heading also ends the section.
+        # Never include bullets from a later nested subtopic by accident.
+        if header and active_depth is not None:
             active_depth = None
         if active_depth is None:
             continue
