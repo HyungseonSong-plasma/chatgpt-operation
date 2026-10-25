@@ -1,0 +1,63 @@
+name: Samuel → codeQA Governed Draft PR Proof
+run-name: samuel-codeqa-write:source-${{ github.run_id }}
+
+on:
+  pull_request:
+    paths:
+      - 'automation/samuel/codeqa-write-target-candidate-v1.json'
+      - 'src/chatgpt_operation/controller/codeqa_governed_write.py'
+      - 'src/chatgpt_operation/controller/cross_repository_policy.py'
+      - 'src/chatgpt_operation/controller/cross_repository_live_attestation.py'
+      - '.github/scripts/codeqa_governed_write.py'
+      - '.github/workflows/samuel-codeqa-write-execute.yml'
+      - 'tests/test_codeqa_governed_write.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+
+concurrency:
+  group: samuel-codeqa-governed-write-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guarded-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact Controller revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test deterministic ActionPlan generation and denied scopes
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p 'test_codeqa_governed_write.py' -v
+          python -m unittest discover -s tests -p 'test_cross_repository_policy.py' -v
+          python -m unittest discover -s tests -p 'test_cross_repository_live_attestation.py' -v
+
+      - name: Execute only with protected mainline, enabled owner-reviewed policy and target write secret
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_CODEQA_WRITE_TOKEN: ${{ secrets.SAMUEL_CODEQA_WRITE_TOKEN }}
+        run: python .github/scripts/codeqa_governed_write.py
+
+      - name: Preserve typed execution receipt without token
+        if: always() && hashFiles('samuel-codeqa-write-result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-codeqa-write-receipt-${{ github.run_id }}
+          path: samuel-codeqa-write-result.json
+          if-no-files-found: error
+          retention-days: 30
