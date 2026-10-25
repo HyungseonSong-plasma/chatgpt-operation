@@ -82,3 +82,33 @@ def attest_live_target(
     except Exception:
         reasons.append("target_readback_failed")
     return LiveTargetAttestation(not reasons, tuple(reasons), repo_id, base_sha)
+
+def verify_controller_origin(
+    run: dict[str, Any],
+    *,
+    expected_run_id: int,
+    expected_sha: str,
+    actor: str = "HyungseonSong-plasma",
+    workflow_filename: str = "samuel-codeqa-write-preflight.yml",
+) -> bool:
+    """Validate independently fetched GitHub run; no plan-supplied self-attestation."""
+    if not isinstance(run, dict):
+        return False
+    repo = run.get("repository")
+    owner = run.get("actor")
+    path = run.get("path")
+    return (
+        type(expected_run_id) is int
+        and expected_run_id > 0
+        and type(run.get("id")) is int
+        and run["id"] == expected_run_id
+        and isinstance(repo, dict)
+        and repo.get("full_name") == "HyungseonSong-plasma/chatgpt-operation"
+        and isinstance(owner, dict)
+        and owner.get("login") == actor
+        and run.get("event") == "workflow_dispatch"
+        and run.get("head_branch") == "main"
+        and run.get("head_sha") == expected_sha
+        and isinstance(path, str)
+        and path.split("@", 1)[0] == ".github/workflows/" + workflow_filename
+    )
