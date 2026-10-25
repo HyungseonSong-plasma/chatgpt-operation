@@ -268,6 +268,18 @@ def validate_foreign_plan(plan: ActionPlan, policy: Mapping[str, Any]) -> None:
         raise ForeignWorkError("expected and desired conditions required")
     if not isinstance(desired.get("content"),str) or not desired["content"]:
         raise ForeignWorkError("nonempty desired file content required")
+    if (len(desired["content"].encode("utf-8")) > 32768
+        or not isinstance(p.get("commit_message"),str)
+        or not p["commit_message"].strip()
+        or plan.stage.value != "execute"
+        or plan.decision_risk is not None):
+        raise ForeignWorkError("foreign proposal exceeds executable action contract")
+    if (action == "create" and expected != {"absent": True}
+        or action == "update" and
+           (set(expected) != {"sha"}
+            or not isinstance(expected.get("sha"),str)
+            or len(expected["sha"]) != 40)):
+        raise ForeignWorkError("foreign file precondition is not exact")
     from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
     to_repository_manifest(plan,expected_repository=TARGET)
 
