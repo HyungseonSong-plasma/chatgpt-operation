@@ -7,7 +7,7 @@ import hashlib
 import unittest
 
 from chatgpt_operation.controller.cross_repository_issue_admission import (
-    CrossRepositoryAdmissionError, admit_cross_repository_issue,
+    CrossRepositoryAdmissionError, admit_cross_repository_issue, extract_target_issue_acceptance,
     serialise_admission, SOURCE, TARGET, WORK_ID,
 )
 from chatgpt_operation.controller.issue_planning import plan_admitted_issue
@@ -184,6 +184,81 @@ class CrossRepositoryIssueAdmissionTests(unittest.TestCase):
         self.assertEqual(context["acceptance_criteria"], ["Pin real SDK"])
         self.assertFalse(context["completion_allowed"])
         self.assertNotIn("GITHUB_TOKEN", serialise_admission(snap, context))
+
+
+    def test_real_issue92_nested_acceptance_heading_and_boundaries(self):
+        # Exact heading topology independently observed in live codeQA #92,
+        # not the generic source-Issue "## Acceptance" fixture.
+        body = (
+            "## Deferred from B-scoped v0.2 acceptance: #70 and #71\n\n"
+            "### Acceptance\n"
+            "- Obtain and pin actual external SDK/framework artifacts.\n"
+            "- Separate STATIC_DECLARATION_MATCH and UNRESOLVED.\n"
+            "- Preserve Naming v0.1/CCG/QA contracts.\n\n"
+            "### Existing partial deliverables\n"
+            "- #70 PR #89 should NOT count as acceptance.\n"
+            "### Done only when\n"
+            "- A separate future condition should NOT count either.\n"
+            "## Architecture alignment\n"
+            "- Nor should any later section count.\n"
+        )
+        expected = (
+            "Obtain and pin actual external SDK/framework artifacts.",
+            "Separate STATIC_DECLARATION_MATCH and UNRESOLVED.",
+            "Preserve Naming v0.1/CCG/QA contracts.",
+        )
+        self.assertEqual(extract_target_issue_acceptance(body), expected)
+        snap, context = prepare(target_issue=issue(TARGET, 92, body))
+        self.assertEqual(snap.acceptance_criteria, expected)
+        self.assertEqual(context["acceptance_criteria"], list(expected))
+        self.assertEqual(context["unverified_acceptance_criteria"], list(expected))
+        self.assertIsNone(snap.action_plan)
+
+    def test_flat_acceptance_heading_and_nested_sections(self):
+        body = (
+            "## Acceptance\n- First condition\n"
+            "#### Nonacceptance subtopic\n- Excluded item\n"
+        )
+        self.assertEqual(extract_target_issue_acceptance(body), ("First condition",))
+
+    def test_duplicate_ambiguous_acceptance_section_blocks(self):
+        body = (
+            "## Acceptance\n- First\n"
+            "### Existing partial deliverables\n"
+            "### Acceptance\n- Second\n"
+        )
+        with self.assertRaisesRegex(CrossRepositoryAdmissionError, "ambiguous"):
+            extract_target_issue_acceptance(body)
+
+    def test_failure_receipt_has_constant_only_safe_reason(self):
+        import runpy
+        import sys
+        from pathlib import Path
+        scripts = Path(".github/scripts").resolve()
+        sys.path.insert(0, str(scripts))
+        try:
+            script = runpy.run_path(
+                str(scripts / "samuel_codeqa_issue_plan.py"),
+                run_name="admission_test",
+            )
+        finally:
+            sys.path.pop(0)
+        safe = script["safe_admission_reason"]
+        self.assertEqual(
+            safe(CrossRepositoryAdmissionError("target acceptance criteria absent")),
+            "TARGET_ACCEPTANCE_SECTION_MISSING",
+        )
+        self.assertEqual(
+            safe(CrossRepositoryAdmissionError(
+                "target identity/readback denied: target_readback_failed"
+            )),
+            "TARGET_ATTESTATION_DENIED",
+        )
+        self.assertEqual(
+            safe(CrossRepositoryAdmissionError("secret-from-untrusted-exception")),
+            "OTHER_ADMISSION_ERROR",
+        )
+        self.assertEqual(safe(RuntimeError("token=do-not-record")), "NON_ADMISSION_ERROR")
 
     def test_missing_actual_acceptance_blocks_admission(self):
         with self.assertRaisesRegex(CrossRepositoryAdmissionError, "criteria"):
