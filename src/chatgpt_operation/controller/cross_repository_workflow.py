@@ -105,8 +105,9 @@ class ForeignWorkState:
         if raw["phase"]=="ci_verified" and (
             not isinstance(raw["target_pr"],dict)
             or not raw["ci_evidence"]
-            or any(item.get("conclusion")!="success" or item.get("status")!="completed"
-                   for item in raw["ci_evidence"] if isinstance(item,dict))
+            or any(not isinstance(item,dict)
+                   or item.get("conclusion")!="success" or item.get("status")!="completed"
+                   for item in raw["ci_evidence"])
         ):
             raise ForeignWorkError("completed CI phase lacks independent success evidence")
         return cls(
