@@ -43,7 +43,8 @@ def verify_proposal_preflight(
 ) -> None:
     """Require actual, unchanged source/target facts BEFORE invoking the LLM."""
     if (
-        state.work_id != WORK_ID
+        not isinstance(state, ForeignWorkState)
+        or state.work_id != WORK_ID
         or state.phase != "reasoning_required"
         or state.action_plan is not None
         or state.action_id is not None
