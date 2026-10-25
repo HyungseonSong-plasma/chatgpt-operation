@@ -401,6 +401,7 @@ def github_native_dispatch(args: argparse.Namespace) -> int:
     try:
         raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
         plan = ActionPlan.from_dict(raw)
+        require_native_repository_scope(args.repository, os.environ.get("GITHUB_REPOSITORY"))
         transport = GitHubActionsTransport(
             args.repository, token, api_url=args.api_url, api_version=args.api_version
         )
@@ -413,7 +414,7 @@ def github_native_dispatch(args: argparse.Namespace) -> int:
             timeout_seconds=args.timeout,
             poll_interval_seconds=args.poll_interval,
         )
-    except (OSError, json.JSONDecodeError, ActionPlanError, ActionsRuntimeError, NativeOrchestrationError) as exc:
+    except (OSError, json.JSONDecodeError, ActionPlanError, ActionsRuntimeError, NativeOrchestrationError, NativeRepositoryBoundaryError) as exc:
         print(f"GITHUB_NATIVE_DISPATCH=HARD_STOP {exc}", file=sys.stderr)
         return 2
     print("GITHUB_NATIVE_DISPATCH=PASS")
