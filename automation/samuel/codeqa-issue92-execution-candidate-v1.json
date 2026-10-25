@@ -5,7 +5,7 @@
   "repository": "HyungseonSong-plasma/codeQA",
   "repository_id": 1424293498,
   "base_branch": "main",
-  "base_sha": "489f42e86f17a051d2c6d5843d56a809c994c2ed",
+  "base_sha": "f7859c7f742ba55025bf1633ef7438d18e8a9416",
   "head_branch": "samuel/92-governed-implementation",
   "path_prefixes": [
     "fixtures/python-sdk/",
