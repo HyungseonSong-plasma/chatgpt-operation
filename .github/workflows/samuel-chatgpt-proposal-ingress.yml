@@ -1,0 +1,65 @@
+name: Samuel ChatGPT Scheduled Proposal Ingress
+run-name: samuel-chatgpt-issue92:source-${{ github.run_id }}
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/samuel-chatgpt-proposal-ingress.yml'
+      - '.github/scripts/samuel_chatgpt_proposal_ingress.py'
+      - 'src/chatgpt_operation/controller/chatgpt_scheduled_proposal.py'
+      - 'tests/test_chatgpt_scheduled_proposal.py'
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: samuel-codeqa-foreign-cycle
+  cancel-in-progress: false
+
+jobs:
+  scheduled-proposal-ingress:
+    if: >-
+      github.event_name == 'pull_request'
+      || (
+        github.event_name == 'issue_comment'
+        && github.event.issue.number == 220
+        && github.event.comment.user.login == 'HyungseonSong-plasma'
+        && startsWith(github.event.comment.body, '<!-- samuel-chatgpt-proposal-v1 -->')
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact Samuel source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test owner origin, pinned scope, revision and no auto-execution
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p 'test_chatgpt_scheduled_proposal.py' -v
+          python -m unittest discover -s tests -p 'test_cross_repository_proposal.py' -v
+          python -m py_compile .github/scripts/samuel_chatgpt_proposal_ingress.py
+      - name: Persist separately reviewed ChatGPT proposal
+        if: ${{ github.event_name == 'issue_comment' }}
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_CODEQA_WRITE_TOKEN: ${{ secrets.SAMUEL_CODEQA_WRITE_TOKEN }}
+        run: python .github/scripts/samuel_chatgpt_proposal_ingress.py
+      - name: Preserve source-owned receipt
+        if: always() && hashFiles('samuel-chatgpt-proposal-receipt.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-chatgpt-proposal-receipt-${{ github.run_id }}
+          path: samuel-chatgpt-proposal-receipt.json
+          if-no-files-found: error
+          retention-days: 30
