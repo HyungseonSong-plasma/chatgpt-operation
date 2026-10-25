@@ -8,7 +8,7 @@ This is a preflight lane, NOT general codeQA Issue automation or merge authority
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Callable
 
 from chatgpt_operation.controller.action_plan import ActionPlan
 from chatgpt_operation.controller.cross_repository_live_attestation import (
@@ -198,7 +198,10 @@ def repository_policy() -> dict[str, Any]:
     }
 
 
-def execute_branch_and_file(proof: WriteProof, *, transport: GitHubTransport) -> list[dict[str, Any]]:
+def execute_branch_and_file(
+    proof: WriteProof, *, transport: GitHubTransport,
+    on_result: Callable[[dict[str, Any]], None] | None = None,
+) -> list[dict[str, Any]]:
     """Execute only the two independently validated ActionPlans, with readback."""
     policy = parse_policy(repository_policy())
     engine = Engine(transport, repository=TARGET, policy=policy)
@@ -208,8 +211,11 @@ def execute_branch_and_file(proof: WriteProof, *, transport: GitHubTransport) ->
         result = engine.execute(manifest)
         if result.get("status") not in ("PASS", "NO_MUTATION_NEEDED"):
             raise CodeQAWriteError("unexpected target mutation outcome")
-        records.append({
+        record = {
             "action_id": action.idempotency_key, "operation_id": manifest.operation_id,
             "status": result["status"], "result_identity": result.get("result_identity"),
-        })
+        }
+        records.append(record)
+        if on_result is not None:
+            on_result(dict(record))
     return records
