@@ -17,6 +17,7 @@ from chatgpt_operation.controller.cross_repository_issue_admission import (
 )
 from chatgpt_operation.controller.cross_repository_workflow import (
     ForeignWorkState, MARKER, decode_ledger, encode_ledger, select_authoritative_ledger,
+    advance_reviewed_base,
 )
 from chatgpt_operation.controller.decisions import DecisionRegistry
 from chatgpt_operation.controller.reasoning_provider import ReasoningProviderRegistry
@@ -127,6 +128,9 @@ def run() -> dict:
         or planned.get("execution_authorized") is not False):
         raise ForeignCycleError("foreign controller unexpectedly authorized execution")
     proposed=ForeignWorkState.from_dict(planned["foreign_ledger"])
+    approved_rollover=os.environ.get("SAMUEL_APPROVE_BASE_ROLLOVER")=="true"
+    if approved_rollover:
+        proposed=advance_reviewed_base(proposed,snapshot)
     proof=_cas_write(source,comments,proposed)
     return {
         "schema_version":1,"status":"FOREIGN_LEDGER_CYCLE_VERIFIED",
@@ -137,6 +141,7 @@ def run() -> dict:
         "ledger_write":proof,"action_plan":proposed.action_plan,
         "target_mutation_performed":False,"merge_authorized":False,
         "execution_policy_enabled":False,
+        "reviewed_base_transition":approved_rollover,
     }
 
 
