@@ -134,6 +134,36 @@ class DurableLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ForeignWorkError,"orphan"):
             ForeignWorkState.from_dict(raw)
 
+    def test_live_220_incident_comment_quoting_marker_is_not_second_ledger(self):
+        state=from_verified_admission(snapshot())
+        ledger={"id":6403217419,"body":encode_ledger(state),
+                "user":{"login":"github-actions[bot]","id":41898282}}
+        # Regression for the real run 40236219415: an assistant-written
+        # retrospective comment 6403235073 mentioned the literal marker,
+        # although it did not begin with a valid Ledger envelope.
+        retrospective={
+            "id":6403235073,
+            "user":{"login":"HyungseonSong-plasma","id":123},
+            "body":"Verified exactly ONE `<!-- samuel-codeqa-foreign-work-ledger-v1 -->` comment, ID 6403217419.",
+        }
+        self.assertIn(MARKER,retrospective["body"])
+        actual=select_authoritative_ledger([retrospective,ledger])
+        self.assertEqual(actual,(6403217419,state))
+        self.assertEqual(
+            select_authoritative_ledger([retrospective]),(None,None)
+        )
+        # A second genuine envelope remains an unambiguous HARD_STOP.
+        second={"id":6403217420,"body":encode_ledger(state),
+                "user":{"login":"github-actions[bot]","id":41898282}}
+        with self.assertRaisesRegex(ForeignWorkError,"ambiguous"):
+            select_authoritative_ledger([retrospective,ledger,second])
+        # Malformed leading marker is NOT ignored.
+        with self.assertRaisesRegex(ForeignWorkError,"marker"):
+            select_authoritative_ledger([{
+                "id":6403217419,"body":MARKER+" malformed",
+                "user":{"login":"github-actions[bot]","id":41898282},
+            }])
+
     def test_user_edited_comment_does_not_gain_controller_authority(self):
         state=from_verified_admission(snapshot())
         with self.assertRaisesRegex(ForeignWorkError,"authored"):
