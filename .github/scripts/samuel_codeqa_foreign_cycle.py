@@ -158,6 +158,8 @@ def run() -> dict:
         # Must pass LIVE state/data inspection before any LLM call.
         target_main=target.get(target_path+"/git/ref/heads/main")
         target_sha=target_main.get("object",{}).get("sha")
+        if target_sha != snapshot.target_base_sha:
+            raise ProposalPreflightError("target base moved before proposal")
         verify_proposal_preflight(
             before,snapshot,future_policy,
             target_main_sha=target_sha,
