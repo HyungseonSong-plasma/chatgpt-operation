@@ -63,6 +63,9 @@ from chatgpt_operation.controller.qualification_gate import (
     load_qualification_policy,
 )
 from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
+from chatgpt_operation.controller.native_repository_boundary import (
+    NativeRepositoryBoundaryError, require_native_repository_scope,
+)
 from chatgpt_operation.github.native_orchestration import NativeOrchestrationError, dispatch_native_plan
 from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
 from chatgpt_operation.repository.mutation import (
@@ -337,6 +340,7 @@ def github_native_execute(args: argparse.Namespace) -> int:
     try:
         raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
         plan = ActionPlan.from_dict(raw)
+        require_native_repository_scope(args.repository, os.environ.get("GITHUB_REPOSITORY"))
         transport = GitHubNativeTransport(
             repository=args.repository,
             token=token,
@@ -377,7 +381,7 @@ def github_native_execute(args: argparse.Namespace) -> int:
                 "available_providers":[],
             },
         )
-    except (OSError, json.JSONDecodeError, ActionPlanError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
+    except (OSError, json.JSONDecodeError, ActionPlanError, NativeRepositoryBoundaryError, NativeGitHubError, NativeGitHubRuntimeError) as exc:
         print(f"GITHUB_NATIVE_EXECUTION_ERROR: {exc}", file=sys.stderr)
         return 2
     if bool(getattr(args, "recovery_state", None)) != bool(getattr(args, "recovery_authorization", None)):
@@ -397,6 +401,7 @@ def github_native_dispatch(args: argparse.Namespace) -> int:
     try:
         raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
         plan = ActionPlan.from_dict(raw)
+        require_native_repository_scope(args.repository, os.environ.get("GITHUB_REPOSITORY"))
         transport = GitHubActionsTransport(
             args.repository, token, api_url=args.api_url, api_version=args.api_version
         )
@@ -409,7 +414,7 @@ def github_native_dispatch(args: argparse.Namespace) -> int:
             timeout_seconds=args.timeout,
             poll_interval_seconds=args.poll_interval,
         )
-    except (OSError, json.JSONDecodeError, ActionPlanError, ActionsRuntimeError, NativeOrchestrationError) as exc:
+    except (OSError, json.JSONDecodeError, ActionPlanError, ActionsRuntimeError, NativeOrchestrationError, NativeRepositoryBoundaryError) as exc:
         print(f"GITHUB_NATIVE_DISPATCH=HARD_STOP {exc}", file=sys.stderr)
         return 2
     print("GITHUB_NATIVE_DISPATCH=PASS")

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "policy_id": "samuel-codeqa-write-preflight-candidate-v1",
+  "enabled": false,
+  "repository": "HyungseonSong-plasma/codeQA",
+  "repository_id": 1424293498,
+  "base_branch": "main",
+  "head_branch": "samuel/220-controller-crossrepo-preflight",
+  "base_sha": "b48b50e00e0be6dd2b66181a8deed046a2c18ce0",
+  "path_prefixes": [
+    "docs/samuel/"
+  ],
+  "workflows": [
+    "layout.yml"
+  ],
+  "operations": [
+    "branch.create",
+    "file.create",
+    "pr.create",
+    "ci.inspect"
+  ],
+  "merge_enabled": false,
+  "authorization_source": "OWNER_REVIEW_AND_INDEPENDENT_GITHUB_WORKFLOW_ATTESTATION_REQUIRED",
+  "credential_name": "SAMUEL_CODEQA_WRITE_TOKEN",
+  "notes": "DISABLED pending owner-reviewed explicit approval, target-scoped write credential and source-main deployment; single fixed docs witness and draft PR only, never merge. Source run must be manually dispatched."
+}
