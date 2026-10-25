@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,7 +21,6 @@ from .cross_repository_live_attestation import (
 from .cross_repository_policy import TargetRequest
 from .decisions import DecisionRegistry
 from .issue_planning import plan_admitted_issue
-from .preflight import extract_acceptance_criteria
 
 INGRESS_WORKFLOW = "samuel-codeqa-issue-plan.yml"
 TARGET_ISSUE_NUMBER = 92
@@ -71,6 +71,49 @@ class CrossRepositoryIssueSnapshot:
             "action_plan": None,
             "merge_authorized": False,
         }
+
+
+def extract_target_issue_acceptance(body: str) -> tuple[str, ...]:
+    """Read one exact Acceptance section at heading depth 2 or 3.
+
+    codeQA #92 has a level-3 Acceptance heading beneath its parent
+    level-2 Deferred heading. Samuel's source-Issue parser only supports
+    a level-2 heading and remains unchanged.
+    Stop at the next same- or higher-level heading to avoid admitting
+    "Existing partial deliverables" or unrelated notes as requirements.
+    """
+    if not isinstance(body, str) or not body.strip():
+        return ()
+    heading = re.compile(r"^(#{2,3})[ \t]+Acceptance[ \t]*$", re.IGNORECASE)
+    any_heading = re.compile(r"^(#{1,6})[ \t]+")
+    bullet = re.compile(r"^-[ \t]+(?:\\[[ xX]\\][ \t]+)?(.+?)[ \t]*$")
+    criteria: list[str] = []
+    active_depth: int | None = None
+    seen = False
+    for raw in body.splitlines():
+        stripped = raw.strip()
+        match = heading.fullmatch(stripped)
+        if match:
+            if seen:
+                raise CrossRepositoryAdmissionError("ambiguous acceptance section")
+            seen = True
+            active_depth = len(match.group(1))
+            continue
+        header = any_heading.match(stripped)
+        if header and active_depth is not None and len(header.group(1)) <= active_depth:
+            active_depth = None
+        if active_depth is None:
+            continue
+        # Only section-level bullets are accepted; nested sublists and
+        # untrusted prose are not promoted into criteria.
+        if raw != raw.lstrip():
+            continue
+        item = bullet.fullmatch(stripped)
+        if item:
+            value = item.group(1).strip()
+            if value and value not in criteria:
+                criteria.append(value)
+    return tuple(criteria)
 
 
 def _verified_issue(payload: Mapping[str, Any], repository: str, number: int) -> None:
@@ -130,7 +173,7 @@ def admit_cross_repository_issue(
         )
 
     body = target_issue["body"]
-    criteria = extract_acceptance_criteria(body)
+    criteria = extract_target_issue_acceptance(body)
     if not criteria:
         raise CrossRepositoryAdmissionError("target acceptance criteria absent")
     work = {
