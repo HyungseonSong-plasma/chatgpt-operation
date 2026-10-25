@@ -1,0 +1,50 @@
+name: Samuel → codeQA Write Readiness (no mutation)
+run-name: samuel-codeqa-write-readiness:source-${{ github.run_id }}
+
+on:
+  pull_request:
+    paths:
+      - 'automation/samuel/codeqa-write-target-candidate-v1.json'
+      - 'src/chatgpt_operation/controller/cross_repository_live_attestation.py'
+      - '.github/scripts/codeqa_write_readiness.py'
+      - '.github/workflows/samuel-codeqa-write-preflight.yml'
+      - 'tests/test_cross_repository_live_attestation.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  actions: read
+
+concurrency:
+  group: samuel-codeqa-write-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  read-only-target-credential-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact Controller SHA
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test fail-closed attestation
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p 'test_cross_repository_live_attestation.py' -v
+      - name: Verify owner-run and target-scoped token against actual GitHub API (zero writes)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_CODEQA_WRITE_TOKEN: ${{ secrets.SAMUEL_CODEQA_WRITE_TOKEN }}
+        run: python .github/scripts/codeqa_write_readiness.py
+      - name: Upload result without credentials
+        if: always() && hashFiles('samuel-codeqa-write-readiness.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-codeqa-write-readiness-${{ github.run_id }}
+          path: samuel-codeqa-write-readiness.json
+          if-no-files-found: error
+          retention-days: 30
