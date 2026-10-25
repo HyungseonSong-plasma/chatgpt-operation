@@ -12,11 +12,31 @@ from pathlib import Path
 
 from codeqa_governed_write import API, POLICY_FILE, SOURCE, TARGET, _identity_env
 from chatgpt_operation.controller.cross_repository_issue_admission import (
+    CrossRepositoryAdmissionError,
     admit_cross_repository_issue,
     serialise_admission,
 )
 
 RESULT_FILE = Path("samuel-codeqa-issue-admission.json")
+
+# Constant-only error codes: never upload token, response body or untrusted
+# exception text. The previous live failure recorded only the exception type.
+_SAFE_ADMISSION_REASONS = {
+    "target acceptance criteria absent": "TARGET_ACCEPTANCE_SECTION_MISSING",
+    "ambiguous acceptance section": "AMBIGUOUS_ACCEPTANCE_SECTION",
+    "unverified Controller planning workflow": "UNVERIFIED_SOURCE_WORKFLOW",
+    "live GitHub Issue identity invalid": "LIVE_ISSUE_IDENTITY_INVALID",
+    "untrusted executable plan in admission": "UNTRUSTED_ACTION_PLAN_BLOCKED",
+}
+
+
+def safe_admission_reason(exc: Exception) -> str:
+    if isinstance(exc, CrossRepositoryAdmissionError):
+        message = str(exc)
+        if message.startswith("target identity/readback denied:"):
+            return "TARGET_ATTESTATION_DENIED"
+        return _SAFE_ADMISSION_REASONS.get(message, "OTHER_ADMISSION_ERROR")
+    return "NON_ADMISSION_ERROR"
 
 
 def run() -> dict:
@@ -51,6 +71,7 @@ def main() -> int:
             "schema_version": 1,
             "status": "HARD_STOP",
             "error_type": type(exc).__name__,
+            "error_code": safe_admission_reason(exc),
             "action_plan": None,
             "target_mutation_performed": False,
             "merge_authorized": False,
