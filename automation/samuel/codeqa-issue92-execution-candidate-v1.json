@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "policy_id": "samuel-codeqa-issue92-execution-v1",
+  "enabled": false,
+  "repository": "HyungseonSong-plasma/codeQA",
+  "repository_id": 1424293498,
+  "base_branch": "main",
+  "base_sha": "b48b50e00e0be6dd2b66181a8deed046a2c18ce0",
+  "head_branch": "samuel/92-governed-implementation",
+  "path_prefixes": [
+    "src/codeqa/",
+    "tests/",
+    "fixtures/python-sdk/",
+    "docs/"
+  ],
+  "executor_workflow": "samuel-codeqa-issue-execute.yml",
+  "required_workflows": [
+    "layout.yml",
+    "pinned-python-sdk.yml",
+    "self-audit.yml",
+    "semgrep-gate.yml"
+  ],
+  "operations": [
+    "file.create",
+    "file.update",
+    "pr.create",
+    "ci.inspect"
+  ],
+  "merge_enabled": false,
+  "notes": "DISABLED CANDIDATE. Requires separate target-owned workflow implementation, reviewed codeQA code-mutation policy, and independent owner approval before any target source/test writes. Existing doc-only proof permission cannot authorize this lane."
+}

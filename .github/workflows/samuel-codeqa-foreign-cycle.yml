@@ -1,0 +1,58 @@
+name: Samuel → codeQA Durable Issue #92 Cycle
+run-name: samuel-codeqa-foreign-cycle:source-${{ github.run_id }}
+
+on:
+  pull_request:
+    paths:
+      - 'src/chatgpt_operation/controller/cross_repository_workflow.py'
+      - 'src/chatgpt_operation/controller/cross_repository_execution_gateway.py'
+      - 'src/chatgpt_operation/controller/runtime.py'
+      - 'automation/samuel/codeqa-issue92-execution-candidate-v1.json'
+      - '.github/scripts/samuel_codeqa_foreign_cycle.py'
+      - '.github/workflows/samuel-codeqa-foreign-cycle.yml'
+      - 'tests/test_cross_repository_workflow.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: samuel-codeqa-foreign-cycle
+  cancel-in-progress: false
+
+jobs:
+  governed-cycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact Samuel source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test durable state, ActionPlan gates and exact-head CI revision
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p 'test_cross_repository_workflow.py' -v
+          python -m unittest discover -s tests -p 'test_codeqa_cross_repository_issue_admission.py' -v
+      - name: Perform verified source-ledger cycle only
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_CODEQA_WRITE_TOKEN: ${{ secrets.SAMUEL_CODEQA_WRITE_TOKEN }}
+        run: python .github/scripts/samuel_codeqa_foreign_cycle.py
+      - name: Preserve source-owned cycle receipt
+        if: always() && hashFiles('samuel-codeqa-foreign-cycle.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-codeqa-foreign-cycle-${{ github.run_id }}
+          path: samuel-codeqa-foreign-cycle.json
+          if-no-files-found: error
+          retention-days: 30
