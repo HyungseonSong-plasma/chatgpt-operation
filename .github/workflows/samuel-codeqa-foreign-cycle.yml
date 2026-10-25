@@ -12,6 +12,12 @@ on:
       - '.github/workflows/samuel-codeqa-foreign-cycle.yml'
       - 'tests/test_cross_repository_workflow.py'
   workflow_dispatch:
+    inputs:
+      approve_target_base_rollover:
+        description: Confirm new codeQA main for unchanged Issue and empty prior work
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -46,6 +52,7 @@ jobs:
         env:
           PYTHONPATH: src
           GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_APPROVE_BASE_ROLLOVER: ${{ inputs.approve_target_base_rollover }}
           SAMUEL_CODEQA_WRITE_TOKEN: ${{ secrets.SAMUEL_CODEQA_WRITE_TOKEN }}
         run: python .github/scripts/samuel_codeqa_foreign_cycle.py
       - name: Preserve source-owned cycle receipt

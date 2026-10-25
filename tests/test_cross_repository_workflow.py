@@ -13,7 +13,7 @@ from chatgpt_operation.controller.cross_repository_issue_admission import CrossR
 from chatgpt_operation.controller.cross_repository_workflow import (
     WORK_ID, TARGET, MARKER, ForeignWorkError, ForeignWorkState,
     digest, encode_ledger, decode_ledger, select_authoritative_ledger,
-    from_verified_admission, reconcile_admission, plan_next_cycle,
+    from_verified_admission, reconcile_admission, advance_reviewed_base, plan_next_cycle,
     review_for_dispatch, record_dispatch, observe_pr_ci,validate_foreign_plan,
 )
 from chatgpt_operation.controller.cross_repository_execution_gateway import (
@@ -165,6 +165,34 @@ class DurableLedgerTests(unittest.TestCase):
                 self.assertEqual(revised.last_failure,"ADMISSION_FACTS_CHANGED")
                 self.assertIsNone(revised.action_plan)
                 self.assertEqual(reconcile_admission(revised,changed),revised)
+
+    def test_owner_can_review_new_main_only_for_empty_unchanged_work(self):
+        before=from_verified_admission(snapshot())
+        new_snapshot=replace(
+            snapshot(),target_base_sha="f"*40,verified_source_run_id=40240000000
+        )
+        drift=reconcile_admission(before,new_snapshot)
+        self.assertEqual(drift.phase,"revision_required")
+        moved=advance_reviewed_base(drift,new_snapshot)
+        self.assertEqual(moved.phase,"reasoning_required")
+        self.assertEqual(moved.base_sha,"f"*40)
+        self.assertEqual(moved.revision,drift.revision+1)
+        self.assertEqual(moved.admission_run_id,40240000000)
+        self.assertIsNone(moved.action_plan)
+        with self.assertRaisesRegex(ForeignWorkError,"preconditions"):
+            advance_reviewed_base(before,new_snapshot)
+        with self.assertRaisesRegex(ForeignWorkError,"preconditions"):
+            advance_reviewed_base(
+                drift,replace(new_snapshot,issue_body_sha256="c"*64)
+            )
+        with self.assertRaisesRegex(ForeignWorkError,"preconditions"):
+            advance_reviewed_base(
+                replace(drift,receipt={"workflow_run_id":500}),new_snapshot
+            )
+        with self.assertRaisesRegex(ForeignWorkError,"preconditions"):
+            advance_reviewed_base(
+                replace(drift,action_id="d"*64),new_snapshot
+            )
 
     def test_actual_samuel_run_cycle_foreign_branch_is_separate(self):
         ctrl=SamuelController(decisions=decisions(),
