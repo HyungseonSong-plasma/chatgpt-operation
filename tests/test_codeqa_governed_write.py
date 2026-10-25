@@ -320,3 +320,72 @@ class WorkflowStepTests(unittest.TestCase):
         with patch.object(script["time"], "sleep", side_effect=ValueError("unmatched")):
             with self.assertRaisesRegex(ValueError, "unmatched"):
                 script["_verify_ci"](WrongBranch(), pr_number=77, head_sha="d" * 40)
+
+class TransportAuditTests(unittest.TestCase):
+    def script(self):
+        from pathlib import Path
+        import runpy
+        return runpy.run_path(
+            str(Path(__file__).resolve().parents[1] / ".github/scripts/codeqa_governed_write.py"),
+            run_name="audited_test",
+        )
+
+    def test_attempted_calls_recorded_without_tokens(self):
+        constructor = self.script()["AuditedMutationTransport"]
+        delegate = FakeRepositoryTransport()
+        calls = []
+        transport = constructor(delegate, lambda method, path: calls.append((method, path)))
+        proof = make_proof()
+        results = execute_branch_and_file(proof, transport=transport)
+        self.assertEqual([x["status"] for x in results], ["PASS", "PASS"])
+        self.assertEqual(calls, [
+            ("GET", "/git/ref/heads/" + HEAD),
+            ("POST", "/git/refs"),
+            ("GET", "/git/ref/heads/" + HEAD),
+            ("GET", "/contents/" + PATH),
+            ("PUT", "/contents/" + PATH),
+            ("GET", "/contents/" + PATH),
+        ])
+        self.assertNotIn("token", repr(calls).lower())
+
+    def test_unexpected_endpoint_denied_before_network(self):
+        constructor = self.script()["AuditedMutationTransport"]
+        class NoNetwork:
+            def get(self, *args, **kwargs):
+                raise AssertionError("should not call network")
+            def request(self, *args, **kwargs):
+                raise AssertionError("should not call network")
+        journal = []
+        transport = constructor(NoNetwork(), lambda method, path: journal.append((method, path)))
+        with self.assertRaisesRegex(ValueError, "unexpected"):
+            transport.get("/git/ref/heads/main")
+        with self.assertRaisesRegex(ValueError, "unexpected"):
+            transport.request("DELETE", "/contents/" + PATH, payload={})
+        self.assertEqual(journal, [])
+
+    def test_http_status_recorded_without_server_message(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from chatgpt_operation.repository.mutation import ApiError
+        import json
+        script = self.script()
+        entry = script["main"]
+        namespace = entry.__globals__
+        with TemporaryDirectory() as directory:
+            old_run = namespace["run"]
+            old_file = namespace["RESULT_FILE"]
+            try:
+                def denied():
+                    raise ApiError("secret-should-never-appear-in-receipt", status=403)
+                namespace["run"] = denied
+                namespace["RESULT_FILE"] = Path(directory) / "result.json"
+                rc = entry()
+                written = json.loads(namespace["RESULT_FILE"].read_text())
+                self.assertEqual(rc, 2)
+                self.assertEqual(written["status"], "HARD_STOP")
+                self.assertEqual(written["api_http_status"], 403)
+                self.assertEqual(written["error_type"], "ApiError")
+                self.assertNotIn("secret-should-never-appear", json.dumps(written))
+            finally:
+                namespace["run"] = old_run
+                namespace["RESULT_FILE"] = old_file
