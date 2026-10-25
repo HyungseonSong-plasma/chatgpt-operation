@@ -276,6 +276,8 @@ class WorkflowStepTests(unittest.TestCase):
             def get(self, path):
                 if "/git/ref/heads/" in path:
                     return {"object": {"sha": "d" * 40}}
+                if "/compare/" in path:
+                    return {"files": [{"filename": PATH, "status": "added"}]}
                 if "/contents/" in path:
                     return {"type": "file"}
                 if "/pulls?" in path:
