@@ -230,6 +230,36 @@ class CrossRepositoryIssueAdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(CrossRepositoryAdmissionError, "ambiguous"):
             extract_target_issue_acceptance(body)
 
+    def test_failure_receipt_has_constant_only_safe_reason(self):
+        import runpy
+        import sys
+        from pathlib import Path
+        scripts = Path(".github/scripts").resolve()
+        sys.path.insert(0, str(scripts))
+        try:
+            script = runpy.run_path(
+                str(scripts / "samuel_codeqa_issue_plan.py"),
+                run_name="admission_test",
+            )
+        finally:
+            sys.path.pop(0)
+        safe = script["safe_admission_reason"]
+        self.assertEqual(
+            safe(CrossRepositoryAdmissionError("target acceptance criteria absent")),
+            "TARGET_ACCEPTANCE_SECTION_MISSING",
+        )
+        self.assertEqual(
+            safe(CrossRepositoryAdmissionError(
+                "target identity/readback denied: target_readback_failed"
+            )),
+            "TARGET_ATTESTATION_DENIED",
+        )
+        self.assertEqual(
+            safe(CrossRepositoryAdmissionError("secret-from-untrusted-exception")),
+            "OTHER_ADMISSION_ERROR",
+        )
+        self.assertEqual(safe(RuntimeError("token=do-not-record")), "NON_ADMISSION_ERROR")
+
     def test_missing_actual_acceptance_blocks_admission(self):
         with self.assertRaisesRegex(CrossRepositoryAdmissionError, "criteria"):
             prepare(target_issue=issue(TARGET, 92, "No verifiable acceptance section"))
