@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "policy_id": "samuel-codeqa-write-preflight-candidate-v1",
-  "enabled": false,
+  "enabled": true,
   "repository": "HyungseonSong-plasma/codeQA",
   "repository_id": 1424293498,
   "base_branch": "main",
@@ -22,5 +22,5 @@
   "merge_enabled": false,
   "authorization_source": "OWNER_REVIEW_AND_INDEPENDENT_GITHUB_WORKFLOW_ATTESTATION_REQUIRED",
   "credential_name": "SAMUEL_CODEQA_WRITE_TOKEN",
-  "notes": "DISABLED pending owner-reviewed explicit approval, target-scoped write credential and source-main deployment; single fixed docs witness and draft PR only, never merge. Source run must be manually dispatched."
+  "notes": "Owner-authorized single-use bounded codeQA doc-write proof: one isolated branch, one docs/samuel/220-controller-preflight.md addition, Draft PR, exact-head layout.yml CI, never merge or close Issue; target-scoped SAMUEL_CODEQA_WRITE_TOKEN required. User approved 2026-10-25."
 }
