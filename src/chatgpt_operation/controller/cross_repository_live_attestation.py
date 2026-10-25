@@ -77,7 +77,7 @@ def attest_live_target(
                 reasons.append("unsafe_workflow_identifier")
                 continue
             wf = transport.get(path + "/actions/workflows/" + quote(name, safe=""))
-            if not isinstance(wf, dict) or wf.get("name") != name or wf.get("state") != "active":
+            if not isinstance(wf, dict) or wf.get("path") != ".github/workflows/" + name or wf.get("state") != "active":
                 reasons.append("workflow_not_active:" + name)
     except Exception:
         reasons.append("target_readback_failed")
