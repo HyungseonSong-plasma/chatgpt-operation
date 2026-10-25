@@ -1,0 +1,56 @@
+name: Samuel → codeQA Issue #92 Trusted Admission
+run-name: samuel-codeqa-issue92:source-${{ github.run_id }}
+
+on:
+  pull_request:
+    paths:
+      - 'src/chatgpt_operation/controller/cross_repository_issue_admission.py'
+      - 'src/chatgpt_operation/controller/issue_planning.py'
+      - '.github/scripts/samuel_codeqa_issue_plan.py'
+      - '.github/workflows/samuel-codeqa-issue-plan.yml'
+      - 'tests/test_codeqa_cross_repository_issue_admission.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+
+concurrency:
+  group: samuel-codeqa-issue-admission-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  trusted-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout pinned Samuel controller
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test scope, identity, issue-body untrusted controls
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m unittest discover -s tests -p test_codeqa_cross_repository_issue_admission.py -v
+          python -m unittest discover -s tests -p test_codeqa_governed_write.py -v
+      - name: Read live codeQA Issue and produce typed reasoning envelope
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_CODEQA_WRITE_TOKEN: ${{ secrets.SAMUEL_CODEQA_WRITE_TOKEN }}
+        run: python .github/scripts/samuel_codeqa_issue_plan.py
+      - name: Preserve exact Issue planning witness
+        if: always() && hashFiles('samuel-codeqa-issue-admission.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-codeqa-issue-admission-${{ github.run_id }}
+          path: samuel-codeqa-issue-admission.json
+          if-no-files-found: error
+          retention-days: 30

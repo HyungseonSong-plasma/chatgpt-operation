@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
+import re
 
 from .decisions import DecisionGuard, DecisionRegistry, GuardOutcome, ReasoningProposal
 from .envelope import ReasoningEnvelope, build_reasoning_envelope
@@ -30,10 +31,31 @@ def plan_admitted_issue(
     *,
     registry: DecisionRegistry,
     implementation: ImplementationState | None = None,
+    cross_repository_verified: bool = False,
 ) -> IssuePlanningResult:
     work_id=work.get("work_id")
-    if not isinstance(work_id,str) or not work_id.startswith("issue:"):
+    native = (
+        isinstance(work_id, str)
+        and re.fullmatch(r"issue:[1-9][0-9]*", work_id) is not None
+    )
+    cross_repo = (
+        isinstance(work_id, str)
+        and re.fullmatch(
+            r"github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:issue:[1-9][0-9]*",
+            work_id,
+        ) is not None
+    )
+    if not native and not (cross_repo and cross_repository_verified is True):
         raise ValueError("typed admitted issue work_id is required")
+    if cross_repo:
+        repository = work.get("repository")
+        issue_number = work.get("issue_number")
+        if (
+            repository != work_id.split(":")[1]
+            or type(issue_number) is not int
+            or work_id != f"github:{repository}:issue:{issue_number}"
+        ):
+            raise ValueError("cross-repository issue scope mismatch")
     title=work.get("title")
     if not isinstance(title,str) or not title.strip():
         raise ValueError("admitted issue title is required")
