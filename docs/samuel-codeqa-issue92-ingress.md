@@ -24,7 +24,7 @@ The source-owned `samuel-codeqa-issue-plan.yml` workflow:
    commit SHA and active `layout.yml`, under the exact previously
    owner-reviewed target policy; stale target SHA or missing credential
    fails closed.
-4. Extracts the **five real acceptance criteria**, pins the exact target
+4. Extracts the **real acceptance criteria**, pins the exact target
    Issue body SHA256 and invokes the same `plan_admitted_issue` envelope
    constructor used by `SamuelController.run_cycle`. Locked architecture
    decisions are loaded from the source-controlled `decisions.json`.
