@@ -149,6 +149,12 @@ def admit_cross_repository_issue(
     """Produce a scoped reasoning request, not an executable write plan."""
     if workflow_filename not in _APPROVED_INGRESS_WORKFLOWS:
         raise CrossRepositoryAdmissionError("workflow not approved for foreign issue admission")
+    # GitHub REST normally returns a bare path; older run payloads may
+    # append the exact protected main ref. Never accept another suffix.
+    expected_path = ".github/workflows/" + workflow_filename
+    actual_path = source_run.get("path") if isinstance(source_run, dict) else None
+    if actual_path not in (expected_path, expected_path + "@refs/heads/main"):
+        raise CrossRepositoryAdmissionError("unverified Controller planning workflow")
     check_policy(policy)
     if not verify_controller_origin(
         source_run,
