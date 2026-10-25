@@ -16,7 +16,7 @@ from chatgpt_operation.controller.cross_repository_issue_admission import (
     FOREIGN_CYCLE_WORKFLOW, CrossRepositoryAdmissionError, admit_cross_repository_issue,
 )
 from chatgpt_operation.controller.cross_repository_workflow import (
-    ForeignWorkState, MARKER, decode_ledger, encode_ledger, select_authoritative_ledger,
+    ForeignWorkError, ForeignWorkState, MARKER, decode_ledger, encode_ledger, select_authoritative_ledger,
     advance_reviewed_base,
 )
 from chatgpt_operation.controller.decisions import DecisionRegistry
@@ -40,6 +40,15 @@ def safe_foreign_cycle_error(exc: Exception) -> str:
         if str(exc).startswith("target identity/readback denied:"):
             return "TARGET_READBACK_DENIED"
         return _SAFE_FOREIGN_ADMISSION_ERRORS.get(str(exc), "FOREIGN_ADMISSION_REJECTED")
+    if isinstance(exc, ForeignWorkError):
+        # Exact constant translation, never log the untrusted exception text.
+        return {
+            "ambiguous authoritative foreign ledgers": "DUPLICATE_CANONICAL_LEDGER",
+            "foreign ledger must be authored by source GitHub Actions bot": "LEDGER_AUTHOR_MISMATCH",
+            "foreign state marker or fence invalid": "LEDGER_ENVELOPE_INVALID",
+            "target base rollover needs distinct clean owner approval": "ROLLOVER_PRECONDITION_FAILED",
+            "reviewed base transition preconditions not met": "ROLLOVER_PRECONDITION_FAILED",
+        }.get(str(exc), "FOREIGN_STATE_VALIDATION_FAILED")
     return "OTHER_FOREIGN_CYCLE_ERROR"
 EXECUTION_POLICY=Path("automation/samuel/codeqa-issue92-execution-candidate-v1.json")
 
