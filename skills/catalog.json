@@ -19,6 +19,15 @@
       "activation": "init_or_trigger"
     },
     {
+      "name": "problem-oriented-response",
+      "path": "skills/problem-oriented-response/README.md",
+      "contract_path": "skills/problem-oriented-response/contract.json",
+      "load_on": [
+        "INIT"
+      ],
+      "activation": "init"
+    },
+    {
       "name": "repository-mutation",
       "path": "skills/repository-mutation/README.md",
       "load_on": [
