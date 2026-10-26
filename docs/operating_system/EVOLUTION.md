@@ -194,6 +194,89 @@ Scientific/runtime/performance metrics used by consumer technical validation are
 | Consumer semantics | local | local | local |
 | Rule-application metrics | active | retired | retired |
 
+## Samuel interaction surface
+
+Samuel uses a mandatory problem-first response contract during initialization.
+
+The default user-facing projection is:
+
+```text
+unresolved problems
+  -> human-review requirement for each problem
+  -> exact human decision question when review is required
+  -> additional detail only on request
+```
+
+This is an interaction contract, not consumer-domain semantics. Consumer
+authority still decides what evidence, acceptance, and semantic choices mean.
+
+## Samuel -> David staged transition
+
+David is a future operating generation, not an alias for current Samuel.
+
+The transition is intentionally gated by **codeQA stability**. The central OS
+must not infer that codeQA is stable merely from CI success, elapsed time, or a
+model judgment. codeQA stability must be represented by durable consumer-owned
+evidence and followed by an **explicit owner promotion** decision.
+
+The staged path is:
+
+### D0 — Samuel / current
+
+```text
+human/ChatGPT work routing
+  -> required skills + constraints
+  -> Samuel bounded reasoning/execution
+  -> deterministic capability/provider validation
+```
+
+The mandatory problem-first response contract is active.
+
+### D1 — David shadow
+
+Start only after codeQA has been declared stable by its owning authority.
+
+David autonomously proposes Issue -> skill/capability routing in shadow while
+the existing Samuel-era routing remains authoritative. Shadow output must not
+change execution authority or bypass human semantic-review gates.
+
+Compare at least:
+
+```text
+required-skill recall
+irrelevant-skill rate
+unsafe omission count (target = 0)
+human-review routing agreement
+capability/provider routing agreement
+```
+
+### D2 — David audited
+
+After shadow evidence is acceptable, David may become the primary skill selector
+for bounded work, while deterministic validators still enforce mandatory
+safety/authority skills, capability resolution, mutation policy, and
+human-review gates.
+
+Routing disagreements and newly introduced skills remain auditable.
+
+### D3 — David active
+
+Promotion to David requires:
+
+```text
+durable codeQA stability evidence
++ acceptable shadow/audit evidence
++ explicit owner promotion
++ a new immutable named OS baseline
+```
+
+David must not appear through a silent Samuel update.
+
+The problem-first interaction contract survives the generation boundary:
+greater autonomy changes who selects skills and plans work; it does not remove
+the requirement to expose unresolved problems and human decision boundaries
+clearly.
+
 ## Future evolution
 
 A future OS generation should change the operating architecture itself and preserve:

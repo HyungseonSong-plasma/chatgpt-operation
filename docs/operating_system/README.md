@@ -20,6 +20,7 @@ Samuel's live composition is:
 ```text
 exact central revision
   -> Samuel essential rules
+  -> mandatory problem-first response contract
   -> trigger-resolved deterministic skills
   -> durable controller state and capability routing
   -> consumer-local semantic/scientific authority
@@ -33,6 +34,8 @@ docs/operating_system/ESSENTIAL_RULES.md
 docs/operating_system/EVOLUTION.md
 docs/operating_system/versions/2026-10-08_samuel.md
 skills/session-bootstrap/README.md
+skills/problem-oriented-response/README.md
+skills/problem-oriented-response/contract.json
 skills/catalog.json
 skills/capability-registry.json
 .github/workflows/samuel-controller.yml
@@ -114,7 +117,7 @@ Rules:
 
 1. do not follow `main`, `latest`, or another floating ref after binding;
 2. initialize by verifying Samuel and `ESSENTIAL_RULES.md` at the exact revision;
-3. load only required init skills, then trigger-load later skills/capabilities;
+3. load the mandatory Samuel problem-first response contract and required init skills, then trigger-load later skills/capabilities;
 4. a central update does not silently upgrade a pinned consumer;
 5. consumer adoption of a new central revision is an explicit repository change;
 6. consumer-local domain/scientific authority remains local;
@@ -137,6 +140,12 @@ consumer-specific report additions
 
 Initialization is read-only and fails closed when required operating authority cannot be verified.
 
+Samuel also requires `skills/problem-oriented-response` during every `INIT`.
+A missing or malformed response contract blocks completed initialization. After
+init, the default user-facing surface lists unresolved problems, identifies the
+human-review boundary for each, asks a concrete human decision question when
+needed, and defers extra detail until requested.
+
 The lightweight central trigger registry is `skills/catalog.json`. During initialization, `session-bootstrap` indexes this metadata and may trigger-load the skill required by the immediate obligation after current consumer state is known. Capability-backed work is resolved through `skills/capability-registry.json`; this does not grant mutation authority during initialization.
 
 ## Live skill/controller set
@@ -145,6 +154,7 @@ Samuel's central reusable mechanics currently include:
 
 ```text
 session-bootstrap
+problem-oriented-response
 state-refresh
 repository-mutation
 governed-work
