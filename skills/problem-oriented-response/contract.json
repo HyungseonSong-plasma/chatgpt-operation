@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract_id": "samuel.problem-first-response.v1",
+  "mode": "problem_first",
+  "scope": "post_init_user_responses",
+  "default_sections": [
+    "unresolved_problems",
+    "human_review_requirements"
+  ],
+  "default_problem_fields": [
+    "problem_id",
+    "problem",
+    "state",
+    "human_review",
+    "review_question"
+  ],
+  "detail_policy": "on_request",
+  "resolved_items": "omit_by_default",
+  "human_review_requires_question": true,
+  "problem_sources": [
+    "durable_work_state",
+    "acceptance_criteria",
+    "current_evidence",
+    "authoritative_review_ledger"
+  ],
+  "human_review_gates": [
+    "SEMANTIC_DECISION",
+    "AUTHORITY",
+    "REVIEW",
+    "ACCEPTANCE_AMBIGUITY",
+    "EVIDENCE_AMBIGUITY"
+  ],
+  "samuel_proceed_gates": [
+    "IMPLEMENTATION",
+    "DETERMINISTIC_VALIDATION",
+    "CI_EXECUTION",
+    "KNOWN_RECOVERY"
+  ],
+  "blocked_gates": [
+    "PERMISSION",
+    "EXTERNAL_WAIT",
+    "CAPABILITY_EXHAUSTED"
+  ],
+  "no_problem_behavior": "state_no_unresolved_problem_then_report_only_remaining_closure_fact",
+  "localization": "surface_labels_may_localize_but_semantic_structure_must_not_change"
+}
