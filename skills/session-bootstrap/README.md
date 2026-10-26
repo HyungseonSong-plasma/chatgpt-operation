@@ -13,6 +13,7 @@ consumer binding
 -> exact central revision
 -> Samuel OS identity
 -> Samuel essential rules
+-> mandatory problem-first response contract
 -> required init skills
 -> central skill catalog metadata
 -> consumer repository identity
@@ -83,9 +84,7 @@ Require the OS registry to identify Samuel as ACTIVE.
 
 If the expected version and central registry disagree, fail closed.
 
-### SB-03 — Load only required init skills and index the skill catalog
-
-Load the skill contracts explicitly required by the consumer for initialization.
+### SB-03 — Resolve mandatory Samuel INIT contracts and index the skill catalog
 
 At the same exact central revision, read the lightweight machine-readable trigger
 index:
@@ -94,15 +93,52 @@ index:
 skills/catalog.json
 ```
 
+Resolve the `INIT` trigger. Samuel initialization requires these central skills:
+
+```text
+session-bootstrap
+state-refresh
+problem-oriented-response
+```
+
+`problem-oriented-response` is a non-optional Samuel interaction contract, not
+consumer configuration. Load both:
+
+```text
+skills/problem-oriented-response/README.md
+skills/problem-oriented-response/contract.json
+```
+
+Require the machine contract to identify:
+
+```text
+contract_id = samuel.problem-first-response.v1
+mode = problem_first
+detail_policy = on_request
+human_review_requires_question = true
+```
+
+If the skill, machine contract, or mandatory INIT resolution is absent,
+malformed, or inconsistent:
+
+```text
+status = BLOCKED_RESPONSE_CONTRACT
+mutation_authority = false
+normal_post_init_response = forbidden
+```
+
+After the mandatory central INIT contracts are loaded, load any additional init
+skills explicitly required by the consumer.
+
 Indexing the catalog is not the same as loading every skill contract. It loads
-only names, paths, and trigger metadata so later skill activation does not
-depend on chat memory or manual discovery.
+only names, paths, trigger metadata, and declared init-contract locators so later
+skill activation does not depend on chat memory or manual discovery.
 
 Do not preload every central skill merely because it exists.
 
-A missing required init skill or unreadable/malformed central catalog blocks
-completed initialization. A mode/action skill that is not currently triggered
-remains dormant.
+A missing required consumer init skill or unreadable/malformed central catalog
+blocks completed initialization. A mode/action skill that is not currently
+triggered remains dormant.
 
 ### SB-04 — Restore consumer authority
 
@@ -228,6 +264,9 @@ exact central revision
 essential rules loaded
 init skills loaded
 central skill catalog indexed
+response_contract = samuel.problem-first-response.v1
+response_mode = problem_first
+detail_policy = on_request
 trigger(s) resolved for the immediate obligation
 triggered skill contracts loaded
 consumer repository/ref
@@ -247,9 +286,14 @@ Typical Samuel init:
 
 ```text
 session-bootstrap
+  -> problem-oriented-response (mandatory)
   -> state-refresh when delta/fingerprint planning is applicable
   -> consumer-local routing/semantic interpretation
 ```
+
+After init, ordinary user-facing responses default to the unresolved-problem
+projection defined by `problem-oriented-response`. Additional detail is supplied
+on request or when necessary to understand a current unresolved problem.
 
 The init cycle may also trigger-load the exact skill needed for the immediate
 next obligation after current state is known:
@@ -273,6 +317,7 @@ during init means "ready to use after init", not "execute during init".
 - never use chat memory as a substitute for unresolved durable authority;
 - never replace an exact pin with a floating ref;
 - never grant mutation authority merely because initialization succeeded;
+- never complete Samuel INIT without the canonical problem-oriented response contract;
 - never invoke a GitHub mutation provider before the owning Samuel skill/capability is resolved;
 - never emit a global GitHub mutation capability-unavailable verdict from provider-local absence; require registry exhaustion and the machine guard;
 - never infer domain/scientific acceptance from a central skill result;
