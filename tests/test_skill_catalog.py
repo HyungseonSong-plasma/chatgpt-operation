@@ -37,6 +37,37 @@ class SkillCatalogTests(unittest.TestCase):
         }
         self.assertEqual(catalog_names, live_names)
 
+    def test_init_resolves_mandatory_problem_response_contract(self):
+        result = resolve_triggers(self.catalog(), ["INIT"])
+        self.assertEqual(result["status"], "RESOLVED")
+        self.assertEqual(
+            [item["name"] for item in result["skills"]],
+            [
+                "session-bootstrap",
+                "state-refresh",
+                "problem-oriented-response",
+            ],
+        )
+        response = next(
+            item
+            for item in result["skills"]
+            if item["name"] == "problem-oriented-response"
+        )
+        self.assertEqual(
+            response["contract_path"],
+            "skills/problem-oriented-response/contract.json",
+        )
+
+    def test_init_fails_closed_without_problem_response_skill(self):
+        catalog = self.catalog()
+        catalog["skills"] = [
+            item
+            for item in catalog["skills"]
+            if item["name"] != "problem-oriented-response"
+        ]
+        with self.assertRaises(SkillCatalogError):
+            resolve_triggers(catalog, ["INIT"])
+
     def test_actions_execution_is_immediately_resolvable(self):
         result = resolve_triggers(
             self.catalog(), ["GITHUB_ACTIONS_EXECUTION"]
