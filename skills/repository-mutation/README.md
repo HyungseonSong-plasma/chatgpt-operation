@@ -130,11 +130,15 @@ See `docs/mutation-blocker-recovery-v1.md` for the full decision table.
   exact-SHA replan or validation; no speculative success or forced merge.
 - Only confirmed transient errors can be retried **on the same provider**,
   with bounded attempts and all original preconditions.
-- The new classification helper is not itself an authorization mechanism and
-  currently does not intercept every external connector call. Until durable
-  blocker ingestion and pre-routing enforcement are wired into the executor,
-  callers must apply these guards explicitly. No absence of a blocker record
-  should be treated as permission to write.
+- The classifier does not authorize mutation. An Issue-comment-backed
+  journal, complete-read and hash-chain checks, registered-work prerequisite,
+  and a configurable CommonPreWriteGate are available. Repository Mutation
+  Engine and Native GitHub ExecutionKernel accept this gate before calling
+  their write providers. Production controller dispatch and external connector
+  entrypoints are NOT all yet configured to enforce it, so do not infer universal
+  enforcement. A missing work registration, unreadable journal, stale head or
+  active blocker fails closed when the gate is installed. Migration of all
+  previously observed denials is required before trusting a new journal.
 
 **Registry exhaustion applies to genuine capability unavailability, never to
 bypassing an upstream safety or owner-policy denial.** A deliberately forbidden
@@ -161,7 +165,10 @@ logical intent, original blocker reference, new evidence reference and
 currently independently observed HEAD SHA. **Release eligibility is not
 permission to write**: recheck all ordinary authorization and CI gates.
 External safety-screening refusals cannot be auto-cleared by Samuel or
-circumvented through an alternative tool. The pure classifier currently
-requires trusted live evidence verifiers and is **not yet** wired into every
-write adapter or a durable receipt journal; do not claim complete enforcement.
+circumvented through an alternative tool. TrustedGitHubReadbacks can verify GitHub exact SHA and successful exact-head
+Actions runs; unsupported permissions, workflow provenance, review and external
+safety authority claims remain unresolved. Issue comments are not immutable,
+and the journal does not currently have independent tip anchoring or globally
+serialized writes. Controller workflow dispatch and direct connector entrypoints
+still require audited deployment; do not claim complete enforcement.
 
