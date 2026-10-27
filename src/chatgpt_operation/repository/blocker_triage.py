@@ -148,9 +148,10 @@ def decide_mutation_continuation(history: Iterable[BlockerObservation], *,
                               RecoveryAction.ESCALATE_NO_WRITE, "no-blocker-record", provider)
     classified = [(x, classify_blocker(x)) for x in seen]
     for x, verdict in classified:
-        if x.source in {BlockerSource.TOOL_SAFETY, BlockerSource.REPOSITORY_POLICY}:
-            return BlockerVerdict(verdict.category, RecoveryAction.ESCALATE_NO_WRITE,
-                                  x.evidence_ref, x.provider)
+        if verdict.action is RecoveryAction.ESCALATE_NO_WRITE:
+            # Unknown, access-denied, tool-safety and owner-policy hard stops
+            # are all monotonic; later 5xx cannot wash an older refusal away.
+            return verdict
     prior, verdict = classified[-1]
     if verdict.action is RecoveryAction.RETRY_SAME_PROVIDER and prior.provider != provider:
         return BlockerVerdict("ALTERNATE_PROVIDER_RETRY_NOT_AUTHORIZED",
