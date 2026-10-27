@@ -22,6 +22,23 @@ class MutationBlockerTriageTests(unittest.TestCase):
             repository=REPO, branch=BRANCH, work_id=WORK, paths=reversed(PATHS)))
         self.assertEqual(len(IDENTITY), 64)
 
+    def test_same_work_cannot_escape_denial_by_changing_branch_or_file_set(self):
+        changed = logical_intent_id(
+            repository=REPO, branch="feat/93-another-branch",
+            work_id=WORK,
+            paths=("docs/renamed-evidence.md", "src/codeqa/adapters/rust_parser_evidence.py"),
+        )
+        self.assertEqual(changed, IDENTITY)
+        self.assertNotEqual(
+            logical_intent_id(repository=REPO, branch=BRANCH,
+                              work_id="genuinely-different-issued-work-id", paths=PATHS),
+            IDENTITY,
+        )
+        blocked = decide_mutation_continuation(
+            [obs(BlockerSource.TOOL_SAFETY)], logical_intent_id=changed,
+            provider="git-tree")
+        self.assertEqual(blocked.action, RecoveryAction.ESCALATE_NO_WRITE)
+
     def test_safety_denial_blocks_different_provider_and_git_tree(self):
         safety = obs(BlockerSource.TOOL_SAFETY, "contents-api")
         self.assertEqual(classify_blocker(safety).category, "EXTERNAL_SAFETY_DENIAL")
