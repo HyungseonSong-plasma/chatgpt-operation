@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .blocker_journal import GitHubIssueBlockerJournal, JournalError
+from .blocker_checkpoint import JournalCheckpoint, require_checkpoint
 from .blocker_triage import BlockerObservation, BlockerSource
 from .blocker_resolution import (
     BlockerState, ClearanceEvidence, ClearanceKind, Verifier, evaluate_clearance,
@@ -38,7 +39,8 @@ class CommonPreWriteGate:
 
     def __init__(self, *, journal: GitHubIssueBlockerJournal,
                  trusted_head_reader: Callable[[], str],
-                 technical_verifier: Verifier, authority_verifier: Verifier):
+                 technical_verifier: Verifier, authority_verifier: Verifier,
+                 trusted_checkpoint_reader: Callable[[], JournalCheckpoint] | None = None):
         if not isinstance(journal, GitHubIssueBlockerJournal):
             raise BlockerGateError("configured trusted journal required")
         if any(not callable(f) for f in (
@@ -48,7 +50,10 @@ class CommonPreWriteGate:
         self.journal = journal
         self.read_head = trusted_head_reader
         self.technical_verifier = technical_verifier
+        if trusted_checkpoint_reader is not None and not callable(trusted_checkpoint_reader):
+            raise BlockerGateError("trusted independent checkpoint reader must be callable")
         self.authority_verifier = authority_verifier
+        self.trusted_checkpoint_reader = trusted_checkpoint_reader
 
     def evaluate(self, *, logical_intent_id: str, expected_head_sha: str) -> GateDecision:
         try:
@@ -59,6 +64,12 @@ class CommonPreWriteGate:
             raise BlockerGateError("stale or unverifiable target HEAD")
         try:
             snapshot = self.journal.read()
+            if self.trusted_checkpoint_reader is not None:
+                try:
+                    checkpoint = self.trusted_checkpoint_reader()
+                except Exception as exc:
+                    raise BlockerGateError("independent checkpoint read unavailable") from exc
+                require_checkpoint(snapshot, checkpoint)
             events = snapshot.matching(logical_intent_id)
         except (JournalError, KeyError, ValueError, TypeError) as exc:
             raise BlockerGateError("complete trusted journal unavailable") from exc
