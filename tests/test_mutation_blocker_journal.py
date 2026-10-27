@@ -62,6 +62,11 @@ class MutationBlockerJournalTests(unittest.TestCase):
         self.journal = GitHubIssueBlockerJournal(
             self.api, issue_number=236, trusted_actor="samuel-bot")
 
+    def enroll(self):
+        return self.journal.register_work(
+            logical_intent_id=INTENT, exact_head_sha=HEAD,
+            evidence_ref="controller-registered-work-236")
+
     def gate(self, *, head=HEAD, tech=None, authority=None):
         return CommonPreWriteGate(
             journal=self.journal, trusted_head_reader=lambda: head,
@@ -69,16 +74,31 @@ class MutationBlockerJournalTests(unittest.TestCase):
             authority_verifier=authority or (lambda _: False),
         )
 
-    def test_empty_complete_history_does_not_grant_mutation_authority(self):
+    def test_empty_history_is_blocked_until_trusted_work_enrollment(self):
+        r = self.gate().evaluate(logical_intent_id=INTENT, expected_head_sha=HEAD)
+        self.assertFalse(r.no_active_blocker)
+        self.assertEqual(r.reason, "WORK_REGISTRATION_NOT_ATTESTED")
+        self.assertFalse(r.write_authorized)
+
+    def test_registered_unblocked_work_can_pass_without_write_authority(self):
+        self.enroll()
         r = self.gate().evaluate(logical_intent_id=INTENT, expected_head_sha=HEAD)
         self.assertTrue(r.no_active_blocker)
         self.assertFalse(r.write_authorized)
-        self.assertEqual(r.checked_events, 0)
+        self.assertEqual(r.checked_events, 1)
+
+    def test_registration_cannot_be_rebound_to_new_head_or_receipt(self):
+        self.enroll()
+        with self.assertRaisesRegex(JournalError, "cannot be replaced"):
+            self.journal.register_work(
+                logical_intent_id=INTENT, exact_head_sha=OTHER_HEAD,
+                evidence_ref="changed-work-origin")
 
     def test_persistent_issue_comment_read_after_new_journal_instance(self):
+        self.enroll()
         after = self.journal.record_blocker(blocker())
-        self.assertEqual(len(after.events), 1)
-        self.assertEqual(self.api.writes, 1)
+        self.assertEqual(len(after.events), 2)
+        self.assertEqual(self.api.writes, 2)
         recovered = GitHubIssueBlockerJournal(
             self.api, issue_number=236, trusted_actor="samuel-bot").read()
         self.assertEqual(recovered.tip, after.tip)
@@ -87,6 +107,7 @@ class MutationBlockerJournalTests(unittest.TestCase):
             self.gate().require_clear(logical_intent_id=INTENT, expected_head_sha=HEAD)
 
     def test_safety_denial_never_cleared_by_technical_attestation(self):
+        self.enroll()
         self.journal.record_blocker(blocker())
         self.journal.record_clearance(proof())
         with self.assertRaisesRegex(BlockerGateError, "ACTIVE_BLOCKER"):
@@ -98,6 +119,7 @@ class MutationBlockerJournalTests(unittest.TestCase):
         self.assertFalse(approved.write_authorized)
 
     def test_technical_ci_clearance_auto_recovers_but_requires_current_sha(self):
+        self.enroll()
         b = blocker(source=BlockerSource.CI)
         self.journal.record_blocker(b)
         self.journal.record_clearance(proof(ClearanceKind.EXACT_HEAD_CI_PASS))
@@ -107,6 +129,7 @@ class MutationBlockerJournalTests(unittest.TestCase):
             logical_intent_id=INTENT, expected_head_sha=OTHER_HEAD).no_active_blocker)
 
     def test_access_denial_requires_exact_permission_recovery_evidence(self):
+        self.enroll()
         b = BlockerObservation(BlockerSource.GITHUB_HTTP, INTENT, "connector", "deny-1", 403)
         self.journal.record_blocker(b)
         self.journal.record_clearance(proof(ClearanceKind.TARGET_ACCESS_RESTORED))
@@ -115,6 +138,7 @@ class MutationBlockerJournalTests(unittest.TestCase):
             logical_intent_id=INTENT, expected_head_sha=HEAD).no_active_blocker)
 
     def test_a_second_uncleared_blocker_still_blocks(self):
+        self.enroll()
         self.journal.record_blocker(blocker(ref="deny-1"))
         self.journal.record_clearance(proof())
         self.journal.record_blocker(blocker(ref="deny-3"))
@@ -178,6 +202,7 @@ class MutationBlockerJournalTests(unittest.TestCase):
         self.assertEqual(len(self.journal.read().events), 1)
 
     def test_changed_work_scope_same_controller_work_id_remains_blocked(self):
+        self.enroll()
         self.journal.record_blocker(blocker())
         new_scope = logical_intent_id(
             repository="HyungseonSong-plasma/chatgpt-operation",
@@ -204,6 +229,9 @@ class MutationEntrypointIntegrationTests(unittest.TestCase):
         self.api = IssueAPI()
         self.journal = GitHubIssueBlockerJournal(
             self.api, issue_number=236, trusted_actor="samuel-bot")
+        self.journal.register_work(
+            logical_intent_id=INTENT, exact_head_sha=HEAD,
+            evidence_ref="controller-registered-work-236")
         self.journal.record_blocker(blocker())
         self.gate = CommonPreWriteGate(
             journal=self.journal, trusted_head_reader=lambda: HEAD,
