@@ -17,7 +17,10 @@ class SamuelBranchHistoryCleanupTests(unittest.TestCase):
         text = self.text()
         self.assertIn('actual_sha != expected_sha', text)
         self.assertIn('request("DELETE", delete_path)', text)
-        self.assertIn('post-delete verification failed', text)
+        self.assertIn('for attempt in range(6)', text)
+        self.assertIn('time.sleep(1)', text)
+        self.assertIn('post-delete verification timed out', text)
+        self.assertIn('branch changed/reappeared after delete', text)
         self.assertIn('allow_not_found=True', text)
 
     def test_cleanup_protects_open_pr_heads_and_main(self):

@@ -33,6 +33,7 @@ jobs:
 
           import json
           import os
+          import time
           from urllib.error import HTTPError
           from urllib.parse import quote
           from urllib.request import Request, urlopen
@@ -127,9 +128,25 @@ jobs:
                   continue
 
               request("DELETE", delete_path)
-              if request("GET", get_path, allow_not_found=True) is not None:
+
+              deleted_verified = False
+              for attempt in range(6):
+                  post = request("GET", get_path, allow_not_found=True)
+                  if post is None:
+                      deleted_verified = True
+                      break
+                  post_sha = (post.get("object") or {}).get("sha")
+                  if post_sha != expected_sha:
+                      raise RuntimeError(
+                          f"branch changed/reappeared after delete: "
+                          f"{branch} expected={expected_sha} actual={post_sha}"
+                      )
+                  if attempt < 5:
+                      time.sleep(1)
+
+              if not deleted_verified:
                   raise RuntimeError(
-                      f"post-delete verification failed for {branch}"
+                      f"post-delete verification timed out for {branch}"
                   )
               deleted.append({"branch": branch, "pr": pull["number"], "sha": expected_sha})
 
