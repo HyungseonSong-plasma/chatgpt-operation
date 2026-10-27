@@ -117,7 +117,7 @@ This makes retry safe after remote success followed by local result-persistence 
 Before retrying or switching registered providers after any failed repository mutation,
 classify the **observed** blocker using the deterministic
 `chatgpt_operation.repository.blocker_triage` contract and read all
-durable prior blocker records for the **same logical work/branch/path scope**.
+durable prior blocker records for the **same trusted controller-issued work ID**. A branch rename, changed file set or alternate Git API does not create a new work identity; each attempt's paths/branch must still pass their separate policy checks.
 See `docs/mutation-blocker-recovery-v1.md` for the full decision table.
 
 - `TOOL_SAFETY` and `REPOSITORY_POLICY` are **hard denials**, not
