@@ -315,8 +315,14 @@ class GitHubTransport:
     def request(self,method,path,*,payload=None): return self._call(method,path,payload=payload)
 
 class Engine:
-    def __init__(self,transport,*,repository,policy,current_run_id=None):
+    def __init__(self,transport,*,repository,policy,current_run_id=None,
+                 blocker_gate=None, trusted_work_id=None, trusted_head_sha=None):
         self.t=transport; self.repository=repository; self.policy=policy; self.current_run_id=str(current_run_id) if current_run_id else None
+        # The gateway caller MUST source these values from trusted controller
+        # state, never from untrusted ActionPlan payload or Issue prose.
+        self.blocker_gate=blocker_gate
+        self.trusted_work_id=trusted_work_id
+        self.trusted_head_sha=trusted_head_sha
     def _read(self,path,query=None):
         try: return self.t.get(path,query=query)
         except ApiError as exc:
@@ -351,7 +357,27 @@ class Engine:
                 blocked.append({"id":run.get("id"),"name":run.get("name"),"status":run.get("status"),"head_sha":run.get("head_sha")})
         if blocked: raise HardStop("validation gate active: "+json.dumps(blocked,sort_keys=True))
     def execute(self,m):
-        self._authorize(m); self._gate()
+        self._authorize(m)
+        if self.blocker_gate is not None:
+            from .blocker_gate import CommonPreWriteGate, BlockerGateError
+            from .blocker_triage import logical_intent_id
+            if not isinstance(self.blocker_gate,CommonPreWriteGate):
+                raise HardStop("untrusted blocker gate adapter")
+            if not self.trusted_work_id or not self.trusted_head_sha:
+                raise HardStop("trusted blocker work/head identity unavailable")
+            branch=(m.target["branch"] if m.resource=="file" else m.target["name"])
+            path=(m.target["path"] if m.resource=="file" else "branch/"+branch)
+            try:
+                intent=logical_intent_id(
+                    repository=self.repository,branch=branch,
+                    work_id=self.trusted_work_id,paths=(path,))
+                self.blocker_gate.require_clear(
+                    logical_intent_id=intent,
+                    expected_head_sha=self.trusted_head_sha,
+                )
+            except (BlockerGateError,ValueError) as exc:
+                raise HardStop("repository mutation blocked by common prewrite gate") from exc
+        self._gate()
         return self._file(m) if m.resource=="file" else self._branch(m)
     def _result(self,m,status,identity=None):
         r={"status":status,"operation_id":m.operation_id,"repository":m.repository,"resource":m.resource,"action":m.action,"target":m.target}
