@@ -4,20 +4,17 @@ Samuel trigger: `GITHUB_PR_CREATE`. This skill owns the explicit, non-merge crea
 
 ## Registered provider
 
-`skills/capability-registry.json` registers two ordered create-PR providers:
+`skills/capability-registry.json` registers `github-connector` (priority 10) as
+the only `GITHUB_PR_CREATE` provider. This restores the last reviewed connector
+route; existing `GITHUB_PR_MERGE`, file/branch, and branch-delete routes are
+not changed.
 
-1. `github-connector` (priority 10), when authorized and available.
-2. `repository-native` (priority 20), using `samuel-controller.yml` and the
-   trusted `samuel-native-github.yml` executor with the `github-native-dispatch`
-   contract. The native executor already supports the closed-world `create_pr`
-   action, and the execution kernel maps it to `GITHUB_PR_CREATE`.
-
-Fallback is permitted only after provider-local unavailability, not after a
-policy denial or an external safety-screening block. Both providers require
-fresh authorization and authoritative pre/postcondition evidence. Registration
-of the native provider does **not** override the protected-path deny list,
-authorize registry self-modification, bypass a blocker, or grant merge authority.
-Do not substitute the `GITHUB_PR_MERGE` route for PR creation.
+A GitHub Actions setting does **not** change connector permissions or clear
+external tool-safety screening. Check the exact error source before attributing
+a failure to permission, before requesting a settings change, or before retrying.
+An external safety or repository-policy denial stops the same logical mutation;
+do not switch API, workflow, branch, file path or provider to bypass it.
+See `docs/mutation-blocker-recovery-v1.md` for evidence-based triage.
 
 ## Preconditions
 

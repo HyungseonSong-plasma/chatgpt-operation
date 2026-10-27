@@ -16,6 +16,63 @@ The classification contract is read-only, grants no mutation authority, and must
 | Confirmed HTTP 429 or 5xx | Exact status, same provider, bounded attempts and prior denial history | RETRY_SAME_PROVIDER only when no safety or owner-policy denial exists; ordinary preconditions remain mandatory |
 | Unknown / ambiguous transport failure | Original unmodified evidence reference | STOP; no invented GitHub permission or capability absence claim |
 
+## Permission-first diagnostic checklist (do not pre-assign a cause)
+
+When a GitHub mutation fails, **check whether access or permissions caused it**
+before investing in a new provider, workflow, executor or credential. This
+check is a triage step, **not** a finding that every blocked operation is
+permission-related:
+
+1. **Record the original error:** repository, trusted work ID, requested
+   operation, provider, endpoint family, exact HEAD, timestamp and the original
+   status/receipt. Preserve safety-screening language verbatim; do not translate
+   it into GitHub HTTP 403 without an actual GitHub HTTP response.
+2. **Distinguish principals:** ChatGPT's GitHub connector may have repository
+   `admin`/`push` access, while a GitHub Actions job receives its own
+   `GITHUB_TOKEN`. Successful connector PR creation **does not** prove that
+   Actions can create one, and enabling Actions PR creation does not change
+   the connector's tool-safety decisions.
+3. **For a genuine GitHub 401/403/404:** check repository and target
+   existence, authenticated identity, installed GitHub App scope, token
+   permissions, rulesets, protected paths and (for Actions) the workflow's
+   effective `permissions:` and repository Settings → Actions → General →
+   *Allow GitHub Actions to create and approve pull requests*. An observed 403
+   can also mean a policy/ruleset denial. A setting change is not proof of
+   access until the **specific operation** is independently read back.
+4. **For external `BLOCKED BY SAFETY SCREENING`:** classify
+   `TOOL_SAFETY` rather than credential failure. Stop that logical mutation.
+   Settings changes, provider changes, new branches or different Git APIs
+   cannot act as clearance. Request evidence from the originating safety
+   mechanism; do not infer its hidden reason.
+5. **For a missing action in one connector:** check the currently pinned
+   capability registry and provider-specific capabilities. A provider-local
+   absence is not a global capability outage; the registry does not authorize
+   bypassing an observed denial. Before retrying, preserve idempotency,
+   prior same-intent blocker history and current HEAD preconditions.
+6. **Communicate the observed class:** report `CONFIRMED_PERMISSION_DENIAL`
+   only after directly attributable access evidence, otherwise
+   `ACCESS_OR_RESOURCE_UNDETERMINED`, `TOOL_SAFETY`, or `UNKNOWN`
+   as appropriate. A user reporting they enabled a setting is an
+   owner attestation, not independent GitHub operation-level proof.
+
+Suggested user message for an ambiguous GitHub 403:
+
+> GitHub reported an access or policy failure for this operation. I will first
+> verify the acting identity, its scoped permissions, repository Actions
+> settings (if relevant), and target ruleset; the cause is not yet confirmed.
+> I will not create another execution route or retry a denied write until
+> the original error is classified and the relevant permission is proven.
+
+Suggested message for a screening block:
+
+> The tool rejected this write at safety screening rather than returning a
+> verified GitHub permission error. The cause is not established; changing
+> GitHub Settings does not by itself clear the original screening refusal.
+
+The underlying classifier in
+`chatgpt_operation.repository.blocker_triage` remains authoritative. This
+checklist guides evidence collection, not a new permission grant.
+
 ## Required pre-routing guard
 
 Before any mutation **bind a controller-issued, trusted durable work ID** to the target repository. The helper logical_intent_id in chatgpt_operation.repository.blocker_triage validates branch and path inputs, but computes work identity from **repository + durable work ID**: moving the same task to another branch or file set MUST NOT erase its prior denial. Branch, exact HEAD, file path changes and desired payload are separately audited and validated against owner policy on every attempt. A self-selected new work ID is not permitted to reclassify the same denied work.

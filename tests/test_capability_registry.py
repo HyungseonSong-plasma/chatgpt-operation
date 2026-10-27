@@ -84,7 +84,7 @@ class CapabilityRegistryTests(unittest.TestCase):
                 providers = resolve_providers(capability)
                 self.assertEqual([p.name for p in providers], ["github-connector", "repository-native"])
                 self.assertEqual(providers[1].workflow, ".github/workflows/samuel-repository-mutation.yml")
-        self.assertEqual([p.name for p in resolve_providers("GITHUB_PR_CREATE")], ["github-connector", "repository-native"])
+        self.assertEqual([p.name for p in resolve_providers("GITHUB_PR_CREATE")], ["github-connector"])
 
     def test_create_provider_route_is_validated_and_awaits_all_failures(self):
         validated = validate_registry()
@@ -97,30 +97,28 @@ class CapabilityRegistryTests(unittest.TestCase):
                 "GITHUB_FILE_CREATE", {"github-connector": "temporary connector failure"}
             )
 
-    def test_native_pr_create_provider_is_bounded_and_registered(self):
+    def test_pr_create_connector_only_and_no_native_fallback(self):
         providers = resolve_providers("GITHUB_PR_CREATE")
-        self.assertEqual([p.name for p in providers], ["github-connector", "repository-native"])
-        native = providers[1]
-        self.assertEqual(native.kind, "workflow")
-        self.assertEqual(native.workflow, ".github/workflows/samuel-controller.yml")
-        self.assertEqual(native.executor_workflow, ".github/workflows/samuel-native-github.yml")
-        self.assertEqual(native.contract, "github-native-dispatch")
-        self.assertEqual(native.required_permissions, {"actions": "write", "pull-requests": "write"})
-        self.assertIn("GITHUB_PR_CREATE:repository-native", validate_registry()["checked"])
+        self.assertEqual([p.name for p in providers], ["github-connector"])
+        self.assertEqual(providers[0].kind, "external")
+        self.assertEqual(providers[0].priority, 10)
+        checked = validate_registry()["checked"]
+        self.assertIn("GITHUB_PR_CREATE:github-connector", checked)
+        self.assertNotIn("GITHUB_PR_CREATE:repository-native", checked)
 
-    def test_pr_create_negative_verdict_requires_both_providers(self):
+    def test_pr_create_negative_verdict_requires_connector_evidence(self):
         with self.assertRaisesRegex(CapabilityRegistryError, "unexhausted providers"):
-            assert_capability_exhausted(
-                "GITHUB_PR_CREATE", {"github-connector": "verified transient provider failure"}
-            )
+            assert_capability_exhausted("GITHUB_PR_CREATE", {})
         result = assert_capability_exhausted(
             "GITHUB_PR_CREATE",
-            {
-                "github-connector": "verified transient provider failure",
-                "repository-native": "verified native provider failure",
-            },
+            {"github-connector": "verified provider-local unavailability"},
         )
-        self.assertEqual(result["failed_providers"], ["github-connector", "repository-native"])
+        self.assertEqual(result["failed_providers"], ["github-connector"])
+        with self.assertRaises(CapabilityRegistryError):
+            assert_capability_exhausted(
+                "GITHUB_PR_CREATE",
+                {"repository-native": "not a registered PR-create provider"},
+            )
 
     def test_native_repository_mutation_still_denies_registry_self_edit(self):
         from pathlib import Path
