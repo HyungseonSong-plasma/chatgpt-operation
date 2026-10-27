@@ -75,7 +75,19 @@ def _validate_payload(payload: Any) -> None:
         raise JournalError("event payload must be an object")
     kind = payload.get("event")
     try:
-        if kind == "BLOCKED":
+        if kind == "REGISTERED":
+            if set(payload) != {"event", "intent", "head", "evidence_ref"}:
+                raise ValueError("invalid registration keys")
+            if (not isinstance(payload["intent"], str)
+                or len(payload["intent"]) != 64
+                or any(c not in "0123456789abcdef" for c in payload["intent"])
+                or not isinstance(payload["head"], str)
+                or len(payload["head"]) != 40
+                or any(c not in "0123456789abcdef" for c in payload["head"])
+                or not isinstance(payload["evidence_ref"], str)
+                or not payload["evidence_ref"].strip()):
+                raise ValueError("invalid trusted work enrollment identity")
+        elif kind == "BLOCKED":
             if set(payload) != {"event", "intent", "source", "provider",
                                 "evidence_ref", "http_status"}:
                 raise ValueError("invalid blocker keys")
@@ -165,6 +177,11 @@ class GitHubIssueBlockerJournal:
                             entry["sequence"], entry["previous"], entry["payload"]
                         )):
                     raise JournalError("journal sequence or hash chain broken")
+                if entry["payload"]["event"] == "REGISTERED":
+                    if any(e["payload"]["event"] == "REGISTERED"
+                           and e["payload"]["intent"] == entry["payload"]["intent"]
+                           for e in events):
+                        raise JournalError("duplicate work registration")
                 if entry["payload"]["event"] == "CLEARED":
                     p = entry["payload"]
                     matching = [
@@ -216,6 +233,19 @@ class GitHubIssueBlockerJournal:
                 or after.last_comment_id != result["id"]):
             raise JournalError("journal post-write verification failed")
         return after
+
+    def register_work(self, *, logical_intent_id: str, exact_head_sha: str,
+                      evidence_ref: str) -> JournalSnapshot:
+        # Enrollment does not certify absence of prior denials: the owner must
+        # migrate historical blockers before adopting the gate in production.
+        payload = {"event": "REGISTERED", "intent": logical_intent_id,
+                   "head": exact_head_sha, "evidence_ref": evidence_ref}
+        snapshot = self.read()
+        if any(e["payload"]["event"] == "REGISTERED"
+               and e["payload"]["intent"] == logical_intent_id
+               and e["payload"] != payload for e in snapshot.events):
+            raise JournalError("registered work identity cannot be replaced")
+        return self._append(payload)
 
     def record_blocker(self, blocker: BlockerObservation) -> JournalSnapshot:
         return self._append(blocker_payload(blocker))
