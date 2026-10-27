@@ -133,9 +133,10 @@ See `docs/mutation-blocker-recovery-v1.md` for the full decision table.
 - The classifier does not authorize mutation. An Issue-comment-backed
   journal, complete-read and hash-chain checks, registered-work prerequisite,
   and a configurable CommonPreWriteGate are available. Repository Mutation
-  Engine and Native GitHub ExecutionKernel accept this gate before calling
-  their write providers. Production controller dispatch and external connector
-  entrypoints are NOT all yet configured to enforce it, so do not infer universal
+  Engine, Native GitHub ExecutionKernel and Controller ExecutionGateway accept
+  this gate before calling write providers or dispatching action workflows.
+  Production controller workflows and external connector entrypoints are NOT all
+  yet configured to enforce it, so do not infer universal
   enforcement. A missing work registration, unreadable journal, stale head or
   active blocker fails closed when the gate is installed. Migration of all
   previously observed denials is required before trusting a new journal.
