@@ -71,9 +71,12 @@ def logical_intent_id(*, repository: str, branch: str, work_id: str,
                       paths: Iterable[str]) -> str:
     """Identity of desired effect, NOT of API, endpoint or execution provider.
 
-    Operations that try to produce the same change through Contents API, Git
-    Trees, git push or Actions must keep the same work_id/scope identity.
-    A different tool cannot clear a recorded safety denial.
+    The durable work_id MUST be issued and verified by the trusted controller,
+    not chosen anew by the executor. Branches and file paths are checked for
+    normalization but deliberately DO NOT change this work-level identity:
+    moving the same task to another branch/path or using a different tool cannot
+    shed an earlier safety denial. The attempt-specific scope is audited
+    separately, and still must pass repository policy on every write.
     """
     if not isinstance(repository, str) or not _REPO.fullmatch(repository):
         raise ValueError("invalid repository")
@@ -88,8 +91,10 @@ def logical_intent_id(*, repository: str, branch: str, work_id: str,
                     or "\\" in x or any(y in {"", ".", ".."} for y in x.split("/"))
                     for x in p) or len(set(p)) != len(p):
         raise ValueError("empty, duplicate or non-normalized path scope")
-    payload = {"repository": repository, "branch": branch,
-               "work_id": work_id, "paths": sorted(p)}
+    # Work identity is deliberately wider than a single branch/path attempt.
+    # A different path set is not a new task or a clearance for the same work.
+    # Bind the work_id to a trusted controller-issued record before use.
+    payload = {"repository": repository, "work_id": work_id}
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
