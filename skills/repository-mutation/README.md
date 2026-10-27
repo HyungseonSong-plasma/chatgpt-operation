@@ -111,3 +111,65 @@ Desired post-state is recognized before stale identity rejection where applicabl
 - branch delete + target absent -> `NO_MUTATION_NEEDED`
 
 This makes retry safe after remote success followed by local result-persistence failure.
+
+## Mutation blocker classification and no-fallback safety
+
+Before retrying or switching registered providers after any failed repository mutation,
+classify the **observed** blocker using the deterministic
+`chatgpt_operation.repository.blocker_triage` contract and read all
+durable prior blocker records for the **same trusted controller-issued work ID**. A branch rename, changed file set or alternate Git API does not create a new work identity; each attempt's paths/branch must still pass their separate policy checks.
+See `docs/mutation-blocker-recovery-v1.md` for the full decision table.
+
+- `TOOL_SAFETY` and `REPOSITORY_POLICY` are **hard denials**, not
+  failed providers. Stop and escalate; do not retry the same logical write via
+  Git tree/commit/ref, another API, git push or repository-native Actions.
+  Do not reinterpret a denied operation by changing its route or payload.
+- Ambiguous GitHub 401/403/404 means read-only access investigation, not
+  proven missing token scope or globally unavailable capability.
+- Stale head, CI, review and workflow-provenance failures require their own
+  exact-SHA replan or validation; no speculative success or forced merge.
+- Only confirmed transient errors can be retried **on the same provider**,
+  with bounded attempts and all original preconditions.
+- The classifier does not authorize mutation. An Issue-comment-backed
+  journal, complete-read and hash-chain checks, registered-work prerequisite,
+  and a configurable CommonPreWriteGate are available. Repository Mutation
+  Engine, Native GitHub ExecutionKernel and Controller ExecutionGateway accept
+  this gate before calling write providers or dispatching action workflows.
+  Production controller workflows and external connector entrypoints are NOT all
+  yet configured to enforce it, so do not infer universal
+  enforcement. A missing work registration, unreadable journal, stale head or
+  active blocker fails closed when the gate is installed. Migration of all
+  previously observed denials is required before trusting a new journal.
+
+**Registry exhaustion applies to genuine capability unavailability, never to
+bypassing an upstream safety or owner-policy denial.** A deliberately forbidden
+provider route is not a candidate to exhaust through a new execution method.
+ 
+### Clearance states and proof requirements
+
+Do **not** require an independent policy-officer review for every temporary
+blocker. Use `blocker_resolution.evaluate_clearance` to distinguish:
+
+- `RESOLVED_AUTOMATICALLY`: trusted, exact-head source verification of a
+  fixed SHA, CI, workflow inventory/provenance, up-to-date source review,
+  restored scoped target access, or recovery from a confirmed transient failure.
+- `RESOLVED_BY_AUTHORITY`: *only* when the competent repository-policy or
+  upstream tool-safety authority has actually changed or cleared its own rule
+  and a trusted adapter has verified that fact.
+- `ACTIVE` / `ESCALATED`: insufficient, unrelated, stale or untrusted proof.
+- `SUPERSEDED`: reserved for a proved semantically different work intent,
+  never merely a different execution provider or renamed branch. V1 does not
+  automatically issue this state.
+
+Every clearance event preserves the original denial and binds the exact
+logical intent, original blocker reference, new evidence reference and
+currently independently observed HEAD SHA. **Release eligibility is not
+permission to write**: recheck all ordinary authorization and CI gates.
+External safety-screening refusals cannot be auto-cleared by Samuel or
+circumvented through an alternative tool. TrustedGitHubReadbacks can verify GitHub exact SHA and successful exact-head
+Actions runs; unsupported permissions, workflow provenance, review and external
+safety authority claims remain unresolved. Issue comments are not immutable,
+and the journal does not currently have independent tip anchoring or globally
+serialized writes. Controller workflow dispatch and direct connector entrypoints
+still require audited deployment; do not claim complete enforcement.
+

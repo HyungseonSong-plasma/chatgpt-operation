@@ -273,5 +273,107 @@ class ExecutionGatewayTests(unittest.TestCase):
         self.assertEqual(dispatch.call_count,1)
 
 
+class DispatchBlockerGateTests(unittest.TestCase):
+    def setUp(self):
+        from chatgpt_operation.repository.blocker_journal import GitHubIssueBlockerJournal
+        from chatgpt_operation.repository.blocker_gate import CommonPreWriteGate
+        from chatgpt_operation.repository.blocker_triage import (
+            BlockerObservation, BlockerSource, logical_intent_id,
+        )
+        from chatgpt_operation.repository.blocker_resolution import (
+            ClearanceEvidence, ClearanceKind,
+        )
+        class IssueAPI:
+            def __init__(self):
+                self.comments = []
+            def get(self, path, *, query=None):
+                if path != "/issues/236/comments":
+                    raise AssertionError(path)
+                offset = (int(query["page"]) - 1) * 100
+                return self.comments[offset:offset + 100]
+            def request(self, method, path, *, payload=None):
+                if method != "POST" or path != "/issues/236/comments":
+                    raise AssertionError("unexpected write")
+                c = {"id": len(self.comments) + 1, "body": payload["body"],
+                     "user": {"login": "samuel-bot"}}
+                self.comments.append(c)
+                return c
+        self.db = GitHubIssueBlockerJournal(
+            IssueAPI(), issue_number=236, trusted_actor="samuel-bot",
+        )
+        self.work_id = "trusted-controller-r"
+        self.intent_id = logical_intent_id(
+            repository="o/r", branch="samuel/controller",
+            work_id=self.work_id, paths=("actions/github_native",),
+        )
+        self.db.register_work(logical_intent_id=self.intent_id,
+                              exact_head_sha=HEAD, evidence_ref="controller-registered")
+        self.db.record_blocker(BlockerObservation(
+            BlockerSource.TOOL_SAFETY, self.intent_id, "connector", "denial-1",
+        ))
+        self.auth_proof = ClearanceEvidence(
+            self.intent_id, "denial-1", ClearanceKind.UPSTREAM_SAFETY_CLEARED,
+            HEAD, "upstream-authority-proof",
+        )
+        self.Gate = CommonPreWriteGate
+        self.gate = self.Gate(
+            journal=self.db, trusted_head_reader=lambda: HEAD,
+            technical_verifier=lambda _: False, authority_verifier=lambda _: False,
+        )
+
+    @patch("chatgpt_operation.controller.execution_gateway.dispatch_native_plan_async")
+    @patch("chatgpt_operation.controller.execution_gateway.resume_dispatch_intent")
+    def test_controller_refuses_action_workflow_dispatch_on_active_denial(self, resume, dispatch):
+        p = plan()
+        resume.return_value = (p, intent(p.idempotency_key))
+        gateway = ExecutionGateway(
+            object(), blocker_gate=self.gate,
+            trusted_work_id=self.work_id, trusted_head_sha=HEAD,
+        )
+        with self.assertRaisesRegex(ExecutionGatewayError, "common prewrite gate"):
+            gateway.execute(
+                command(ControllerCommandKind.DISPATCH_ACTION,
+                        action_id=p.idempotency_key),
+                state=ResearchState("r", "work", revision=2),
+            )
+        dispatch.assert_not_called()
+
+    @patch("chatgpt_operation.controller.execution_gateway.dispatch_native_plan_async")
+    @patch("chatgpt_operation.controller.execution_gateway.resume_dispatch_intent")
+    def test_controller_dispatch_requires_trusted_work_identity(self, resume, dispatch):
+        p = plan()
+        resume.return_value = (p, intent(p.idempotency_key))
+        with self.assertRaisesRegex(ExecutionGatewayError, "trusted action dispatch work/head"):
+            ExecutionGateway(object(), blocker_gate=self.gate).execute(
+                command(ControllerCommandKind.DISPATCH_ACTION,
+                        action_id=p.idempotency_key),
+                state=ResearchState("r", "work", revision=2),
+            )
+        dispatch.assert_not_called()
+
+    @patch("chatgpt_operation.controller.execution_gateway.dispatch_native_plan_async")
+    @patch("chatgpt_operation.controller.execution_gateway.resume_dispatch_intent")
+    def test_verified_originating_authority_clearance_allows_regular_dispatch_preflight(self, resume, dispatch):
+        p = plan()
+        resume.return_value = (p, intent(p.idempotency_key))
+        self.db.record_clearance(self.auth_proof)
+        trusted_gate = self.Gate(
+            journal=self.db, trusted_head_reader=lambda: HEAD,
+            technical_verifier=lambda _: False, authority_verifier=lambda _: True,
+        )
+        dispatch.return_value = {"workflow_run_id": 99,
+                                 "correlation_id": p.idempotency_key, "ref": "main"}
+        result = ExecutionGateway(
+            object(), blocker_gate=trusted_gate,
+            trusted_work_id=self.work_id, trusted_head_sha=HEAD,
+        ).execute(
+            command(ControllerCommandKind.DISPATCH_ACTION,
+                    action_id=p.idempotency_key),
+            state=ResearchState("r", "work", revision=2),
+        )
+        self.assertEqual(result.status, GatewayStatus.RECEIPT)
+        dispatch.assert_called_once()
+
+
 if __name__=="__main__":
     unittest.main()

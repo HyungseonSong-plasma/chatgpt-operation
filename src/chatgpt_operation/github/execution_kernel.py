@@ -69,9 +69,14 @@ class ExecutionReceipt:
 class ExecutionKernel:
     """The sole authority for provider selection and mutation execution."""
 
-    def __init__(self, providers: list[ExecutionProvider], *, state: ResearchState):
+    def __init__(self, providers: list[ExecutionProvider], *, state: ResearchState,
+                 blocker_gate=None, trusted_work_id=None, trusted_head_sha=None):
         self._providers = tuple(providers)
         self._state = state
+        # Only a trusted controller/runtime may configure the blocker gate.
+        self._blocker_gate = blocker_gate
+        self._trusted_work_id = trusted_work_id
+        self._trusted_head_sha = trusted_head_sha
 
     def execute(self, plan: ActionPlan, *, recovery_authorization=None) -> ExecutionReceipt:
         if plan.research_id != self._state.research_id:
@@ -110,6 +115,28 @@ class ExecutionKernel:
                 f"no registered execution provider for {capability.value}"
             )
 
+        if self._blocker_gate is not None:
+            from chatgpt_operation.repository.blocker_gate import (
+                CommonPreWriteGate, BlockerGateError,
+            )
+            from chatgpt_operation.repository.blocker_triage import logical_intent_id
+            if not isinstance(self._blocker_gate, CommonPreWriteGate):
+                raise ExecutionKernelError("untrusted native GitHub blocker gate")
+            if not self._trusted_work_id or not self._trusted_head_sha:
+                raise ExecutionKernelError("trusted native work/head identity missing")
+            try:
+                intent = logical_intent_id(
+                    repository=plan.payload["repository"], branch="samuel/native-github",
+                    work_id=self._trusted_work_id, paths=("github-native/" + action.value,),
+                )
+                self._blocker_gate.require_clear(
+                    logical_intent_id=intent, expected_head_sha=self._trusted_head_sha,
+                )
+            except (KeyError, TypeError, ValueError, BlockerGateError) as exc:
+                raise ExecutionKernelError(
+                    "native mutation blocked by common prewrite gate"
+                ) from exc
+
         failures: list[ProviderFailureEvidence] = []
         for provider in providers:
             try:
@@ -127,7 +154,15 @@ class ExecutionKernel:
                     error_type=type(exc).__name__,
                     message=str(exc),
                 ))
-                continue
+                # A thrown provider error is not proof that another provider
+                # may safely retry this logical mutation. In particular the
+                # source may be an upstream tool safety/policy rejection.
+                # Do not wash it away as a 'provider unavailable' signal.
+                raise ExecutionKernelError(
+                    "mutation provider failure requires classification; "
+                    "unverified alternate-provider fallback refused: "
+                    + provider.name + ":" + type(exc).__name__
+                ) from exc
 
             attempted = result.status not in {
                 ExecutionStatus.NOOP,

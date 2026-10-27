@@ -71,8 +71,14 @@ class GatewayResult:
 class ExecutionGateway:
     """Only runtime boundary allowed to dispatch or observe controller workflows."""
 
-    def __init__(self, transport: ActionsTransport):
+    def __init__(self, transport: ActionsTransport, *, blocker_gate=None,
+                 trusted_work_id=None, trusted_head_sha=None):
         self.transport = transport
+        # Injected only by the trusted Controller deployment, never from a
+        # proposed ActionPlan or user-editable Issue comment.
+        self.blocker_gate = blocker_gate
+        self.trusted_work_id = trusted_work_id
+        self.trusted_head_sha = trusted_head_sha
 
     @staticmethod
     def _validate_command(command: ControllerCommand, state: ResearchState) -> None:
@@ -131,6 +137,29 @@ class ExecutionGateway:
         plan,
         intent: DispatchIntent,
     ) -> dict[str, Any]:
+        if self.blocker_gate is not None:
+            from chatgpt_operation.repository.blocker_gate import (
+                CommonPreWriteGate, BlockerGateError,
+            )
+            from chatgpt_operation.repository.blocker_triage import logical_intent_id
+            if not isinstance(self.blocker_gate, CommonPreWriteGate):
+                raise ExecutionGatewayError("untrusted action dispatch blocker gate")
+            if not self.trusted_work_id or not self.trusted_head_sha:
+                raise ExecutionGatewayError("trusted action dispatch work/head identity missing")
+            try:
+                intent_id = logical_intent_id(
+                    repository=plan.payload["repository"], branch="samuel/controller",
+                    work_id=self.trusted_work_id,
+                    paths=("actions/" + plan.executor.value,),
+                )
+                self.blocker_gate.require_clear(
+                    logical_intent_id=intent_id,
+                    expected_head_sha=self.trusted_head_sha,
+                )
+            except (KeyError, TypeError, ValueError, BlockerGateError) as exc:
+                raise ExecutionGatewayError(
+                    "ActionPlan dispatch blocked by common prewrite gate"
+                ) from exc
         if plan.executor is ExecutorKind.GITHUB_NATIVE:
             return dispatch_native_plan_async(
                 plan,

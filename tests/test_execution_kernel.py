@@ -89,7 +89,8 @@ class ExecutionKernelTests(unittest.TestCase):
         self.assertTrue(receipt.complete)
 
 
-    def test_provider_failure_falls_back_and_preserves_evidence(self):
+    def test_unclassified_provider_failure_never_retries_on_fallback(self):
+        attempted = []
         primary = ExecutionProvider(
             name="github-connector",
             capabilities=frozenset({GitHubCapability.MERGE_PR}),
@@ -97,47 +98,51 @@ class ExecutionKernelTests(unittest.TestCase):
                 "merged": False, "head_sha": "a"*40,
                 "mergeable": True, "ci": "success",
             },
-            mutate=lambda action, target: (_ for _ in ()).throw(
-                RuntimeError("blocked by provider safety check")
+            mutate=lambda action, target: attempted.append("primary") or (
+                (_ for _ in ()).throw(RuntimeError("blocked by provider safety check"))
             ),
         )
-        states = iter([
-            {"merged": False, "head_sha": "a"*40, "mergeable": True, "ci": "success"},
-            {"merged": True, "head_sha": "a"*40},
-        ])
-        fallback = ExecutionProvider(
+        secondary = ExecutionProvider(
             name="github-rest",
             capabilities=frozenset({GitHubCapability.MERGE_PR}),
-            read_state=lambda action, target: next(states),
-            mutate=lambda action, target: {"merged": True},
+            read_state=lambda action, target: self.fail(
+                "secondary must never read after unclassified primary rejection"),
+            mutate=lambda action, target: self.fail("secondary must never write"),
         )
-        receipt = ExecutionKernel([primary, fallback], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
-        self.assertEqual(receipt.provider, "github-rest")
-        self.assertTrue(receipt.complete)
-        self.assertEqual(len(receipt.provider_failures), 1)
-        self.assertEqual(receipt.provider_failures[0].provider, "github-connector")
-        self.assertTrue(receipt.provider_failures[0].attempted)
-
-    def test_all_provider_failures_are_required_before_kernel_blocker(self):
-        def failed(name):
-            return ExecutionProvider(
-                name=name,
-                capabilities=frozenset({GitHubCapability.MERGE_PR}),
-                read_state=lambda action, target: {
-                    "merged": False, "head_sha": "a"*40,
-                    "mergeable": True, "ci": "success",
-                },
-                mutate=lambda action, target: (_ for _ in ()).throw(
-                    RuntimeError(f"{name} rejected mutation")
-                ),
-            )
         with self.assertRaisesRegex(
-            ExecutionKernelError,
-            "all registered providers failed for GITHUB_PR_MERGE",
-        ) as caught:
-            ExecutionKernel([failed("connector"), failed("rest")], state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE)).execute(merge_plan())
-        self.assertIn("connector:RuntimeError", str(caught.exception))
-        self.assertIn("rest:RuntimeError", str(caught.exception))
+            ExecutionKernelError, "unverified alternate-provider fallback refused",
+        ):
+            ExecutionKernel(
+                [primary, secondary],
+                state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE),
+            ).execute(merge_plan())
+        self.assertEqual(attempted, ["primary"])
+
+    def test_mutation_exception_does_not_claim_capability_exhaustion(self):
+        reads = []
+        primary = ExecutionProvider(
+            name="connector",
+            capabilities=frozenset({GitHubCapability.MERGE_PR}),
+            read_state=lambda action, target: reads.append("primary") or (
+                (_ for _ in ()).throw(OSError("transport state unknown"))
+            ),
+            mutate=lambda action, target: self.fail("no writes on unknown read failure"),
+        )
+        secondary = ExecutionProvider(
+            name="rest",
+            capabilities=frozenset({GitHubCapability.MERGE_PR}),
+            read_state=lambda action, target: reads.append("secondary"),
+            mutate=lambda action, target: self.fail("must not mutate on fallback"),
+        )
+        with self.assertRaisesRegex(
+            ExecutionKernelError, "unverified alternate-provider fallback refused",
+        ) as err:
+            ExecutionKernel(
+                [primary, secondary],
+                state=ResearchState("samuel-55", "kernel test", stage=ResearchStage.EXECUTE),
+            ).execute(merge_plan())
+        self.assertNotIn("all registered providers failed", str(err.exception))
+        self.assertEqual(reads, ["primary"])
 
 
     def test_open_diagnostic_recovery_blocks_kernel_before_provider_read(self):
