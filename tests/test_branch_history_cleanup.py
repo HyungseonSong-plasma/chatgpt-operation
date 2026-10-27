@@ -36,6 +36,11 @@ class SamuelBranchHistoryCleanupTests(unittest.TestCase):
         self.assertIn('repo.get("full_name") != repository', text)
         self.assertIn('latest_closed_by_head.setdefault(branch, pull)', text)
 
+    def test_cleanup_push_trigger_is_main_only(self):
+        text = self.text()
+        self.assertIn("branches:", text)
+        self.assertIn("- main", text)
+
     def test_cleanup_has_bounded_permissions_and_serialization(self):
         text = self.text()
         self.assertIn('contents: write', text)
