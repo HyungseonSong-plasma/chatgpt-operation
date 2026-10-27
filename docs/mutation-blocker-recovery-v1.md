@@ -54,6 +54,16 @@ The `TrustedGitHubReadbacks` module performs actual read-only GitHub API checks 
 
 **Persistence limitations:** GitHub Issue comments survive worker/session restarts, but are not physically immutable: authorized GitHub users can edit or delete them. The hash chain detects altered or missing intermediate records but cannot, without a separately anchored expected tip, detect deletion of the entire journal or its trailing record. Nor does a read-then-write comment append provide a global atomic transaction across multiple providers. Until independently anchored checkpoints, an enforceable single-writer setup and credentials/readback are configured, treat the journal as an audited prototype rather than a hardened universal ledger.
 
+## Independent journal-tip checkpoint — opt-in hardening
+
+An internally valid comment hash chain **cannot detect deletion of its trailing event**. The optional `JournalCheckpoint(sequence, tip, anchor_ref)` provides an explicit external anchoring contract. `CommonPreWriteGate(trusted_checkpoint_reader=...)` independently compares the complete Issue-comment journal event count and SHA-256 chain tip with a separate trusted checkpoint. Missing, truncated, rewritten, unreconciled or unreadable checkpoints fail closed. An unrelated, non-journal Issue comment does not change the chain.
+
+**Production trust conditions:** the checkpoint reader must be configured by a trusted runtime and return values from a storage/authority boundary **distinct from the writable Issue comments**, protected so the Issue-comment writer cannot rewrite the expected tip. A model-generated ActionPlan, PR comment, same-issue comment, unsigned local file or the Journal itself is **not** an independent anchor. Authenticate source, version, minimum prior checkpoint, and read consistency.
+
+**Append transition:** A newly appended event is blocked until the independently controlled checkpoint has advanced to that event's verified sequence and tip. Use a single-writer/serialized process and a durable handoff receipt. There is no atomic transaction across GitHub Issues and a separate checkpoint store in this increment. On incomplete handoff, **stop** rather than guessing which state won. Never treat a matching checkpoint as work authorization; normal policy and clearances remain mandatory.
+
+This PR provides **checkpoint verification, not provisioning or deployment** of an anchor store, privileged writer or distributed lock. Without a trusted checkpoint reader, the gate retains its existing optional/prototype behavior. Do not claim systemwide operational immutability.
+
 ## codeQA Issue #93 case
 
 The earlier create_file attempt on feat/93-scoped-parser-integration-20261026 was recorded as BLOCKED BY SAFETY SCREENING; no upstream rule details are known. It is not evidence of an HTTP 403. Separately, Draft PR #153 is still 24 commits behind current main, and its 11-file source delta needs current-main workflow catalog/provenance reconciliation (23 to 24 workflows and corrected modified-workflow blob/artifact count). These are distinct issues; no attempt to re-execute the denied source-write through another endpoint is justified by this classification.
