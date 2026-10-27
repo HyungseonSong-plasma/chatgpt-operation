@@ -4,7 +4,20 @@ Samuel trigger: `GITHUB_PR_CREATE`. This skill owns the explicit, non-merge crea
 
 ## Registered provider
 
-`skills/capability-registry.json` registers the `github-connector` as the create-PR provider. Do not use the registered `GITHUB_PR_MERGE` providers as a substitute, and do not assume merge authority from successful PR creation.
+`skills/capability-registry.json` registers two ordered create-PR providers:
+
+1. `github-connector` (priority 10), when authorized and available.
+2. `repository-native` (priority 20), using `samuel-controller.yml` and the
+   trusted `samuel-native-github.yml` executor with the `github-native-dispatch`
+   contract. The native executor already supports the closed-world `create_pr`
+   action, and the execution kernel maps it to `GITHUB_PR_CREATE`.
+
+Fallback is permitted only after provider-local unavailability, not after a
+policy denial or an external safety-screening block. Both providers require
+fresh authorization and authoritative pre/postcondition evidence. Registration
+of the native provider does **not** override the protected-path deny list,
+authorize registry self-modification, bypass a blocker, or grant merge authority.
+Do not substitute the `GITHUB_PR_MERGE` route for PR creation.
 
 ## Preconditions
 
