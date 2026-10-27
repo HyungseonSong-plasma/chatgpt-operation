@@ -40,6 +40,15 @@ class MutationBlockerTriageTests(unittest.TestCase):
         self.assertEqual(result.category, "OWNER_POLICY_DENIAL")
         self.assertEqual(result.action, RecoveryAction.ESCALATE_NO_WRITE)
 
+    def test_access_denial_cannot_be_laundered_by_later_transient_failure(self):
+        prior = obs(BlockerSource.GITHUB_HTTP, "connector", http_status=403)
+        later = obs(BlockerSource.GITHUB_HTTP, "connector", http_status=503)
+        outcome = decide_mutation_continuation([prior, later],
+                                                logical_intent_id=IDENTITY,
+                                                provider="connector")
+        self.assertEqual(outcome.category, "ACCESS_OR_RESOURCE_UNDETERMINED")
+        self.assertEqual(outcome.action, RecoveryAction.ESCALATE_NO_WRITE)
+
     def test_403_and_404_do_not_prove_token_scope_or_absence(self):
         for status in (401, 403, 404):
             with self.subTest(status=status):
