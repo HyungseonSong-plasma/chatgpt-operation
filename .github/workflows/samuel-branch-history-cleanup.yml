@@ -1,0 +1,149 @@
+name: Samuel Branch History Cleanup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/samuel-branch-history-cleanup.yml'
+  schedule:
+    - cron: '37 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: samuel-closed-pr-branch-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Delete exact unchanged heads of closed pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          repository = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          default_branch = "main"
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def request(method: str, path: str, *, allow_not_found: bool = False):
+              req = Request(
+                  f"https://api.github.com/repos/{repository}{path}",
+                  method=method,
+                  headers=headers,
+              )
+              try:
+                  with urlopen(req, timeout=30) as response:
+                      body = response.read()
+              except HTTPError as exc:
+                  if allow_not_found and exc.code == 404:
+                      return None
+                  raise
+              if not body:
+                  return None
+              return json.loads(body.decode("utf-8"))
+
+          def paged_pulls(state: str):
+              page = 1
+              while True:
+                  items = request(
+                      "GET",
+                      f"/pulls?state={state}&per_page=100&page={page}",
+                  )
+                  if not items:
+                      return
+                  yield from items
+                  if len(items) < 100:
+                      return
+                  page += 1
+
+          open_heads = {
+              pull["head"]["ref"]
+              for pull in paged_pulls("open")
+              if pull.get("head", {}).get("repo", {}).get("full_name") == repository
+          }
+
+          latest_closed_by_head = {}
+          closed = sorted(
+              paged_pulls("closed"),
+              key=lambda item: item.get("updated_at", ""),
+              reverse=True,
+          )
+          for pull in closed:
+              head = pull.get("head") or {}
+              repo = head.get("repo") or {}
+              branch = head.get("ref")
+              if repo.get("full_name") != repository:
+                  continue
+              if not branch or branch == default_branch or branch in open_heads:
+                  continue
+              latest_closed_by_head.setdefault(branch, pull)
+
+          deleted = []
+          moved = []
+          absent = []
+          for branch, pull in sorted(latest_closed_by_head.items()):
+              expected_sha = pull["head"]["sha"]
+              encoded = quote(branch, safe="/")
+              get_path = f"/git/ref/heads/{encoded}"
+              delete_path = f"/git/refs/heads/{encoded}"
+
+              current = request("GET", get_path, allow_not_found=True)
+              if current is None:
+                  absent.append(branch)
+                  continue
+
+              actual_sha = (current.get("object") or {}).get("sha")
+              if actual_sha != expected_sha:
+                  moved.append(
+                      {
+                          "branch": branch,
+                          "expected_sha": expected_sha,
+                          "actual_sha": actual_sha,
+                          "pr": pull["number"],
+                      }
+                  )
+                  continue
+
+              request("DELETE", delete_path)
+              if request("GET", get_path, allow_not_found=True) is not None:
+                  raise RuntimeError(
+                      f"post-delete verification failed for {branch}"
+                  )
+              deleted.append({"branch": branch, "pr": pull["number"], "sha": expected_sha})
+
+          print(
+              json.dumps(
+                  {
+                      "deleted_count": len(deleted),
+                      "moved_count": len(moved),
+                      "already_absent_count": len(absent),
+                      "open_heads_protected": sorted(open_heads),
+                      "deleted": deleted,
+                      "moved": moved,
+                  },
+                  sort_keys=True,
+              )
+          )
+          PY
