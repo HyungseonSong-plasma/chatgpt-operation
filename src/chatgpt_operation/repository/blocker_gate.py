@@ -62,6 +62,13 @@ class CommonPreWriteGate:
             events = snapshot.matching(logical_intent_id)
         except (JournalError, KeyError, ValueError, TypeError) as exc:
             raise BlockerGateError("complete trusted journal unavailable") from exc
+        # Without a trusted controller-issued work registration we cannot
+        # distinguish a brand-new task from historical denials not yet
+        # migrated to this journal. Fail closed, not 'empty means safe'.
+        enrollment = [e for e in events if e["payload"]["event"] == "REGISTERED"]
+        if len(enrollment) != 1:
+            return GateDecision(False, "WORK_REGISTRATION_NOT_ATTESTED",
+                                len(events), snapshot.tip)
         blockers = [e["payload"] for e in events if e["payload"]["event"] == "BLOCKED"]
         for payload in blockers:
             blocker = BlockerObservation(
