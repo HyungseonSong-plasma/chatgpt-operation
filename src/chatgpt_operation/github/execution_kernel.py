@@ -154,7 +154,15 @@ class ExecutionKernel:
                     error_type=type(exc).__name__,
                     message=str(exc),
                 ))
-                continue
+                # A thrown provider error is not proof that another provider
+                # may safely retry this logical mutation. In particular the
+                # source may be an upstream tool safety/policy rejection.
+                # Do not wash it away as a 'provider unavailable' signal.
+                raise ExecutionKernelError(
+                    "mutation provider failure requires classification; "
+                    "unverified alternate-provider fallback refused: "
+                    + provider.name + ":" + type(exc).__name__
+                ) from exc
 
             attempted = result.status not in {
                 ExecutionStatus.NOOP,
