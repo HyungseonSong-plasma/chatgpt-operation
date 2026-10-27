@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Delete exact unchanged heads of closed pull requests
+      - name: Delete closed PR and main-contained branch heads
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -41,6 +41,7 @@ jobs:
           from urllib.request import Request, urlopen
 
           repository = os.environ["REPOSITORY"]
+          owner = repository.split("/", 1)[0]
           token = os.environ["GH_TOKEN"]
           default_branch = "main"
 
@@ -81,6 +82,62 @@ jobs:
                       return
                   page += 1
 
+          def paged_branches():
+              page = 1
+              while True:
+                  items = request("GET", f"/branches?per_page=100&page={page}")
+                  if not items:
+                      return
+                  yield from items
+                  if len(items) < 100:
+                      return
+                  page += 1
+
+          def has_open_pr(branch: str) -> bool:
+              head_filter = quote(f"{owner}:{branch}", safe="")
+              pulls = request(
+                  "GET",
+                  f"/pulls?state=open&head={head_filter}&per_page=1",
+              )
+              return bool(pulls)
+
+          def delete_exact(branch: str, expected_sha: str) -> str:
+              if branch == default_branch:
+                  return "protected_default"
+              if has_open_pr(branch):
+                  return "protected_open_pr"
+
+              encoded = quote(branch, safe="/")
+              get_path = f"/git/ref/heads/{encoded}"
+              delete_path = f"/git/refs/heads/{encoded}"
+
+              current = request("GET", get_path, allow_not_found=True)
+              if current is None:
+                  return "absent"
+
+              actual_sha = (current.get("object") or {}).get("sha")
+              if actual_sha != expected_sha:
+                  return "moved"
+
+              request("DELETE", delete_path)
+
+              for attempt in range(6):
+                  post = request("GET", get_path, allow_not_found=True)
+                  if post is None:
+                      return "deleted"
+                  post_sha = (post.get("object") or {}).get("sha")
+                  if post_sha != expected_sha:
+                      raise RuntimeError(
+                          f"branch changed/reappeared after delete: "
+                          f"{branch} expected={expected_sha} actual={post_sha}"
+                      )
+                  if attempt < 5:
+                      time.sleep(1)
+
+              raise RuntimeError(
+                  f"post-delete verification timed out for {branch}"
+              )
+
           open_heads = {
               pull["head"]["ref"]
               for pull in paged_pulls("open")
@@ -99,68 +156,102 @@ jobs:
               branch = head.get("ref")
               if repo.get("full_name") != repository:
                   continue
-              if not branch or branch == default_branch or branch in open_heads:
+              if not branch or branch == default_branch:
                   continue
               latest_closed_by_head.setdefault(branch, pull)
 
-          deleted = []
-          moved = []
-          absent = []
+          closed_deleted = []
+          closed_moved = []
+          closed_absent = []
           for branch, pull in sorted(latest_closed_by_head.items()):
               expected_sha = pull["head"]["sha"]
-              encoded = quote(branch, safe="/")
-              get_path = f"/git/ref/heads/{encoded}"
-              delete_path = f"/git/refs/heads/{encoded}"
-
-              current = request("GET", get_path, allow_not_found=True)
-              if current is None:
-                  absent.append(branch)
-                  continue
-
-              actual_sha = (current.get("object") or {}).get("sha")
-              if actual_sha != expected_sha:
-                  moved.append(
+              result = delete_exact(branch, expected_sha)
+              if result == "deleted":
+                  closed_deleted.append(
+                      {"branch": branch, "pr": pull["number"], "sha": expected_sha}
+                  )
+              elif result == "moved":
+                  encoded = quote(branch, safe="/")
+                  current = request(
+                      "GET", f"/git/ref/heads/{encoded}", allow_not_found=True
+                  )
+                  closed_moved.append(
                       {
                           "branch": branch,
                           "expected_sha": expected_sha,
-                          "actual_sha": actual_sha,
+                          "actual_sha": (
+                              (current or {}).get("object") or {}
+                          ).get("sha"),
                           "pr": pull["number"],
+                      }
+                  )
+              elif result == "absent":
+                  closed_absent.append(branch)
+
+          main_ref = request("GET", f"/git/ref/heads/{default_branch}")
+          main_sha = (main_ref.get("object") or {}).get("sha")
+          if not isinstance(main_sha, str) or len(main_sha) != 40:
+              raise RuntimeError("cannot resolve exact main SHA")
+
+          contained_deleted = []
+          contained_moved = []
+          diverged = []
+          protected_open = []
+
+          for item in sorted(paged_branches(), key=lambda value: value["name"]):
+              branch = item["name"]
+              if branch == default_branch:
+                  continue
+              if has_open_pr(branch):
+                  protected_open.append(branch)
+                  continue
+
+              expected_sha = item["commit"]["sha"]
+              comparison = request(
+                  "GET",
+                  f"/compare/{expected_sha}...{main_sha}",
+              )
+              behind_by = int(comparison.get("behind_by", 0))
+              ahead_by = int(comparison.get("ahead_by", 0))
+              if behind_by != 0:
+                  diverged.append(
+                      {
+                          "branch": branch,
+                          "sha": expected_sha,
+                          "ahead_by": ahead_by,
+                          "behind_by": behind_by,
                       }
                   )
                   continue
 
-              request("DELETE", delete_path)
-
-              deleted_verified = False
-              for attempt in range(6):
-                  post = request("GET", get_path, allow_not_found=True)
-                  if post is None:
-                      deleted_verified = True
-                      break
-                  post_sha = (post.get("object") or {}).get("sha")
-                  if post_sha != expected_sha:
-                      raise RuntimeError(
-                          f"branch changed/reappeared after delete: "
-                          f"{branch} expected={expected_sha} actual={post_sha}"
-                      )
-                  if attempt < 5:
-                      time.sleep(1)
-
-              if not deleted_verified:
-                  raise RuntimeError(
-                      f"post-delete verification timed out for {branch}"
+              result = delete_exact(branch, expected_sha)
+              if result == "deleted":
+                  contained_deleted.append(
+                      {"branch": branch, "sha": expected_sha}
                   )
-              deleted.append({"branch": branch, "pr": pull["number"], "sha": expected_sha})
+              elif result == "moved":
+                  contained_moved.append(
+                      {"branch": branch, "expected_sha": expected_sha}
+                  )
+              elif result == "protected_open_pr":
+                  protected_open.append(branch)
 
           print(
               json.dumps(
                   {
-                      "deleted_count": len(deleted),
-                      "moved_count": len(moved),
-                      "already_absent_count": len(absent),
-                      "open_heads_protected": sorted(open_heads),
-                      "deleted": deleted,
-                      "moved": moved,
+                      "closed_deleted_count": len(closed_deleted),
+                      "closed_moved_count": len(closed_moved),
+                      "closed_already_absent_count": len(closed_absent),
+                      "contained_deleted_count": len(contained_deleted),
+                      "contained_moved_count": len(contained_moved),
+                      "diverged_count": len(diverged),
+                      "open_heads_snapshot": sorted(open_heads),
+                      "protected_open": sorted(set(protected_open)),
+                      "closed_deleted": closed_deleted,
+                      "closed_moved": closed_moved,
+                      "contained_deleted": contained_deleted,
+                      "contained_moved": contained_moved,
+                      "diverged": diverged,
                   },
                   sort_keys=True,
               )
