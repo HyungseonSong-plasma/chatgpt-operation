@@ -64,6 +64,14 @@ An internally valid comment hash chain **cannot detect deletion of its trailing 
 
 This PR provides **checkpoint verification, not provisioning or deployment** of an anchor store, privileged writer or distributed lock. Without a trusted checkpoint reader, the gate retains its existing optional/prototype behavior. Do not claim systemwide operational immutability.
 
+## Legacy blocker reconciliation before enrollment
+
+The `blocker_migration.reconcile_legacy_blockers` helper is a bounded, optional migration gate for **known previously blocked work**. It takes a typed, nonempty `HistoricalBlockerInventory`, an exact HEAD, a trusted completeness verifier and a configured owner Journal. It first requires an **independent source-completeness attestation**, then persists all historical `BLOCKED` records with readback and conflict checking, **then** issues one `REGISTERED` event. Existing premature registrations are explicitly rejected. Interrupted partial imports can resume without duplicate events; a journal write failure cannot advance to registration.
+
+The source `source_ref` and `completeness_ref` strings **do not** prove historical completeness by themselves. The `trusted_inventory_verifier` must be an owner-configured integration that independently examines the authoritative historical records, work identity, and covered interval. A model-supplied callback, Issue comment, manually invented receipt, or arbitrary `True` is never deployment authorization. This helper refuses an empty inventory even if a caller asserts it is complete; genuinely new clean work requires a separate trusted enrollment process. It does **not** retrofit a mandatory check into every `journal.register_work` caller, which remains a deployment trust boundary.
+
+**codeQA #93:** the previously denied file creation remains a historical `TOOL_SAFETY` blocker. There is no authenticated completeness adapter for that external denial source yet. Consequently **do not enroll that work through this helper** until its original evidence and scope can be verified. Even a successful migration does not clear the denial or authorize a write.
+
 ## codeQA Issue #93 case
 
 The earlier create_file attempt on feat/93-scoped-parser-integration-20261026 was recorded as BLOCKED BY SAFETY SCREENING; no upstream rule details are known. It is not evidence of an HTTP 403. Separately, Draft PR #153 is still 24 commits behind current main, and its 11-file source delta needs current-main workflow catalog/provenance reconciliation (23 to 24 workflows and corrected modified-workflow blob/artifact count). These are distinct issues; no attempt to re-execute the denied source-write through another endpoint is justified by this classification.
