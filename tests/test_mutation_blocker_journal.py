@@ -188,5 +188,100 @@ class MutationBlockerJournalTests(unittest.TestCase):
             logical_intent_id=new_scope, expected_head_sha=HEAD).no_active_blocker)
 
 
+class BlockingTransport:
+    def __init__(self):
+        self.calls = []
+    def get(self, *a, **k):
+        self.calls.append(("GET", a))
+        raise AssertionError("unexpected repository read before blocker clearance")
+    def request(self, *a, **k):
+        self.calls.append(("WRITE", a))
+        raise AssertionError("unexpected repository write after blocker rejection")
+
+
+class MutationEntrypointIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.api = IssueAPI()
+        self.journal = GitHubIssueBlockerJournal(
+            self.api, issue_number=236, trusted_actor="samuel-bot")
+        self.journal.record_blocker(blocker())
+        self.gate = CommonPreWriteGate(
+            journal=self.journal, trusted_head_reader=lambda: HEAD,
+            technical_verifier=lambda _: False, authority_verifier=lambda _: False,
+        )
+
+    def test_repository_mutation_engine_refuses_before_file_api(self):
+        from chatgpt_operation.repository.mutation import (
+            Engine, HardStop, parse_policy, parse_manifest,
+        )
+        repo = "HyungseonSong-plasma/chatgpt-operation"
+        policy = parse_policy({
+            "schema_version": 1, "repository": repo,
+            "mutation": {
+                "allow": {"file": ["create"], "branch": ["create"]},
+                "file_paths": {"allow": ["docs/**"], "deny": [".github/**"]},
+                "branch_names": {"allow": ["samuel/*"], "deny": ["main"]},
+            },
+            "validation_gate": {"mode": "off", "workflows": [], "ignore_current_run": False},
+        })
+        manifest = parse_manifest({
+            "schema_version": 1, "repository": repo, "resource": "file",
+            "action": "create",
+            "target": {"path": "docs/test.md", "branch": "samuel/example"},
+            "expected": {"absent": True}, "desired": {"content": "hello"},
+            "commit_message": "test",
+        })
+        transport = BlockingTransport()
+        engine = Engine(
+            transport, repository=repo, policy=policy,
+            blocker_gate=self.gate, trusted_work_id="owner-issued-236",
+            trusted_head_sha=HEAD,
+        )
+        with self.assertRaisesRegex(HardStop, "common prewrite gate"):
+            engine.execute(manifest)
+        self.assertEqual(transport.calls, [])
+
+    def test_native_github_execution_kernel_refuses_before_provider(self):
+        from chatgpt_operation.controller.action_plan import ActionPlan
+        from chatgpt_operation.controller.research import ResearchState, ResearchStage
+        from chatgpt_operation.github.execution_kernel import (
+            ExecutionKernel, ExecutionKernelError, ExecutionProvider, GitHubCapability,
+        )
+        from chatgpt_operation.github.native_executor import NativeGitHubAction
+        plan = ActionPlan.from_dict({
+            "schema_version": 1, "research_id": "samuel-test",
+            "stage": "execute", "executor": "github_native",
+            "payload": {
+                "action": "merge_pr",
+                "repository": "HyungseonSong-plasma/chatgpt-operation",
+                "target": {"number": 237, "expected_head_sha": HEAD},
+                "desired_postcondition": {"merged": True},
+            },
+            "expected_observation": "merged",
+        })
+        provider = ExecutionProvider(
+            name="github-connector",
+            capabilities=frozenset({GitHubCapability.MERGE_PR}),
+            read_state=lambda *_: self.fail("provider read must not occur"),
+            mutate=lambda *_: self.fail("provider mutation must not occur"),
+        )
+        kernel = ExecutionKernel(
+            [provider],
+            state=ResearchState("samuel-test", "gate test", stage=ResearchStage.EXECUTE),
+            blocker_gate=self.gate, trusted_work_id="owner-issued-236",
+            trusted_head_sha=HEAD,
+        )
+        with self.assertRaisesRegex(ExecutionKernelError, "common prewrite gate"):
+            kernel.execute(plan)
+
+    def test_native_gate_requires_trusted_work_identity(self):
+        from chatgpt_operation.controller.research import ResearchState, ResearchStage
+        from chatgpt_operation.github.execution_kernel import ExecutionKernel
+        obj = ExecutionKernel([], state=ResearchState("samuel-test", "gate test",
+                                                     stage=ResearchStage.EXECUTE),
+                              blocker_gate=self.gate)
+        self.assertIsNone(obj._trusted_work_id)
+
+
 if __name__ == "__main__":
     unittest.main()
