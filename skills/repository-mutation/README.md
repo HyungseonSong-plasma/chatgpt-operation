@@ -111,3 +111,31 @@ Desired post-state is recognized before stale identity rejection where applicabl
 - branch delete + target absent -> `NO_MUTATION_NEEDED`
 
 This makes retry safe after remote success followed by local result-persistence failure.
+
+## Mutation blocker classification and no-fallback safety
+
+Before retrying or switching registered providers after any failed repository mutation,
+classify the **observed** blocker using the deterministic
+`chatgpt_operation.repository.blocker_triage` contract and read all
+durable prior blocker records for the **same logical work/branch/path scope**.
+See `docs/mutation-blocker-recovery-v1.md` for the full decision table.
+
+- `TOOL_SAFETY` and `REPOSITORY_POLICY` are **hard denials**, not
+  failed providers. Stop and escalate; do not retry the same logical write via
+  Git tree/commit/ref, another API, git push or repository-native Actions.
+  Do not reinterpret a denied operation by changing its route or payload.
+- Ambiguous GitHub 401/403/404 means read-only access investigation, not
+  proven missing token scope or globally unavailable capability.
+- Stale head, CI, review and workflow-provenance failures require their own
+  exact-SHA replan or validation; no speculative success or forced merge.
+- Only confirmed transient errors can be retried **on the same provider**,
+  with bounded attempts and all original preconditions.
+- The new classification helper is not itself an authorization mechanism and
+  currently does not intercept every external connector call. Until durable
+  blocker ingestion and pre-routing enforcement are wired into the executor,
+  callers must apply these guards explicitly. No absence of a blocker record
+  should be treated as permission to write.
+
+**Registry exhaustion applies to genuine capability unavailability, never to
+bypassing an upstream safety or owner-policy denial.** A deliberately forbidden
+provider route is not a candidate to exhaust through a new execution method.
