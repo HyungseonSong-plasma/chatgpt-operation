@@ -139,3 +139,29 @@ See `docs/mutation-blocker-recovery-v1.md` for the full decision table.
 **Registry exhaustion applies to genuine capability unavailability, never to
 bypassing an upstream safety or owner-policy denial.** A deliberately forbidden
 provider route is not a candidate to exhaust through a new execution method.
+ 
+### Clearance states and proof requirements
+
+Do **not** require an independent policy-officer review for every temporary
+blocker. Use `blocker_resolution.evaluate_clearance` to distinguish:
+
+- `RESOLVED_AUTOMATICALLY`: trusted, exact-head source verification of a
+  fixed SHA, CI, workflow inventory/provenance, up-to-date source review,
+  restored scoped target access, or recovery from a confirmed transient failure.
+- `RESOLVED_BY_AUTHORITY`: *only* when the competent repository-policy or
+  upstream tool-safety authority has actually changed or cleared its own rule
+  and a trusted adapter has verified that fact.
+- `ACTIVE` / `ESCALATED`: insufficient, unrelated, stale or untrusted proof.
+- `SUPERSEDED`: reserved for a proved semantically different work intent,
+  never merely a different execution provider or renamed branch. V1 does not
+  automatically issue this state.
+
+Every clearance event preserves the original denial and binds the exact
+logical intent, original blocker reference, new evidence reference and
+currently independently observed HEAD SHA. **Release eligibility is not
+permission to write**: recheck all ordinary authorization and CI gates.
+External safety-screening refusals cannot be auto-cleared by Samuel or
+circumvented through an alternative tool. The pure classifier currently
+requires trusted live evidence verifiers and is **not yet** wired into every
+write adapter or a durable receipt journal; do not claim complete enforcement.
+
