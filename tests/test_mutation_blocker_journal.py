@@ -303,12 +303,35 @@ class MutationEntrypointIntegrationTests(unittest.TestCase):
             kernel.execute(plan)
 
     def test_native_gate_requires_trusted_work_identity(self):
+        from chatgpt_operation.controller.action_plan import ActionPlan
         from chatgpt_operation.controller.research import ResearchState, ResearchStage
-        from chatgpt_operation.github.execution_kernel import ExecutionKernel
-        obj = ExecutionKernel([], state=ResearchState("samuel-test", "gate test",
-                                                     stage=ResearchStage.EXECUTE),
-                              blocker_gate=self.gate)
-        self.assertIsNone(obj._trusted_work_id)
+        from chatgpt_operation.github.execution_kernel import (
+            ExecutionKernel, ExecutionKernelError, ExecutionProvider, GitHubCapability,
+        )
+        plan = ActionPlan.from_dict({
+            "schema_version": 1, "research_id": "samuel-test",
+            "stage": "execute", "executor": "github_native",
+            "payload": {
+                "action": "merge_pr",
+                "repository": "HyungseonSong-plasma/chatgpt-operation",
+                "target": {"number": 237, "expected_head_sha": HEAD},
+                "desired_postcondition": {"merged": True},
+            },
+            "expected_observation": "merged",
+        })
+        provider = ExecutionProvider(
+            name="github-connector",
+            capabilities=frozenset({GitHubCapability.MERGE_PR}),
+            read_state=lambda *_: self.fail("provider read before identity attestation"),
+            mutate=lambda *_: self.fail("provider write without identity attestation"),
+        )
+        kernel = ExecutionKernel(
+            [provider],
+            state=ResearchState("samuel-test", "gate test", stage=ResearchStage.EXECUTE),
+            blocker_gate=self.gate,
+        )
+        with self.assertRaisesRegex(ExecutionKernelError, "trusted native work/head identity missing"):
+            kernel.execute(plan)
 
 
 if __name__ == "__main__":
