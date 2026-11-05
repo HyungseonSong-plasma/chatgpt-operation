@@ -9,7 +9,7 @@ import unittest
 import os
 
 from chatgpt_operation.controller.dea_reference_oracle import (
-    ReferenceOracleError, compare_candidate, observe_sources, scan_git_snapshot,
+    ReferenceOracleError, compare_candidate, compare_transition, observe_sources, scan_git_snapshot,
 )
 
 PIN = "da14ec9bd6bdbea2b535bd91331b88ecce698413"
@@ -72,6 +72,15 @@ class ReferenceOracleFixtureTests(unittest.TestCase):
                             for x in result["records"]))
         self.assertGreater(result["unsupported_syntax_count"], 0)
 
+    def test_nested_markdown_link_is_explicitly_not_evaluated(self):
+        report = observe_sources(
+            {"docs/x.md": b"[Complex](nested(name).md)\n"},
+            revision="c" * 40,
+        )
+        self.assertIn("UNSUPPORTED_MARKDOWN_SYNTAX",
+                      report["status_counts"])
+        self.assertGreater(report["unsupported_syntax_count"], 0)
+
     def test_untrusted_caller_cannot_claim_trusted_attestation(self):
         candidate = observe_sources(golden_corpus(), revision="a" * 40)
         with self.assertRaisesRegex(ReferenceOracleError, "trusted"):
@@ -114,6 +123,52 @@ class ReferenceOracleGitTests(unittest.TestCase):
             submission["corpus_digest_sha256"] = "0" * 64
             with self.assertRaises(ReferenceOracleError):
                 compare_candidate(report, submission)
+
+    def test_incremental_transition_cannot_mask_stale_index(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", *args], cwd=root, stderr=subprocess.DEVNULL,
+                ).decode().strip()
+
+            git("init", "-q")
+            git("config", "user.name", "DEA Oracle")
+            git("config", "user.email", "dea-oracle@example.invalid")
+            for path, data in golden_corpus().items():
+                destination = root / path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+            git("add", ".")
+            git("commit", "-qm", "before")
+            old_sha = git("rev-parse", "HEAD")
+            old = scan_git_snapshot(root, old_sha)
+            index = root / "docs/index.md"
+            index.write_bytes(index.read_bytes().replace(
+                b"[Missing](not-found.md)", b"[Fixed](guide.md#usage)"
+            ))
+            git("add", ".")
+            git("commit", "-qm", "after")
+            new_sha = git("rev-parse", "HEAD")
+            new = scan_git_snapshot(root, new_sha)
+            actual = {"docs/index.md"}
+            result = compare_transition(
+                old, new, copy.deepcopy(old), copy.deepcopy(new),
+                claimed_changed_selected_paths=actual,
+            )
+            self.assertEqual(result["status"], "PASS_BOUNDED")
+            stale = compare_transition(
+                old, new, copy.deepcopy(old), copy.deepcopy(old),
+                claimed_changed_selected_paths=actual,
+            )
+            # The stale response cannot claim the new exact source identity.
+            self.fail("unreachable") if stale["status"] == "PASS_BOUNDED" else None
+            with self.assertRaises(ReferenceOracleError):
+                compare_transition(
+                    old, new, copy.deepcopy(old), copy.deepcopy(new),
+                    claimed_changed_selected_paths=set(),
+                )
 
     def test_untracked_or_unknown_commit_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
