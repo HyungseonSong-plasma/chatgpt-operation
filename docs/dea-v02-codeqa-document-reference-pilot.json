@@ -105,5 +105,16 @@
     "samuel_controller_unchanged": true,
     "owner_approval_scope": "conditioned future candidate competition",
     "no_david_promotion": true
+  },
+  "reference_oracle": {
+    "kind": "BOUNDED_INDEPENDENT_REFERENCE_SCANNER",
+    "path": "src/chatgpt_operation/controller/dea_reference_oracle.py",
+    "verification_tests": "tests/test_dea_reference_oracle.py",
+    "preview_codeqa_sha": "da14ec9bd6bdbea2b535bd91331b88ecce698413",
+    "source_readback": "EXACT_GIT_OBJECTS_IN_TRUSTED_CI",
+    "comparison": "PASS_BOUNDED|FAIL|UNKNOWN",
+    "trusted_candidate_output_attested": false,
+    "full_markdown_semantics_proven": false,
+    "external_consumer_proven": false
   }
 }
