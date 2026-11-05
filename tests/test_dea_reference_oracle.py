@@ -12,7 +12,7 @@ from chatgpt_operation.controller.dea_reference_oracle import (
     ReferenceOracleError, compare_candidate, compare_transition, observe_sources, scan_git_snapshot, verify_candidate_from_git,
 )
 
-PIN = "da14ec9bd6bdbea2b535bd91331b88ecce698413"
+PIN = "24040c02ea97056de89c6711e847b4f727fb0dcb"
 
 
 def golden_corpus():
