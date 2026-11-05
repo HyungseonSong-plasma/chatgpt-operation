@@ -19,7 +19,7 @@ accepted document request + exact repository snapshot
   -> UNDERSTAND: map each description to source evidence
   -> STRUCTURE: build a typed document model
   -> COMPACT: normalize whitespace without dropping entries
-  -> DESIGN: render minimal or fastapi-astro Markdown
+  -> DESIGN: render minimal or fastapi-astro Markdown (+ optional source-witnessed Mermaid)
   -> VALIDATE: v0.1 links/claims + v0.2 anchors/readability audit
   -> DELIVER: hand proposed text to Samuel repository-mutation
 ```
@@ -137,6 +137,55 @@ The audit itself never writes files, authorizes a PR, or merges it. Under
 v0.2 the published [machine contract](contract-v0.2.json) documents both
 the legacy generator and the new optional-read-only validator, with the
 validator required for newly requested v0.2 document transformations.
+
+## v0.2 README structure and concept diagrams
+
+Issue [codeQA #282](https://github.com/HyungseonSong-plasma/codeQA/issues/282)
+also calls for structural and conceptual diagrams. The optional
+`refine_document(..., diagram=...)` argument generates **GitHub-native
+Mermaid** within the proposed Markdown. It introduces no raster assets,
+external rendering service, JavaScript, GitHub writes or diagram-inferred
+architecture facts.
+
+The caller must supply a **bounded typed relationship graph**. Nodes and
+edges need individually declared source-evidence paths present in the
+attested exact-SHA inventory; adjacency is not inferred from filenames.
+For example (using the existing `refine_document` call shown above):
+
+```python
+diagram = {
+    "title": "Contracts and adapters",
+    "caption": "Conceptual contract ownership declared by the caller.",
+    "nodes": [
+        {"id": "schema", "label": "Contract schema",
+         "evidence_path": "contracts/adapters/capability-v0.1.schema.json"},
+        {"id": "adapter", "label": "Adapter capability",
+         "evidence_path": "contracts/adapters/capability-v0.1.schema.json"},
+    ],
+    "edges": [
+        {"source": "schema", "target": "adapter",
+         "label": "describes shape of",
+         "evidence_path": "contracts/adapters/capability-v0.1.schema.json"},
+    ],
+}
+# Pass diagram=diagram alongside the earlier call's existing arguments.
+```
+
+The renderer emits a deterministic `flowchart LR` with **quoted escaped
+labels**, a textual caption, a sorted source-witness list and an explicit
+"not runtime/semantic proof" caveat. It rejects unsafe node IDs,
+undeclared endpoints, unsupported keys, missing evidence, duplicates,
+control characters and oversized graphs (2–24 nodes, 1–40 edges).
+The underlying document pipeline still preserves original link counts and
+required claims. Use the separate v0.2 heading/readability audit on the
+**final candidate including its diagram**, then human-review actual GitHub
+rendering and substantive truth. A source witness proves existence of a
+path in a caller-attested inventory, **not that the diagram relation is
+correct**.
+
+This addition is opt-in and preserves the original v0.1 `refine_document`
+call signature for consumers not requesting diagrams. The Samuel pin in a
+consumer is **not updated automatically** by this PR.
 
 ## Gates and authority
 
