@@ -33,8 +33,8 @@
   },
   "presentation": {
     "format": "local SVG",
-    "style": "flat-square",
-    "height_px": 20,
+    "style": "rounded-pill",
+    "height_px": 22,
     "label_order": [
       "decision",
       "implementation",
@@ -42,7 +42,38 @@
     ],
     "location": "immediately below first Markdown H1",
     "external_badge_service": false,
-    "alt_text_required": true
+    "alt_text_required": true,
+    "corner_radius_px": 11,
+    "segment_count": 1,
+    "visible_text": "status_only",
+    "accessibility": "axis_and_status_in_image_alt_and_svg_title",
+    "palette": {
+      "2DA44E": {
+        "background": "DAFBE1",
+        "text": "116329",
+        "border": "ACE6BF"
+      },
+      "0969DA": {
+        "background": "DDF4FF",
+        "text": "0550AE",
+        "border": "B6DEFA"
+      },
+      "BF8700": {
+        "background": "FFF8C5",
+        "text": "7D4E00",
+        "border": "E7D08A"
+      },
+      "CF222E": {
+        "background": "FFEBE9",
+        "text": "B42318",
+        "border": "F5B5B4"
+      },
+      "6E7781": {
+        "background": "EAECEF",
+        "text": "57606A",
+        "border": "D0D7DE"
+      }
+    }
   },
   "evidence": {
     "snapshot_sha": "exact 40-digit lowercase hex",
