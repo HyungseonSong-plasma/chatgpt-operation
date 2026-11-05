@@ -318,3 +318,48 @@ def scan_git_snapshot(root: Path, revision: str) -> dict[str, Any]:
         selected[path] = data
     return _observe_sources(selected, revision=revision, all_paths=all_paths,
                             origin="EXACT_GIT_OBJECT_READBACK")
+
+
+def compare_transition(oracle_before: dict[str, Any], oracle_after: dict[str, Any],
+                       candidate_before: dict[str, Any],
+                       candidate_after: dict[str, Any],
+                       *, claimed_changed_selected_paths: set[str]) -> dict[str, Any]:
+    """Test incremental/index invalidation against two independent full scans.
+
+    The candidate cannot omit a changed selected file or mask a stale result.
+    Unselected binary/external surfaces remain outside this bounded oracle.
+    """
+    if oracle_before.get("source_revision") == oracle_after.get("source_revision"):
+        raise ReferenceOracleError("distinct exact source revisions required")
+    for item in (oracle_before, oracle_after):
+        if item.get("origin") != "EXACT_GIT_OBJECT_READBACK":
+            raise ReferenceOracleError("independent Git readback required")
+        if item.get("scope_id") != _SCOPE:
+            raise ReferenceOracleError("incompatible oracle scope")
+    before_files = dict(oracle_before.get("selected_files_git_sha1", []))
+    after_files = dict(oracle_after.get("selected_files_git_sha1", []))
+    if len(before_files) != len(oracle_before.get("selected_files_git_sha1", [])):
+        raise ReferenceOracleError("duplicate before file identity")
+    if len(after_files) != len(oracle_after.get("selected_files_git_sha1", [])):
+        raise ReferenceOracleError("duplicate after file identity")
+    observed_changes = {p for p in set(before_files) | set(after_files)
+                        if before_files.get(p) != after_files.get(p)}
+    if not isinstance(claimed_changed_selected_paths, set) or (
+        observed_changes != claimed_changed_selected_paths
+    ):
+        raise ReferenceOracleError("incremental changed-file denominator mismatch")
+    old = compare_candidate(oracle_before, candidate_before)
+    new = compare_candidate(oracle_after, candidate_after)
+    if "FAIL" in (old["status"], new["status"]):
+        status = "FAIL"
+    elif "UNKNOWN" in (old["status"], new["status"]):
+        status = "UNKNOWN"
+    else:
+        status = "PASS_BOUNDED"
+    return {
+        "status": status, "observed_changed_selected_paths": sorted(observed_changes),
+        "baseline_status": old["status"], "changed_status": new["status"],
+        "universal_semantic_equivalence": "NOT_PROVEN",
+        "external_consumer_coverage": "NOT_EVALUATED",
+        "repository_mutation_authorized": False,
+    }
