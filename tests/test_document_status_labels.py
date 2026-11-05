@@ -6,7 +6,7 @@ import unittest
 from xml.etree import ElementTree
 
 from chatgpt_operation.documentation.status_labels import (
-    AXES, STATUS_COLORS, LabelError, badge_filename, render_badge_svg,
+    AXES, STATUS_COLORS, BADGE_PALETTE, LabelError, badge_filename, render_badge_svg,
     render_badge_header, audit_document_labels,
 )
 
@@ -48,10 +48,16 @@ class DocumentStatusLabelTests(unittest.TestCase):
                 with self.subTest(axis=axis, value=value):
                     svg = render_badge_svg(axis, value)
                     self.assertEqual(svg, render_badge_svg(axis, value))
-                    self.assertIn(f'fill="#{color}"', svg)
+                    background, ink, border = BADGE_PALETTE[color]
+                    self.assertIn(f'fill="#{background}"', svg)
+                    self.assertIn(f'fill="#{ink}"', svg)
+                    self.assertIn(f'stroke="#{border}"', svg)
                     self.assertEqual(ElementTree.fromstring(svg).attrib["role"], "img")
                     self.assertNotIn("img.shields.io", svg)
-                    self.assertIn('height="20"', svg)
+                    self.assertIn('height="22"', svg)
+                    self.assertIn('rx="11"', svg)
+                    self.assertEqual(svg.count("<rect "), 1)
+                    self.assertIn(f'>{value}</text>', svg)
 
     def test_exact_header_match_never_claims_semantic_proof(self):
         result = audit_document_labels(**fixture())
