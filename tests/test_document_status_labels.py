@@ -75,7 +75,7 @@ class DocumentStatusLabelTests(unittest.TestCase):
     def test_mutated_palette_is_rejected(self):
         args = fixture()
         path = "docs/assets/document-status/decision-adopted.svg"
-        args["badge_sources"][path] = args["badge_sources"][path].replace("2DA44E", "CF222E")
+        args["badge_sources"][path] = args["badge_sources"][path].replace("DAFBE1", "FFEBE9")
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
     def test_missing_asset_in_inventory_is_rejected(self):
