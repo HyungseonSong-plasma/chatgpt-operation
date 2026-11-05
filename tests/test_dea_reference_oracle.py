@@ -9,7 +9,7 @@ import unittest
 import os
 
 from chatgpt_operation.controller.dea_reference_oracle import (
-    ReferenceOracleError, compare_candidate, compare_transition, observe_sources, scan_git_snapshot,
+    ReferenceOracleError, compare_candidate, compare_transition, observe_sources, scan_git_snapshot, verify_candidate_from_git,
 )
 
 PIN = "da14ec9bd6bdbea2b535bd91331b88ecce698413"
@@ -169,6 +169,46 @@ class ReferenceOracleGitTests(unittest.TestCase):
                     old, new, copy.deepcopy(old), copy.deepcopy(new),
                     claimed_changed_selected_paths=set(),
                 )
+
+    def test_verified_candidate_uses_fresh_git_not_forged_origin(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", *args], cwd=root, stderr=subprocess.DEVNULL,
+                ).decode().strip()
+
+            git("init", "-q")
+            git("config", "user.name", "DEA Oracle")
+            git("config", "user.email", "dea-oracle@example.invalid")
+            (root / "docs").mkdir()
+            (root / "docs/index.md").write_text(
+                "# Home\n[Good](guide.md)\n", encoding="utf-8"
+            )
+            (root / "docs/guide.md").write_text("# Guide\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-qm", "trusted fixture")
+            sha = git("rev-parse", "HEAD")
+            trusted = scan_git_snapshot(root, sha)
+            candidate = copy.deepcopy(trusted)
+            candidate["origin"] = "EXACT_GIT_OBJECT_READBACK"
+            good = verify_candidate_from_git(root, sha, candidate)
+            self.assertEqual(good["status"], "PASS_BOUNDED")
+            self.assertEqual(good["candidate_artifact_origin"], "NOT_ATTESTED")
+            self.assertEqual(good["ci_runner_integrity"], "NOT_ATTESTED")
+            candidate["records"] = []
+            self.assertEqual(
+                verify_candidate_from_git(root, sha, candidate)["status"], "FAIL"
+            )
+            candidate = copy.deepcopy(trusted)
+            candidate["source_revision"] = "f" * 40
+            with self.assertRaises(ReferenceOracleError):
+                verify_candidate_from_git(root, sha, candidate)
+            with self.assertRaises(ReferenceOracleError):
+                verify_candidate_from_git(root, "f" * 40, trusted)
+            with self.assertRaises(ReferenceOracleError):
+                verify_candidate_from_git(root, sha, None)
 
     def test_untracked_or_unknown_commit_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
