@@ -31,7 +31,7 @@ class ActualCodeQAReplay(unittest.TestCase):
             git("remote", "add", "origin", PUBLIC_REPO)
             # This commit includes the immutable before version in its ancestry.
             # Fetch a bounded history; do not checkout/execute codeQA code.
-            git("fetch", "--no-tags", "--depth=12", "origin", AFTER)
+            git("fetch", "--no-tags", "--depth=128", "origin", AFTER)
             result = replay(root, before=BEFORE, after=AFTER)
             self.assertEqual(result["selected_python_files"], 12)
             self.assertEqual(result["direct_subprocess_import_sites_before"], 2)
