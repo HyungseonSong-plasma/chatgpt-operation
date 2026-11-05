@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+import json
+from pathlib import Path
 
 from chatgpt_operation.documentation import (
     ReadabilityBudget,
@@ -111,6 +113,20 @@ class DocumentationAuditV02Tests(unittest.TestCase):
             with self.subTest(budget=budget):
                 with self.assertRaises(RefinementError):
                     audit_markdown_v02("# Docs\n", "# Docs\n", budget=budget)
+
+    def test_v02_machine_contract_selected_without_init_activation(self):
+        root = Path("skills/documentation-refinement")
+        contract = json.loads((root / "contract-v0.2.json").read_text())
+        legacy = json.loads((root / "contract.json").read_text())
+        catalog = json.loads(Path("skills/catalog.json").read_text())
+        skill = next(item for item in catalog["skills"]
+                     if item["name"] == "documentation-refinement")
+        self.assertEqual(contract["contract_id"], "samuel.documentation-refinement.v0.2")
+        self.assertEqual(legacy["contract_id"], "samuel.documentation-refinement.v0.1")
+        self.assertEqual(skill["contract_path"],
+                         "skills/documentation-refinement/contract-v0.2.json")
+        self.assertEqual(skill["load_on"], ["DOCUMENTATION_REFINEMENT"])
+        self.assertNotIn("INIT", skill["load_on"])
 
     def test_no_silent_override_of_semantic_review(self):
         baseline = "# Contract\n\nA required review is not a PASS.\n"
