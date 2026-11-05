@@ -40,7 +40,7 @@ STATUS_COLORS = {
 }
 AXES = ("decision", "implementation", "review")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-IMAGE = re.compile(r"!\\[([A-Za-z]+): ([A-Z_]+)\\]\\(([^)\\n]+)\\)")
+IMAGE = re.compile(r"!\[([A-Za-z]+): ([A-Z_]+)\]\(([^)\n]+)\)")
 
 
 @dataclass(frozen=True)
