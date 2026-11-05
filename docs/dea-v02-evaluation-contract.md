@@ -1,7 +1,10 @@
 # David Evolutionary Arena: evidence, semantics, and v0.2 evaluation contract
 
 **Issue:** [#246](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/246).  
-**State:** v0.1 read-only implementation + proposed v0.2 contract, **NOT v0.2 execution approval**.
+**State:** v0.1 read-only implementation + proposed v0.2 contract.
+Owner has **conditionally approved** future v0.2 branch competition **only after
+all admission prerequisites are satisfied**; this is NOT permission to start
+candidate branches now.
 No champion, merge, branch population, policy change, external API/model call or David promotion is authorized here.
 
 ## 1. Avoid a single quality number
@@ -118,17 +121,95 @@ independent reviewer approval.
 constraints, exhausted compute budget, observed stagnation, blocked
 permissions/authority or owner hold. No unreviewed branch cleanup.
 
-## 5. Remaining v0.2 admission decisions
+## 5. Selected codeQA pilot scope (owner intent, pending prerequisites)
 
-1. Select one genuinely appropriate task with **three noncolliding,
-   policy-compliant alternatives**. The original #184 package move candidates
-   are rejected; do not relabel them as viable.
-2. Specify which known and external consumers must be included in a scoped
-   semantic acceptance oracle. Missing mandatory coverage blocks automatic
-   champion qualification.
-3. Freeze actual cost/time caps, repeat counts and noisy metric handling.
-4. Establish independent owner/reviewer authority for public API changes
-   and champion promotion.
+**Target:** [codeQA #288](https://github.com/HyungseonSong-plasma/codeQA/issues/288),
+**phase 2 only**: improve documentation-reference **impact analysis** without
+moving or rewriting existing docs. Do NOT duplicate [active PR #289](https://github.com/HyungseonSong-plasma/codeQA/pull/289),
+which already implements phase-1 inventory/catalog, a portal and a bounded
+tracked-reference audit. Build from the finally accepted phase-1 codeQA
+`main` SHA after ordinary review/merge; do not silently base on a floating
+`main` or an unmerged PR snapshot.
 
-Until these are resolved: **v0.2 is a validated design/fixture contract,
-not an authorized population or automated development campaign**.
+**One output contract for three genuinely distinct implementations:**
+
+- `A — FULL_SCAN`: exhaustive deterministic full-corpus reference analyzer.
+- `B — REFERENCE_GRAPH`: materialize a versioned path/fragment backlink graph;
+  compute impacted consumers by graph traversal.
+- `C — INCREMENTAL_INDEX`: preserve a content-addressed dependency index;
+  update only changed sources and independently cross-check against full scans.
+
+The unchanged baseline, A, B, and C must share the **same exact initial
+codeQA source commit**, analyzer/profile/oracle pins, test cases, output
+schema, permitted operations, fixed CI environment and equal development
+budget. All candidates must prove complete enumeration under their claimed
+scope; a fast-but-incomplete analyzer is **infeasible**, not the winner.
+Alternatives are designs to test, not verified viable improvements.
+
+**Scope of bounded semantic equivalence for this pilot:**
+
+1. Freeze a reference corpus of all tracked relevant Markdown plus
+   source/config/test references to docs paths and Markdown fragments.
+   Capture full `(source path, source line, link text/target, resolved path,
+   fragment, status, provenance)` observations with exact source identities.
+2. Compare each candidate against a **separately tested independent oracle**
+   on the same corpus, including reference-style links, relative segments,
+   percent encoding, duplicate headings/slugging, fenced code, fragments,
+   malformed paths, missing targets, literal path references, and intended
+   synthetic/absent paths. No dropping erroneous inputs.
+3. Require exact preservation of existing document bytes, existing public
+   codeQA API/CCG/QA contracts, package roles, root layout, and repository
+   policy. No physical relocation, content rewriting, schema migration,
+   branch deletion or merging in the Arena.
+4. Confirm known internal consumers (source/config/tests/install/scripts),
+   declared authority/status labeling and stable entrypoint/backlink
+   behavior. For external URLs, untracked deep links and externally hosted
+   consumers, record `NOT_EVALUATED`, never equivalent/PASS.
+5. Independent exact-HEAD readback must authenticate actual outputs and
+   observations. The current metadata-only comparators cannot validate
+   receipt origin by themselves. Missing required observations => UNKNOWN;
+   a real discrepancy => FAIL; matching frozen scope => PASS_BOUNDED only.
+
+**Candidate fitness metrics:** verified completeness and correctness are
+hard gates. After these pass, compare measured wall time under a frozen
+runner/protocol, peak memory, analysis/recomputation work, code complexity
+proxy and change footprint as separate objective vectors. Never collapse to a
+scalar or claim the docs navigation itself improved solely because an
+internal analyzer is faster. The exact benchmark repetition count and
+resource budget must be frozen before candidate work. Missing comparable
+metrics => UNKNOWN, not zero.
+
+**Current source checkpoint (not the future base):** codeQA `main` was
+`23c2166bd3b2b0c825b207e856b95c68e0e24070` and PR #289 was
+`5845d7505f22b90d9cb6a9174c13b58b5e04f68c` when the pilot was
+selected. PR #289 is not merged at this checkpoint and does not authorize
+candidate creation or source migration.
+
+## 6. Remaining v0.2 admission gates
+
+1. **Finish v0.1 review and admission.** PR #249's exact-HEAD CI passed,
+   including the read-only real codeQA replay. The owner postponed adding a
+   Gemini/third-party independent reviewer; this review is **pending**, not
+   waived or satisfied by AI self-review. Keep PR #249 draft and unmerged
+   until the applicable independent review/owner authority is satisfied.
+2. **Freeze consumer baseline.** PR #289 must complete its ordinary review
+   and adoption, or the owner must separately choose a valid immutable
+   alternative. Re-evaluate its final codeQA HEAD, exact documents and
+   link audit before fixing the common Arena base.
+3. **Prove semantic oracle and receipt origins.** Build a trusted independent
+   behavior/reference runner, negative controls, exact-HEAD authenticated
+   source/CI artifact receipts and a fixed case/consumer scope. External
+   unknowns cannot be promoted into PASS.
+4. **Budget/fit.** Confirm A/B/C distinctness and policy admissibility, then
+   freeze same-runner measured repeat count, time/model/cost limits,
+   acceptance hard gates and stopping rules. Initial pilot should use one
+   generation only, with no external paid LLM API by default.
+5. **Promotion remains separate.** Human/independent review and normal
+   Samuel PR-create/merge authority still govern any champion. Owner's
+   conditional competition approval is **not** David-generation approval,
+   issue closure, policy rewrite, or blanket license for repository writes.
+
+Until these gates are proved from fresh evidence: **v0.2 execution is
+CONDITIONALLY_APPROVED_BUT_BLOCKED**, with **zero candidate branch actions
+authorized now**. Documentation and read-only evidence/test development may
+continue without treating the blockers as resolved.
