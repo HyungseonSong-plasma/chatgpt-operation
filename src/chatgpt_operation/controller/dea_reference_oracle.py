@@ -363,3 +363,26 @@ def compare_transition(oracle_before: dict[str, Any], oracle_after: dict[str, An
         "external_consumer_coverage": "NOT_EVALUATED",
         "repository_mutation_authorized": False,
     }
+
+
+def verify_candidate_from_git(
+    root: Path, revision: str, candidate_observation: dict[str, Any],
+) -> dict[str, Any]:
+    """Rebuild the Oracle from immutable Git objects, then compare a candidate.
+
+    Caller-provided origin/provenance labels never substitute for this readback.
+    The runner and candidate artifact still require separate CI attestation.
+    """
+    if not isinstance(candidate_observation, dict):
+        raise ReferenceOracleError("candidate observation must be a mapping")
+    trusted = scan_git_snapshot(root, revision)
+    result = compare_candidate(trusted, candidate_observation)
+    return {
+        **result,
+        "trusted_source_revision": trusted["source_revision"],
+        "trusted_corpus_digest_sha256": trusted["corpus_digest_sha256"],
+        "trusted_selected_file_count": trusted["selected_file_count"],
+        "candidate_artifact_origin": "NOT_ATTESTED",
+        "ci_runner_integrity": "NOT_ATTESTED",
+        "full_semantic_contract": "NOT_PROVEN",
+    }
