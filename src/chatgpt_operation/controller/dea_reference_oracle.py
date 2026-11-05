@@ -386,3 +386,64 @@ def verify_candidate_from_git(
         "ci_runner_integrity": "NOT_ATTESTED",
         "full_semantic_contract": "NOT_PROVEN",
     }
+
+
+def assess_actions_run_readback(
+    run: dict[str, Any], *, expected_repository: str,
+    expected_head_sha: str, expected_run_id: int,
+    expected_workflow_path: str,
+) -> dict[str, Any]:
+    """Fail-closed consistency check for an independently fetched Actions run.
+
+    The caller must retrieve run metadata directly from GitHub at evaluation
+    time, not from the candidate's JSON. Matching metadata proves only a
+    completed successful run at the specified HEAD; it does not authenticate
+    artifacts, test semantics, workflow trust, or reviewer independence.
+    """
+    if not isinstance(run, dict):
+        raise ReferenceOracleError("Actions run readback must be a mapping")
+    if not isinstance(expected_head_sha, str) or not _SHA40.fullmatch(expected_head_sha):
+        raise ReferenceOracleError("invalid exact expected HEAD")
+    if (not isinstance(expected_run_id, int) or isinstance(expected_run_id, bool)
+            or expected_run_id <= 0):
+        raise ReferenceOracleError("invalid expected Actions run id")
+    if (not isinstance(expected_repository, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
+                                expected_repository)):
+        raise ReferenceOracleError("invalid repository identity")
+    if (not isinstance(expected_workflow_path, str)
+            or not expected_workflow_path.startswith(".github/workflows/")
+            or not expected_workflow_path.endswith((".yml", ".yaml"))
+            or not _valid_path(expected_workflow_path)):
+        raise ReferenceOracleError("invalid workflow identity")
+    repository = run.get("repository")
+    workflow = run.get("path")
+    if not isinstance(repository, dict) or not isinstance(workflow, str):
+        raise ReferenceOracleError("incomplete Actions run readback")
+    actual_repo = repository.get("full_name")
+    # A workflow path may include a ref suffix; reject it unless the ref
+    # explicitly matches the pinned HEAD, rather than accepting a branch name.
+    path, sep, ref = workflow.partition("@")
+    identity_match = (
+        actual_repo == expected_repository
+        and run.get("head_sha") == expected_head_sha
+        and run.get("id") == expected_run_id
+        and path == expected_workflow_path
+        and (not sep or ref == expected_head_sha)
+    )
+    complete = (run.get("status") == "completed"
+                and run.get("conclusion") == "success")
+    return {
+        "status": "RUN_METADATA_MATCH" if identity_match and complete else "BLOCKED",
+        "repository_matches": actual_repo == expected_repository,
+        "head_matches": run.get("head_sha") == expected_head_sha,
+        "run_id_matches": run.get("id") == expected_run_id,
+        "workflow_matches": path == expected_workflow_path
+                            and (not sep or ref == expected_head_sha),
+        "completed_successfully": complete,
+        "candidate_artifact_origin": "NOT_ATTESTED",
+        "workflow_integrity": "NOT_ATTESTED",
+        "job_test_semantics": "NOT_ATTESTED",
+        "independent_review": "NOT_EVALUATED",
+        "repository_mutation_authorized": False,
+    }
