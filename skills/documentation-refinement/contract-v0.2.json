@@ -16,6 +16,16 @@
       "max_line_growth_ratio": 1.8,
       "max_table_row_chars": 240,
       "overrides": "explicit consumer/human review; no implicit bypass"
+    },
+    "diagram": {
+      "optional": true,
+      "api_parameter": "refine_document(diagram=...)",
+      "type": "bounded caller-declared graph with title, caption, nodes and edges",
+      "nodes": "2..24 unique safe IDs; label and exact source-inventory evidence_path per node",
+      "edges": "1..40 declared source, target, label and evidence_path; endpoints must be known",
+      "output": "fenced Mermaid flowchart LR, textual caption, sorted witness list and semantic limitation",
+      "semantic_authority": "no inferred relationships; source inventory witness does not prove the relation",
+      "diagram_is_documentation_not_QA": "true"
     }
   },
   "gates": {
@@ -26,7 +36,8 @@
     "implementation_limit": "Conservative Markdown subset, not complete GitHub CommonMark parser; rendered GitHub view remains review gate",
     "domain_meaning": "Not verified by this runtime; semantic/policy claims require consumer authority",
     "location": "read-only post-render audit before authorized GitHub mutation",
-    "merge": "separately reviewed; no automatic merge"
+    "merge": "separately reviewed; no automatic merge",
+    "diagrams": "opt-in only; reject unsafe Mermaid content, unknown source paths and unwitnessed edges; run the same v0.2 post-render audit and human GitHub rendering/meaning review"
   },
   "result": {
     "issues": [
