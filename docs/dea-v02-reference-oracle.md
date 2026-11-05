@@ -49,3 +49,10 @@ The preview test now reads the current codeQA PR #289 HEAD
 PR #289 requires a new exact HEAD readback and CI; this pin is not the
 approved competition baseline. A trusted candidate artifact acquisition and
 run-to-commit provenance receipt is still a mandatory admission prerequisite.
+
+
+## Exact-HEAD Actions metadata readback (bounded)
+
+The pure assess_actions_run_readback function checks caller-fetched GitHub Actions run metadata against an independently pinned repository name, 40-character HEAD, positive numeric run ID, exact workflow path/ref, completed status and successful conclusion. Negative controls reject mismatched repository, run ID, SHA, workflow, non-exact workflow ref, queued run and failed conclusion.
+
+A matching run is classified only RUN_METADATA_MATCH: it **does not** authenticate the submitted candidate artifact, its producing job, runner trust, test semantics or independent review. A future trusted execution adapter must retrieve this readback directly from GitHub and correlate artifact IDs/digests and job receipts; candidate-authored JSON cannot be authoritative run metadata.
