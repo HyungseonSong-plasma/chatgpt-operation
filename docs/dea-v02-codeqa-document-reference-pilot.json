@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "contract_id": "dea.v0.2.codeqa.documentation-reference-impact.pilot",
+  "decision_status": "OWNER_SELECTED_CONDITIONALLY_APPROVED_BUT_BLOCKED",
+  "work_scope": {
+    "repository": "HyungseonSong-plasma/codeQA",
+    "issue": 288,
+    "subtask": "phase-2-documentation-reference-impact-audit",
+    "phase1_pr": 289,
+    "allowed_work": "read-only analysis and tests; no documentation relocation or source mutation while admission blocked"
+  },
+  "baseline": {
+    "source_commit_sha": null,
+    "required": "adopted immutable codeQA phase-1 baseline after review",
+    "candidate_count": 3,
+    "unchanged_baseline": true
+  },
+  "candidate_strategies": [
+    {
+      "id": "A",
+      "kind": "FULL_SCAN",
+      "design": "full tracked-corpus scan with deterministic exact-source reference resolution"
+    },
+    {
+      "id": "B",
+      "kind": "REFERENCE_GRAPH",
+      "design": "versioned inbound/outbound reference graph and affected-consumer traversal"
+    },
+    {
+      "id": "C",
+      "kind": "INCREMENTAL_INDEX",
+      "design": "content-addressed delta recomputation with complete full-scan cross-check"
+    }
+  ],
+  "common_oracle": {
+    "owner": "codeQA",
+    "approved_revision_sha": null,
+    "profile_sha": null,
+    "fixture_set_sha": null,
+    "required_observations": [
+      "tracked_path_census",
+      "source_path_and_line",
+      "reference_literal_and_kind",
+      "resolved_target_path",
+      "fragment_slug",
+      "reference_status_and_reason",
+      "known_text_literal_references",
+      "known_consumer_impact",
+      "changed_file_backlinks"
+    ],
+    "semantic_hard_gates": [
+      "exact_source_identity",
+      "identical_case_denominator",
+      "observed_behavior_frozen_cases",
+      "local_reference_and_fragment_correctness",
+      "complete_known_internal_consumers",
+      "no_doc_mutation",
+      "no_public_api_schema_ccg_change",
+      "no_policy_boundary_change"
+    ],
+    "unknowns": [
+      "untracked_external_backlinks",
+      "external_url_reachability",
+      "all_possible_markdown_dialect_rendering"
+    ]
+  },
+  "fitness": {
+    "dimensions": [
+      {
+        "name": "wall_time_ms",
+        "direction": "min"
+      },
+      {
+        "name": "peak_memory_bytes",
+        "direction": "min"
+      },
+      {
+        "name": "recomputed_file_count",
+        "direction": "min"
+      },
+      {
+        "name": "implementation_complexity_proxy",
+        "direction": "min"
+      },
+      {
+        "name": "changed_source_lines",
+        "direction": "min"
+      }
+    ],
+    "hard_gate_fail_or_unknown_excludes": true,
+    "no_aggregate_score": true,
+    "champion_selection": "HUMAN_REVIEW_REQUIRED"
+  },
+  "admission": {
+    "confirmed_task": true,
+    "independent_review_complete": false,
+    "phase1_adopted_exact_commit": false,
+    "trusted_semantic_oracle_ready": false,
+    "evidence_origin_verified": false,
+    "matched_budget_frozen": false,
+    "branch_creation_authorized": false,
+    "merge_authorized": false
+  },
+  "authority": {
+    "samuel_controller_unchanged": true,
+    "owner_approval_scope": "conditioned future candidate competition",
+    "no_david_promotion": true
+  }
+}
