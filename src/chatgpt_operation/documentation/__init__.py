@@ -8,10 +8,12 @@ from typing import Any, Iterable
 from .compact import compact_document
 from .design import PRESETS, render_markdown
 from .discovery import RefinementError, discover_source_inventory
+from .anchors import heading_anchors
+from .quality import ReadabilityBudget, ReadmeAudit, audit_markdown_v02, enforce_markdown_v02
 from .structure import build_document
 from .validation import validate_rendered
 
-__all__ = ["PRESETS", "RefinementError", "RefinementResult", "refine_document"]
+__all__ = ["PRESETS", "RefinementError", "RefinementResult", "refine_document", "heading_anchors", "ReadabilityBudget", "ReadmeAudit", "audit_markdown_v02", "enforce_markdown_v02"]
 
 
 @dataclass(frozen=True)
