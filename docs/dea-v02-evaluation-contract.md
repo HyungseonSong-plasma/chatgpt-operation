@@ -121,9 +121,9 @@ independent reviewer approval.
 constraints, exhausted compute budget, observed stagnation, blocked
 permissions/authority or owner hold. No unreviewed branch cleanup.
 
-## 5. Selected codeQA pilot scope (owner intent, pending prerequisites)
+## 5. Proposed codeQA pilot scope (owner approved domain; subtask provisional)
 
-**Target:** [codeQA #288](https://github.com/HyungseonSong-plasma/codeQA/issues/288),
+**Proposed subtask, not yet owner-confirmed:** [codeQA #288](https://github.com/HyungseonSong-plasma/codeQA/issues/288),
 **phase 2 only**: improve documentation-reference **impact analysis** without
 moving or rewriting existing docs. Do NOT duplicate [active PR #289](https://github.com/HyungseonSong-plasma/codeQA/pull/289),
 which already implements phase-1 inventory/catalog, a portal and a bounded
@@ -181,30 +181,34 @@ metrics => UNKNOWN, not zero.
 
 **Current source checkpoint (not the future base):** codeQA `main` was
 `23c2166bd3b2b0c825b207e856b95c68e0e24070` and PR #289 was
-`5845d7505f22b90d9cb6a9174c13b58b5e04f68c` when the pilot was
-selected. PR #289 is not merged at this checkpoint and does not authorize
+`5845d7505f22b90d9cb6a9174c13b58b5e04f68c` when this preliminary pilot was
+proposed. PR #289 is not merged at this checkpoint and does not authorize
 candidate creation or source migration.
 
 ## 6. Remaining v0.2 admission gates
 
-1. **Finish v0.1 review and admission.** PR #249's exact-HEAD CI passed,
+1. **Confirm the concrete codeQA subtask.** The owner authorized the
+   codeQA improvement domain, **not** specifically documentation analysis;
+   #288 phase-2 is a source-grounded proposal, subject to owner's task choice
+   and proof that three materially distinct admissible implementations exist.
+2. **Finish v0.1 review and admission.** PR #249's exact-HEAD CI passed,
    including the read-only real codeQA replay. The owner postponed adding a
    Gemini/third-party independent reviewer; this review is **pending**, not
    waived or satisfied by AI self-review. Keep PR #249 draft and unmerged
    until the applicable independent review/owner authority is satisfied.
-2. **Freeze consumer baseline.** PR #289 must complete its ordinary review
+3. **Freeze consumer baseline.** PR #289 must complete its ordinary review
    and adoption, or the owner must separately choose a valid immutable
    alternative. Re-evaluate its final codeQA HEAD, exact documents and
    link audit before fixing the common Arena base.
-3. **Prove semantic oracle and receipt origins.** Build a trusted independent
+4. **Prove semantic oracle and receipt origins.** Build a trusted independent
    behavior/reference runner, negative controls, exact-HEAD authenticated
    source/CI artifact receipts and a fixed case/consumer scope. External
    unknowns cannot be promoted into PASS.
-4. **Budget/fit.** Confirm A/B/C distinctness and policy admissibility, then
+5. **Budget/fit.** Confirm A/B/C distinctness and policy admissibility, then
    freeze same-runner measured repeat count, time/model/cost limits,
    acceptance hard gates and stopping rules. Initial pilot should use one
    generation only, with no external paid LLM API by default.
-5. **Promotion remains separate.** Human/independent review and normal
+6. **Promotion remains separate.** Human/independent review and normal
    Samuel PR-create/merge authority still govern any champion. Owner's
    conditional competition approval is **not** David-generation approval,
    issue closure, policy rewrite, or blanket license for repository writes.
