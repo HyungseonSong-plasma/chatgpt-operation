@@ -39,6 +39,15 @@ STATUS_COLORS = {
     },
 }
 AXES = ("decision", "implementation", "review")
+# Soft-background, rounded status chips; accent colours remain semantic IDs.
+# Each entry is (background, foreground, border) in six-digit hex.
+BADGE_PALETTE = {
+    "2DA44E": ("DAFBE1", "116329", "ACE6BF"),
+    "0969DA": ("DDF4FF", "0550AE", "B6DEFA"),
+    "BF8700": ("FFF8C5", "7D4E00", "E7D08A"),
+    "CF222E": ("FFEBE9", "B42318", "F5B5B4"),
+    "6E7781": ("EAECEF", "57606A", "D0D7DE"),
+}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 IMAGE = re.compile(r"!\[([A-Za-z]+): ([A-Z_]+)\]\(([^)\n]+)\)")
 
@@ -68,32 +77,24 @@ def badge_filename(axis: str, value: str) -> str:
 
 
 def render_badge_svg(axis: str, value: str) -> str:
-    """Render a self-contained local SVG with a flat-square two-part label."""
+    """Render a self-contained, rounded, one-piece status chip like chat badges."""
     if axis not in STATUS_COLORS or value not in STATUS_COLORS[axis]:
         raise LabelError("unknown badge axis or status")
     title = axis.title()
-    shown = value.replace("_", " ")
-    left_width = max(64, len(title) * 7 + 20)
-    right_width = len(shown) * 7 + 24
-    width = left_width + right_width
-    ink = "#24292F" if value in {"PARTIAL", "REVIEW_REQUIRED"} else "#FFFFFF"
+    shown = value
+    width = max(78, len(shown) * 7 + 22)
+    background, ink, border = BADGE_PALETTE[STATUS_COLORS[axis][value]]
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="20" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="22" '
         f'role="img" aria-label="{escape(title)}: {escape(shown)}">\n'
         f'  <title>{escape(title)}: {escape(shown)}</title>\n'
-        f'  <rect width="{left_width}" height="20" fill="#555555"/>\n'
-        f'  <rect x="{left_width}" width="{right_width}" height="20" '
-        f'fill="#{STATUS_COLORS[axis][value]}"/>\n'
-        f'  <g font-family="DejaVu Sans,Verdana,sans-serif" font-size="11" '
-        f'font-weight="600" text-anchor="middle">\n'
-        f'    <text x="{left_width // 2}" y="14" fill="#FFFFFF">'
-        f'{escape(title)}</text>\n'
-        f'    <text x="{left_width + right_width // 2}" y="14" '
-        f'fill="{ink}">{escape(shown)}</text>\n'
-        f'  </g>\n'
+        f'  <rect x="0.5" y="0.5" width="{width - 1}" height="21" rx="11" '
+        f'fill="#{background}" stroke="#{border}"/>\n'
+        f'  <text x="{width // 2}" y="15" font-family="DejaVu Sans,Verdana,sans-serif" '
+        f'font-size="11" font-weight="600" text-anchor="middle" fill="#{ink}">'
+        f'{escape(shown)}</text>\n'
         f'</svg>\n'
     )
-
 
 def render_badge_header(labels: Mapping[str, str], *, asset_dir: str) -> str:
     """Emit three local Markdown image links, to be placed just below H1."""
