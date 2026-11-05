@@ -1,7 +1,7 @@
 # documentation-refinement
 
 **OS:** Samuel · **Activation:** `DOCUMENTATION_REFINEMENT` (on demand)  
-**Machine contract:** [contract.json](contract.json)  
+**Machine contract:** [v0.2](contract-v0.2.json) · [v0.1](contract.json) (legacy compatible)  
 **Runtime:** `chatgpt_operation.documentation.refine_document`
 
 ## Purpose
@@ -20,7 +20,7 @@ accepted document request + exact repository snapshot
   -> STRUCTURE: build a typed document model
   -> COMPACT: normalize whitespace without dropping entries
   -> DESIGN: render minimal or fastapi-astro Markdown
-  -> VALIDATE: enforce links, claims, evidence and safe paths
+  -> VALIDATE: v0.1 links/claims + v0.2 anchors/readability audit
   -> DELIVER: hand proposed text to Samuel repository-mutation
 ```
 
@@ -77,7 +77,7 @@ result = refine_document(
         "contracts/adapters/capability-v0.1.schema.json",
     ],
     inventory_complete=True,
-    baseline_markdown="[Capability](adapters/capability-v0.1.schema.json)",
+    baseline_markdown="[Capability](adapters/capability-v0.1.schema.json)\nDeclared adapter support and limits.",
     required_claims=["Declared adapter support and limits."],
     preset="fastapi-astro",
 )
@@ -89,6 +89,54 @@ the source SHA, chosen preset, and preservation checks. The baseline-to-output
 link test covers Markdown links and simple HTML hrefs, not every GitHub-Flavored
 Markdown feature. Run a GitHub rendering review and all consumer-specific
 documentation checks before acceptance.
+
+## v0.2 Markdown quality gates
+
+The **v0.1 document model and `refine_document()` API remain supported**.
+Before a consumer hands any candidate to Samuel repository mutation, run the
+separate read-only v0.2 audit against the exact baseline text:
+
+```python
+from chatgpt_operation.documentation import (
+    ReadabilityBudget, audit_markdown_v02,
+)
+
+audit = audit_markdown_v02(
+    original_markdown,
+    candidate_markdown,
+    budget=ReadabilityBudget(
+        max_character_growth_ratio=1.8,
+        max_line_growth_ratio=1.8,
+        max_table_row_chars=240,
+    ),
+)
+if not audit.passed:
+    raise ValueError(f"documentation review required: {audit.issues}")
+```
+
+The audit verifies **target multiplicities of baseline links**, detects
+lost Markdown heading anchors (including repeated headings), checks local
+`#fragment` links, and enforces explicit document-growth and table-row
+budgets. The result lists missing anchor IDs and link targets, and reports
+line/character counts and maximum table-row length.
+
+**Important:** raw HTML `<h1>` headers are *not* assumed to preserve the
+GitHub-generated slug of a previous Markdown `# Heading`. A deliberate
+compatibility alias such as `<a name="old-slug"></a>` may be accepted by
+the checker, but its repository write still requires its own authorized
+mutation. Do not bypass any upstream write-safety block.
+
+This is a **conservative Markdown subset**, not a complete GitHub-Flavored
+Markdown renderer/parser or a proof of semantic equivalence. Use actual GitHub
+rendering review for unsupported syntax and external deep-link assumptions.
+Budgets can be adjusted only with a documented consumer/human justification
+(e.g., a short index legitimately expanding to catalog all contracts);
+a waiver must not disable semantic review or bypass a denied repository write.
+
+The audit itself never writes files, authorizes a PR, or merges it. Under
+v0.2 the published [machine contract](contract-v0.2.json) documents both
+the legacy generator and the new optional-read-only validator, with the
+validator required for newly requested v0.2 document transformations.
 
 ## Gates and authority
 
