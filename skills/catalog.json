@@ -50,6 +50,15 @@
       ]
     },
     {
+      "name": "documentation-refinement",
+      "path": "skills/documentation-refinement/README.md",
+      "contract_path": "skills/documentation-refinement/contract.json",
+      "load_on": [
+        "DOCUMENTATION_REFINEMENT"
+      ],
+      "activation": "trigger"
+    },
+    {
       "name": "governed-work",
       "path": "skills/governed-work/README.md",
       "load_on": [
