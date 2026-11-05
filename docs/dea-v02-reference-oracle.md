@@ -20,7 +20,7 @@ For strategy C, compare_transition independently scans the full selected corpus 
 
 ## Initial real-codeQA preview (not the adopted competition base)
 
-CI fetches pinned PR #289 preview source da14ec9bd6bdbea2b535bd91331b88ecce698413 and independently reads its Git blobs. This validates source-observation mechanics but does not certify all Markdown constructs or approve any document move.
+CI fetches pinned PR #289 preview source 24040c02ea97056de89c6711e847b4f727fb0dcb and independently reads its Git blobs. This validates source-observation mechanics but does not certify all Markdown constructs or approve any document move.
 
 PR #289 is still open. The codeQA competition base in docs/dea-v02-codeqa-document-reference-pilot.json is intentionally null until phase-1's review/merge is complete and the adopted exact SHA is refreshed.
 
@@ -32,3 +32,20 @@ PR #289 is still open. The codeQA competition base in docs/dea-v02-codeqa-docume
 4. Complete independent review/owner authority before any merge or David promotion. Gemini-based external review has been postponed, not waived.
 
 All work so far is evidence-only; candidate branch creation and any policy changes remain blocked until the admission gates are met.
+
+## Trusted source readback versus candidate artifact trust
+
+The `verify_candidate_from_git(root, exact_sha, candidate_observation)` entrypoint
+reconstructs the Oracle at the specified exact Git commit and then compares
+all candidate observations. It does not trust a caller's `origin` label,
+corpus digest or purported CI success. Negative fixtures reject wrong SHA,
+missing rows and malformed candidate payloads. The output explicitly labels
+`candidate_artifact_origin=NOT_ATTESTED` and
+`ci_runner_integrity=NOT_ATTESTED`: Git-object readback proves the
+reference source, **not** the producer of the submitted candidate output.
+
+The preview test now reads the current codeQA PR #289 HEAD
+`24040c02ea97056de89c6711e847b4f727fb0dcb`. A future change to
+PR #289 requires a new exact HEAD readback and CI; this pin is not the
+approved competition baseline. A trusted candidate artifact acquisition and
+run-to-commit provenance receipt is still a mandatory admission prerequisite.
