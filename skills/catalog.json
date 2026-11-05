@@ -59,6 +59,15 @@
       "activation": "trigger"
     },
     {
+      "name": "document-consistency",
+      "path": "skills/document-consistency/README.md",
+      "contract_path": "skills/document-consistency/contract-v0.1.json",
+      "load_on": [
+        "DOCUMENTATION_CONSISTENCY_QA"
+      ],
+      "activation": "trigger"
+    },
+    {
       "name": "governed-work",
       "path": "skills/governed-work/README.md",
       "load_on": [
