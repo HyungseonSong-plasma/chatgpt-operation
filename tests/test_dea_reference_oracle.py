@@ -158,12 +158,12 @@ class ReferenceOracleGitTests(unittest.TestCase):
                 claimed_changed_selected_paths=actual,
             )
             self.assertEqual(result["status"], "PASS_BOUNDED")
-            stale = compare_transition(
-                old, new, copy.deepcopy(old), copy.deepcopy(old),
-                claimed_changed_selected_paths=actual,
-            )
-            # The stale response cannot claim the new exact source identity.
-            self.fail("unreachable") if stale["status"] == "PASS_BOUNDED" else None
+            # A stale incremental cache cannot reuse prior source identity.
+            with self.assertRaises(ReferenceOracleError):
+                compare_transition(
+                    old, new, copy.deepcopy(old), copy.deepcopy(old),
+                    claimed_changed_selected_paths=actual,
+                )
             with self.assertRaises(ReferenceOracleError):
                 compare_transition(
                     old, new, copy.deepcopy(old), copy.deepcopy(new),
