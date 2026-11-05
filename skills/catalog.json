@@ -52,7 +52,7 @@
     {
       "name": "documentation-refinement",
       "path": "skills/documentation-refinement/README.md",
-      "contract_path": "skills/documentation-refinement/contract.json",
+      "contract_path": "skills/documentation-refinement/contract-v0.2.json",
       "load_on": [
         "DOCUMENTATION_REFINEMENT"
       ],
