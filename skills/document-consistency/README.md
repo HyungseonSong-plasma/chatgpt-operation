@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Define a reusable **flat-square local SVG** status presentation across repositories and check whether each document's three displayed labels agree with its caller-declared metadata and local badge asset bytes. This is intentionally narrower than semantic documentation consistency or a code/runtime correctness oracle. It does **not** infer adopted design, implementation completeness, or review approval from source files, issue closure, or CI.
+Define a reusable **rounded single-piece local SVG** status presentation across repositories and check whether each document's three displayed labels agree with its caller-declared metadata and local badge asset bytes. This is intentionally narrower than semantic documentation consistency or a code/runtime correctness oracle. It does **not** infer adopted design, implementation completeness, or review approval from source files, issue closure, or CI.
 
 ## Orthogonal status axes
 
@@ -15,7 +15,7 @@ Define a reusable **flat-square local SVG** status presentation across repositor
 | Implementation | `IMPLEMENTED`, `PARTIAL`, `NOT_IMPLEMENTED`, `NOT_EVALUATED` | Bounded consumer-declared state, not inferred by the badge tool |
 | Review | `REVIEWED`, `REVIEW_REQUIRED`, `NOT_EVALUATED` | Provenance-sensitive human/domain review state, not asserted by this tool |
 
-Colors: adopted/implemented/reviewed `#2DA44E` (green); proposed `#0969DA` (blue); partial/review required `#BF8700` (amber); not implemented `#CF222E` (red); unknown/superseded `#6E7781` (grey). SVGs have square corners, height 20 px, selectable labels with accessible image alt text. Local SVG assets eliminate third-party badge availability and network tracking dependencies; a matching SVG proves the *presentation*, not the underlying status.
+Colors: adopted/implemented/reviewed `#2DA44E` (green); proposed `#0969DA` (blue); partial/review required `#BF8700` (amber); not implemented `#CF222E` (red); unknown/superseded `#6E7781` (grey). SVGs use a softly tinted background, high-contrast matching text, a subtle border, 11 px rounded corners and a 22 px height. Only the status appears visibly inside each chip; its axis and full status remain available in image alt text and SVG title. This mirrors the chat badge presentation more closely than a split, flat-square Shields-style badge. Local SVG assets eliminate third-party badge availability and network tracking dependencies; a matching SVG proves the *presentation*, not the underlying status.
 
 **All three labels must appear immediately after the document's first Markdown H1.** Use this approach for documentation managed by the consumer's labeling policy; migrate existing documents progressively, with unverified values recorded as `NOT_EVALUATED`.
 
