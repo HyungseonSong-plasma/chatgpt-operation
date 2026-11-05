@@ -83,6 +83,20 @@ class DocumentStatusLabelTests(unittest.TestCase):
         args["markdown"] = "# Architecture\n\n" + ("body\n" * 11) + badge_line
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
+    def test_skill_is_on_demand_and_not_in_init(self):
+        import json
+        from pathlib import Path
+        from chatgpt_operation.skill_catalog import resolve_triggers
+
+        catalog = json.loads(Path("skills/catalog.json").read_text(encoding="utf-8"))
+        active = resolve_triggers(catalog, ["DOCUMENTATION_CONSISTENCY_QA"])
+        self.assertEqual(active["status"], "RESOLVED")
+        self.assertEqual(active["skills"][0]["name"], "document-consistency")
+        init = resolve_triggers(catalog, ["INIT"])
+        self.assertNotIn(
+            "document-consistency", [entry["name"] for entry in init["skills"]]
+        )
+
     def test_snapshot_and_inventory_fail_closed(self):
         args = fixture()
         args["snapshot_sha"] = "main"
