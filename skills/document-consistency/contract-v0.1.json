@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "contract_id": "samuel.documentation-consistency.v0.1",
+  "os": "Samuel",
+  "trigger": "DOCUMENTATION_CONSISTENCY_QA",
+  "execution_mode": "READ_ONLY",
+  "consumer_semantic_authority": "RETAINED",
+  "purpose": "deterministic display/palette validation, not adoption or implementation proof",
+  "axes": {
+    "decision": {
+      "statuses": {
+        "PROPOSED": "0969DA",
+        "ADOPTED": "2DA44E",
+        "SUPERSEDED": "6E7781",
+        "NOT_EVALUATED": "6E7781"
+      }
+    },
+    "implementation": {
+      "statuses": {
+        "IMPLEMENTED": "2DA44E",
+        "PARTIAL": "BF8700",
+        "NOT_IMPLEMENTED": "CF222E",
+        "NOT_EVALUATED": "6E7781"
+      }
+    },
+    "review": {
+      "statuses": {
+        "REVIEWED": "2DA44E",
+        "REVIEW_REQUIRED": "BF8700",
+        "NOT_EVALUATED": "6E7781"
+      }
+    }
+  },
+  "presentation": {
+    "format": "local SVG",
+    "style": "flat-square",
+    "height_px": 20,
+    "label_order": [
+      "decision",
+      "implementation",
+      "review"
+    ],
+    "location": "immediately below first Markdown H1",
+    "external_badge_service": false,
+    "alt_text_required": true
+  },
+  "evidence": {
+    "snapshot_sha": "exact 40-digit lowercase hex",
+    "source_inventory": "caller-attested complete",
+    "source_assets": "caller-provided exact bytes",
+    "status_claims": "consumer-owned",
+    "adoption_or_implementation_certification": false
+  },
+  "result": {
+    "presentation_status": [
+      "MATCH",
+      "MISMATCH"
+    ],
+    "semantic_status": "NOT_EVALUATED",
+    "authority_upgrade": "FORBIDDEN"
+  },
+  "mutation": {
+    "writes_permitted": false,
+    "provider": "Samuel repository-mutation only after separate authorization",
+    "consumer_pin_upgrade": "explicit"
+  }
+}
