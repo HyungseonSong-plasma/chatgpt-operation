@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "contract_id": "samuel.documentation-refinement.v0.2",
+  "trigger": "DOCUMENTATION_REFINEMENT",
+  "activation": "on_demand",
+  "baseline_contract": "skills/documentation-refinement/contract.json",
+  "candidate_runtime": "chatgpt_operation.documentation:refine_document",
+  "validation_runtime": "chatgpt_operation.documentation:audit_markdown_v02",
+  "enforcement_runtime": "chatgpt_operation.documentation:enforce_markdown_v02",
+  "input": {
+    "source_snapshot": "exact immutable repository commit, evidence-backed and unchanged across candidate",
+    "baseline_markdown": "read from exact snapshot or exact PR-parent HEAD",
+    "candidate_markdown": "rendered proposed Markdown text",
+    "readability_budget": {
+      "max_character_growth_ratio": 1.8,
+      "max_line_growth_ratio": 1.8,
+      "max_table_row_chars": 240,
+      "overrides": "explicit consumer/human review; no implicit bypass"
+    },
+    "diagram": {
+      "optional": true,
+      "api_parameter": "refine_document(diagram=...)",
+      "type": "bounded caller-declared graph with title, caption, nodes and edges",
+      "nodes": "2..24 unique safe IDs; label and exact source-inventory evidence_path per node",
+      "edges": "1..40 declared source, target, label and evidence_path; endpoints must be known",
+      "output": "fenced Mermaid flowchart LR, textual caption, sorted witness list and semantic limitation",
+      "semantic_authority": "no inferred relationships; source inventory witness does not prove the relation",
+      "diagram_is_documentation_not_QA": "true"
+    }
+  },
+  "gates": {
+    "required": "preserve all baseline Markdown link target occurrences, existing Markdown heading anchors including duplicates, and local fragment targets",
+    "readability": "bounded document growth and maximum table row length; failures reported with issue codes",
+    "html_heading_rule": "Raw HTML h1..h6 tags are NOT presumed to auto-generate GitHub Markdown anchors",
+    "anchor_alias": "Recognize explicit a id/name anchors; source mutation still requires independent authorization",
+    "implementation_limit": "Conservative Markdown subset, not complete GitHub CommonMark parser; rendered GitHub view remains review gate",
+    "domain_meaning": "Not verified by this runtime; semantic/policy claims require consumer authority",
+    "location": "read-only post-render audit before authorized GitHub mutation",
+    "merge": "separately reviewed; no automatic merge",
+    "diagrams": "opt-in only; reject unsafe Mermaid content, unknown source paths and unwitnessed edges; run the same v0.2 post-render audit and human GitHub rendering/meaning review"
+  },
+  "result": {
+    "issues": [
+      "LINK_TARGET_REMOVED",
+      "LEGACY_ANCHOR_REMOVED",
+      "LOCAL_FRAGMENT_UNRESOLVED",
+      "CHARACTER_BUDGET_EXCEEDED",
+      "LINE_BUDGET_EXCEEDED",
+      "TABLE_ROW_TOO_WIDE"
+    ],
+    "metrics": [
+      "baseline/candidate anchor counts",
+      "link counts",
+      "character counts",
+      "line counts",
+      "longest table row"
+    ],
+    "pass": "no issues; still not proof of semantic or full GFM equivalence"
+  }
+}
