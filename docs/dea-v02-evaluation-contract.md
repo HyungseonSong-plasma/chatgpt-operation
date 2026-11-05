@@ -195,6 +195,18 @@ metrics => UNKNOWN, not zero.
 first proposed. PR #289 is not merged at this checkpoint and does not authorize
 candidate creation or source migration.
 
+
+**Independent Oracle status (2026-11-05):** A separate read-only reference
+scanner and immutable Git-object observation path now exist at
+src/chatgpt_operation/controller/dea_reference_oracle.py, with golden,
+negative, real-codeQA-preview and incremental-transition tests. See
+docs/dea-v02-reference-oracle.md. This establishes only a **bounded,
+source-grounded observation subset**. A trusted candidate-output runner,
+complete required Markdown/consumer scope, independently authenticated
+candidate receipts and accepted codeQA base are still NOT_EVALUATED.
+Therefore trusted_semantic_oracle_ready remains false, and no candidate
+branch competition is authorized.
+
 ## 6. Remaining v0.2 admission gates
 
 1. **Confirm distinct implementations.** The owner has selected codeQA #288
