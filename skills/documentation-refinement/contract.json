@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract_id": "samuel.documentation-refinement.v0.1",
+  "trigger": "DOCUMENTATION_REFINEMENT",
+  "activation": "on_demand",
+  "runtime": "chatgpt_operation.documentation:refine_document",
+  "input": {
+    "snapshot_sha": "exact 40-char commit SHA",
+    "document_path": "repository-relative path",
+    "source_inventory": "nonempty full caller-attested path list",
+    "inventory_complete": "must be true",
+    "baseline_markdown": "original Markdown",
+    "required_claims": "explicit strings to preserve",
+    "payload": "title, tagline, introduction, sections with evidence-backed entries, closing",
+    "preset": [
+      "minimal",
+      "fastapi-astro"
+    ]
+  },
+  "stages": [
+    "discover",
+    "structure",
+    "compact",
+    "design",
+    "validate",
+    "handoff"
+  ],
+  "invariants": {
+    "read_only_runtime": true,
+    "external_mutation_owned_by": "repository-mutation / pull-request-create",
+    "baseline_link_targets_and_counts": "preserve",
+    "required_claims": "preserve",
+    "entries_require_inventory_witness": true,
+    "semantic_equivalence": "consumer_review_required",
+    "source_inventory_completeness": "caller_attested_not_independently_proven",
+    "schema_validity_implies_quality_pass": false,
+    "merge_requires_separate_authority": true
+  },
+  "output": [
+    "candidate_markdown",
+    "snapshot_sha",
+    "preset",
+    "preserved_link_count",
+    "preserved_claim_count"
+  ]
+}
