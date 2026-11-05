@@ -1,0 +1,108 @@
+"""Fail-closed tests for Samuel documentation-status display consistency."""
+
+from __future__ import annotations
+
+import unittest
+from xml.etree import ElementTree
+
+from chatgpt_operation.documentation.status_labels import (
+    AXES, STATUS_COLORS, LabelError, badge_filename, render_badge_svg,
+    render_badge_header, audit_document_labels,
+)
+
+SHA = "a" * 40
+DOC = "docs/architecture.md"
+LABELS = {
+    "decision": "ADOPTED",
+    "implementation": "NOT_EVALUATED",
+    "review": "NOT_EVALUATED",
+}
+
+
+def fixture() -> dict:
+    assets = {
+        "docs/assets/document-status/" + badge_filename(axis, value):
+        render_badge_svg(axis, value)
+        for axis, value in LABELS.items()
+    }
+    markdown = (
+        "# Architecture\n\n"
+        + render_badge_header(LABELS, asset_dir="assets/document-status")
+        + "\n\nExample.\n"
+    )
+    return {
+        "markdown": markdown,
+        "document_path": DOC,
+        "labels": LABELS,
+        "snapshot_sha": SHA,
+        "source_inventory": [DOC, *assets],
+        "inventory_complete": True,
+        "badge_sources": assets,
+    }
+
+
+class DocumentStatusLabelTests(unittest.TestCase):
+    def test_every_badge_is_deterministic_accessible_local_svg(self):
+        for axis in AXES:
+            for value, color in STATUS_COLORS[axis].items():
+                with self.subTest(axis=axis, value=value):
+                    svg = render_badge_svg(axis, value)
+                    self.assertEqual(svg, render_badge_svg(axis, value))
+                    self.assertIn(f'fill="#{color}"', svg)
+                    self.assertEqual(ElementTree.fromstring(svg).attrib["role"], "img")
+                    self.assertNotIn("img.shields.io", svg)
+                    self.assertIn('height="20"', svg)
+
+    def test_exact_header_match_never_claims_semantic_proof(self):
+        result = audit_document_labels(**fixture())
+        self.assertEqual(result.status, "MATCH")
+        self.assertEqual(result.semantic_status, "NOT_EVALUATED")
+        self.assertEqual(result.issues, ())
+
+    def test_wrong_declared_status_does_not_silently_promote(self):
+        args = fixture()
+        args["labels"] = dict(LABELS, implementation="IMPLEMENTED")
+        result = audit_document_labels(**args)
+        self.assertEqual(result.status, "MISMATCH")
+        self.assertTrue(any("implementation badge differs" in s for s in result.issues))
+
+    def test_mutated_palette_is_rejected(self):
+        args = fixture()
+        path = "docs/assets/document-status/decision-adopted.svg"
+        args["badge_sources"][path] = args["badge_sources"][path].replace("2DA44E", "CF222E")
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_missing_asset_in_inventory_is_rejected(self):
+        args = fixture()
+        args["source_inventory"] = [DOC]
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_header_not_at_top_is_rejected(self):
+        args = fixture()
+        badge_line = args["markdown"].splitlines()[2]
+        args["markdown"] = "# Architecture\n\n" + ("body\n" * 11) + badge_line
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_snapshot_and_inventory_fail_closed(self):
+        args = fixture()
+        args["snapshot_sha"] = "main"
+        with self.assertRaises(LabelError):
+            audit_document_labels(**args)
+        args = fixture()
+        args["inventory_complete"] = False
+        with self.assertRaises(LabelError):
+            audit_document_labels(**args)
+
+    def test_unknown_label_and_unsafe_path_fail_closed(self):
+        with self.assertRaises(LabelError):
+            render_badge_svg("decision", "<svg>")
+        with self.assertRaises(LabelError):
+            render_badge_header(LABELS, asset_dir="https://badges.io")
+        args = fixture()
+        args["document_path"] = "../../escaped.md"
+        with self.assertRaises(LabelError):
+            audit_document_labels(**args)
+
+
+if __name__ == "__main__":
+    unittest.main()
