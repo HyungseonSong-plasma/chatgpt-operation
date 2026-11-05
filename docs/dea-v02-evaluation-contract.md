@@ -121,15 +121,25 @@ independent reviewer approval.
 constraints, exhausted compute budget, observed stagnation, blocked
 permissions/authority or owner hold. No unreviewed branch cleanup.
 
-## 5. Proposed codeQA pilot scope (owner approved domain; subtask provisional)
+## 5. Owner-selected codeQA pilot scope — documentation-reference impact
 
-**Proposed subtask, not yet owner-confirmed:** [codeQA #288](https://github.com/HyungseonSong-plasma/codeQA/issues/288),
+**Owner-selected task:** [codeQA #288](https://github.com/HyungseonSong-plasma/codeQA/issues/288),
 **phase 2 only**: improve documentation-reference **impact analysis** without
 moving or rewriting existing docs. Do NOT duplicate [active PR #289](https://github.com/HyungseonSong-plasma/codeQA/pull/289),
 which already implements phase-1 inventory/catalog, a portal and a bounded
 tracked-reference audit. Build from the finally accepted phase-1 codeQA
 `main` SHA after ordinary review/merge; do not silently base on a floating
 `main` or an unmerged PR snapshot.
+
+
+**Confirmed owner selection (2026-11-05):** codeQA documentation-reference
+impact analysis is the first competition task. No further task-selection
+decision is needed. Exact common base, independent baseline/oracle,
+replay-safe competitor capabilities, time/cost budget and trusted reviewer
+authority are still **unresolved**, so this selection alone permits no
+candidate branch creation. GitHub PR #289 owns the phase-1 audit and may
+change while under review; the DEA baseline must come from an adopted
+immutable codeQA revision rather than a draft.
 
 **One output contract for three genuinely distinct implementations:**
 
@@ -181,16 +191,16 @@ metrics => UNKNOWN, not zero.
 
 **Current source checkpoint (not the future base):** codeQA `main` was
 `23c2166bd3b2b0c825b207e856b95c68e0e24070` and PR #289 was
-`5845d7505f22b90d9cb6a9174c13b58b5e04f68c` when this preliminary pilot was
-proposed. PR #289 is not merged at this checkpoint and does not authorize
+`5845d7505f22b90d9cb6a9174c13b58b5e04f68c` when this pilot was
+first proposed. PR #289 is not merged at this checkpoint and does not authorize
 candidate creation or source migration.
 
 ## 6. Remaining v0.2 admission gates
 
-1. **Confirm the concrete codeQA subtask.** The owner authorized the
-   codeQA improvement domain, **not** specifically documentation analysis;
-   #288 phase-2 is a source-grounded proposal, subject to owner's task choice
-   and proof that three materially distinct admissible implementations exist.
+1. **Confirm distinct implementations.** The owner has selected codeQA #288
+   phase-2 documentation-reference impact analysis. Validate that A/B/C are
+   materially distinct but equivalent on the same frozen contract and do not
+   duplicate or change the existing phase-1 audit semantics in PR #289.
 2. **Finish v0.1 review and admission.** PR #249's exact-HEAD CI passed,
    including the read-only real codeQA replay. The owner postponed adding a
    Gemini/third-party independent reviewer; this review is **pending**, not
