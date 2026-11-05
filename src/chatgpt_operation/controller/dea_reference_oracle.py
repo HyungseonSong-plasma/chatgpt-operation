@@ -162,7 +162,9 @@ def _scan_markdown(path: str, raw: str, all_paths: set[str],
                                         definition.group(2), all_paths, anchors))
         # This scanner deliberately does not pretend to parse the full
         # CommonMark grammar (nested inline destinations, multiline HTML).
-        if "](" in visible and not _MD_LINK.search(visible):
+        if ("](" in visible and not _MD_LINK.search(visible)) or re.search(
+            r"\]\([^\n)]*\([^\n)]*\)[^\n)]*\)", visible
+        ):
             records.append({"source": path, "line": lineno,
                             "kind": "unparsed_markdown", "raw_target": None,
                             "resolved_target": None, "fragment": None,
@@ -170,10 +172,10 @@ def _scan_markdown(path: str, raw: str, all_paths: set[str],
     return records
 
 
-def observe_sources(files: dict[str, bytes], *, revision: str,
-                    all_paths: set[str] | None = None,
-                    origin: str = "CALLER_SUPPLIED_UNATTESTED") -> dict[str, Any]:
-    """Pure scoped oracle. Only scan_git_snapshot provides pinned Git provenance."""
+def _observe_sources(files: dict[str, bytes], *, revision: str,
+                     all_paths: set[str] | None,
+                     origin: str) -> dict[str, Any]:
+    """Internal scan; trusted origin is reserved for pinned Git-object readback."""
     if not _SHA40.fullmatch(revision):
         raise ReferenceOracleError("exact 40-character source commit required")
     if not isinstance(files, dict) or not files:
@@ -227,6 +229,13 @@ def observe_sources(files: dict[str, bytes], *, revision: str,
         "external_consumer_coverage": "NOT_EVALUATED",
         "repository_mutation_authorized": False,
     }
+
+
+def observe_sources(files: dict[str, bytes], *, revision: str,
+                    all_paths: set[str] | None = None) -> dict[str, Any]:
+    """Pure fixture analysis; caller-supplied bytes cannot attest their origin."""
+    return _observe_sources(files, revision=revision, all_paths=all_paths,
+                            origin="CALLER_SUPPLIED_UNATTESTED")
 
 
 def compare_candidate(oracle: dict[str, Any],
@@ -307,5 +316,5 @@ def scan_git_snapshot(root: Path, revision: str) -> dict[str, Any]:
         if _blob_id(data) != blob:
             raise ReferenceOracleError("Git object/blob evidence mismatch")
         selected[path] = data
-    return observe_sources(selected, revision=revision, all_paths=all_paths,
-                           origin="EXACT_GIT_OBJECT_READBACK")
+    return _observe_sources(selected, revision=revision, all_paths=all_paths,
+                            origin="EXACT_GIT_OBJECT_READBACK")
