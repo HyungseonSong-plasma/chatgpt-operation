@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from html import escape
 import re
+import unicodedata
 from typing import Any
 
 from .discovery import RefinementError, repository_path
@@ -27,7 +28,8 @@ def _object(value: Any, keys: set[str], field: str) -> dict[str, Any]:
 
 def _text(value: Any, field: str, *, limit: int) -> str:
     if (not isinstance(value, str) or not value.strip() or len(value) > limit
-            or any(ord(ch) < 32 or ord(ch) == 127 for ch in value)):
+            or any(unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"}
+                   for ch in value)):
         raise RefinementError(f"{field} must be nonempty, bounded, single-line text")
     return value.strip()
 
@@ -46,6 +48,8 @@ def _mermaid_text(value: str) -> str:
             .replace("[", "&#91;")
             .replace("]", "&#93;")
             .replace("|", "&#124;")
+            .replace("\\", "&#92;")
+            .replace("%", "&#37;")
             .replace("`", "&#96;")
             .replace("{", "&#123;")
             .replace("}", "&#125;"))
@@ -119,9 +123,9 @@ def render_evidence_diagram(
         "flowchart LR",
     ]
     for identifier, label in sorted(declared):
-        lines.append(f'  {identifier}["{_mermaid_text(label)}"]')
+        lines.append(f'  n_{identifier}["{_mermaid_text(label)}"]')
     for src, dst, label in sorted(relationships):
-        lines.append(f'  {src} -->|{_mermaid_text(label)}| {dst}')
+        lines.append(f'  n_{src} -->|{_mermaid_text(label)}| n_{dst}')
     lines.extend([
         "```",
         "",
