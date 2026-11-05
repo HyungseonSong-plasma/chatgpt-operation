@@ -9,7 +9,7 @@ import unittest
 import os
 
 from chatgpt_operation.controller.dea_reference_oracle import (
-    ReferenceOracleError, compare_candidate, compare_transition, observe_sources, scan_git_snapshot, verify_candidate_from_git,
+    ReferenceOracleError, assess_actions_run_readback, compare_candidate, compare_transition, observe_sources, scan_git_snapshot, verify_candidate_from_git,
 )
 
 PIN = "24040c02ea97056de89c6711e847b4f727fb0dcb"
@@ -85,6 +85,43 @@ class ReferenceOracleFixtureTests(unittest.TestCase):
         candidate = observe_sources(golden_corpus(), revision="a" * 40)
         with self.assertRaisesRegex(ReferenceOracleError, "trusted"):
             compare_candidate(candidate, copy.deepcopy(candidate))
+
+
+class ActionsReadbackBoundaryTests(unittest.TestCase):
+    def test_exact_run_identity_is_not_artifact_attestation(self):
+        sha = "a" * 40
+        run = {
+            "id": 123, "head_sha": sha,
+            "repository": {"full_name": "HyungseonSong-plasma/chatgpt-operation"},
+            "path": ".github/workflows/ci.yml@" + sha,
+            "status": "completed", "conclusion": "success",
+        }
+        args = {
+            "expected_repository": "HyungseonSong-plasma/chatgpt-operation",
+            "expected_head_sha": sha, "expected_run_id": 123,
+            "expected_workflow_path": ".github/workflows/ci.yml",
+        }
+        result = assess_actions_run_readback(run, **args)
+        self.assertEqual(result["status"], "RUN_METADATA_MATCH")
+        self.assertEqual(result["candidate_artifact_origin"], "NOT_ATTESTED")
+        self.assertEqual(result["workflow_integrity"], "NOT_ATTESTED")
+        self.assertFalse(result["repository_mutation_authorized"])
+        for changed in (
+            {"id": 124}, {"head_sha": "b" * 40},
+            {"repository": {"full_name": "other/repository"}},
+            {"path": ".github/workflows/other.yml@" + sha},
+            {"path": ".github/workflows/ci.yml@main"},
+            {"status": "queued"}, {"conclusion": "failure"},
+        ):
+            altered = copy.deepcopy(run)
+            altered.update(changed)
+            self.assertEqual(
+                assess_actions_run_readback(altered, **args)["status"], "BLOCKED"
+            )
+        with self.assertRaises(ReferenceOracleError):
+            assess_actions_run_readback({"id": 123}, **args)
+        with self.assertRaises(ReferenceOracleError):
+            assess_actions_run_readback(run, **{**args, "expected_run_id": True})
 
 
 class ReferenceOracleGitTests(unittest.TestCase):
