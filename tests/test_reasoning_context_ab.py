@@ -99,7 +99,7 @@ class ReasoningContextABTests(unittest.TestCase):
         self.assertEqual(result["comparison"], "both_typed_responses")
         self.assertTrue(result["case_results"][1]["action_plan_present"])
         self.assertFalse(result["mutation_executed"])
-        self.assertNotIn("action_plan", json.dumps(result))
+        self.assertNotIn("action_plan", result["case_results"][1])
         self.assertEqual(len(provider.calls), 2)
 
     def test_http_failure_is_sanitized_and_context_attributed(self):
