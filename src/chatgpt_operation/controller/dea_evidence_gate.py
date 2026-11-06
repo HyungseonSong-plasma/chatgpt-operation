@@ -120,3 +120,47 @@ def check_evidence_bundle(
         "champion": None,
         "repository_mutation_authorized": False,
     }
+
+
+def to_fitness_semantic_receipt(
+    evidence: dict[str, Any], *,
+    analyzer_sha: str, profile_sha: str,
+) -> dict[str, Any]:
+    """Project bounded evidence into the existing v0.1 Fitness metadata schema.
+
+    This cannot attest producer origin and therefore NEVER returns PASS.
+    An observed mismatch can be FAIL; all other cases are UNKNOWN until a
+    separate approved, independently authenticated producer exists.
+    """
+    _check(isinstance(evidence, dict), "missing verifier evidence")
+    _check(all(isinstance(v, str) and bool(_SHA.fullmatch(v))
+               for v in (analyzer_sha, profile_sha,
+                         evidence.get("oracle_revision_sha"),
+                         evidence.get("measurement_set_sha"),
+                         evidence.get("candidate_head_sha"))),
+           "invalid Fitness protocol identity")
+    _check(type(evidence.get("github_run_id")) is int
+           and evidence["github_run_id"] > 0
+           and type(evidence.get("github_artifact_id")) is int
+           and evidence["github_artifact_id"] > 0
+           and isinstance(evidence.get("artifact_zip_sha256"), str)
+           and bool(re.fullmatch(r"[0-9a-f]{64}", evidence["artifact_zip_sha256"])),
+           "incomplete evidence reference")
+    bounded = evidence.get("bounded_semantic_status")
+    _check(bounded in ("FAIL", "UNKNOWN", "PASS_BOUNDED"),
+           "unrecognized bounded semantic status")
+    return {
+        "observed_head_sha": evidence["candidate_head_sha"],
+        "analyzer_sha": analyzer_sha,
+        "profile_sha": profile_sha,
+        "oracle_sha": evidence["oracle_revision_sha"],
+        "measurement_set_sha": evidence["measurement_set_sha"],
+        "evidence_ref": (
+            "actions-run:" + str(evidence["github_run_id"])
+            + "/artifact:" + str(evidence["github_artifact_id"])
+            + "/sha256:" + evidence["artifact_zip_sha256"]
+        ),
+        "status": "FAIL" if bounded == "FAIL" else "UNKNOWN",
+        "producer_attestation": "NOT_ATTESTED",
+        "claim_scope": "BOUNDED_READBACK_NO_AUTOMATIC_PROMOTION",
+    }
