@@ -119,5 +119,28 @@
     "fresh_git_candidate_comparison": "verify_candidate_from_git",
     "candidate_artifact_origin": "NOT_ATTESTED",
     "runner_integrity": "NOT_ATTESTED"
+  },
+  "artifact_provenance": {
+    "contract_version": 1,
+    "acquisition_module": "src/chatgpt_operation/controller/dea_artifact_acquisition.py",
+    "artifact_identity_module": "src/chatgpt_operation/controller/dea_artifact_identity.py",
+    "read_only_fitness_gate_module": "src/chatgpt_operation/controller/dea_evidence_gate.py",
+    "documentation": "docs/dea-v02-artifact-provenance.md",
+    "tests": [
+      "tests/test_dea_artifact_acquisition.py",
+      "tests/test_dea_artifact_identity.py",
+      "tests/test_dea_evidence_gate.py"
+    ],
+    "complete_run_artifact_listing_required": true,
+    "exact_candidate_head_required": true,
+    "separate_analyzed_source_sha_required": true,
+    "github_zip_digest_and_internal_file_sha256_required": true,
+    "candidate_producer_job_attested": false,
+    "trusted_runner_integrity_attested": false,
+    "real_dea_candidate_artifact_evaluated": false,
+    "source_independent_bounded_semantic_oracle": true,
+    "fitness_semantic_gate_on_unattested_producer": "UNKNOWN",
+    "evidence_origin_verified_for_candidate": false,
+    "branch_creation_authorized": false
   }
 }
