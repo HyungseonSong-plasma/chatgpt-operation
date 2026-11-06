@@ -115,6 +115,19 @@ def verify_github_artifact_listing(
     }
 
 
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ArtifactEvidenceError("ambiguous duplicate evidence JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite(value: str) -> None:
+    raise ArtifactEvidenceError("nonfinite evidence JSON number: " + value)
+
+
 def verify_artifact_zip(
     archive: bytes, *, expected_sha256: str,
     expected_size_bytes: int, run_id: int, artifact_id: int,
@@ -163,7 +176,11 @@ def verify_artifact_zip(
                          "archive member decompression mismatch")
                 digests[entry.filename] = sha256(data).hexdigest()
                 try:
-                    docs[entry.filename] = json.loads(data.decode("utf-8"))
+                    docs[entry.filename] = json.loads(
+                        data.decode("utf-8"),
+                        object_pairs_hook=_no_duplicate_keys,
+                        parse_constant=_reject_nonfinite,
+                    )
                 except (UnicodeError, ValueError) as exc:
                     raise ArtifactEvidenceError("malformed evidence JSON") from exc
     except (BadZipFile, OSError, RuntimeError) as exc:
