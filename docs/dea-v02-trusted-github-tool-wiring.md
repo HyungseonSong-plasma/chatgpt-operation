@@ -18,6 +18,8 @@ It composes:
 - GitHubIssueBlockerJournal (prior denials, trusted actor);
 - CommonPreWriteGate (current head, registered work, all blockers,
   independent journal checkpoint, authority-specific clearance);
+- OperatorDelegationGate (owner-authenticated, current and revocable
+  one-use delegation; atomic reservation outside model control);
 - TrustedWorkflowDraftAdapter (pinned YAML -> exact branch -> Draft PR).
 
 Allowed intended GitHub API effects only:
@@ -52,6 +54,9 @@ Integration administrator must configure and verify all of these:
   Issue comment or ordinary unprotected repository document.
 - Authority-specific verifier for any repository policy denial
   clearance; Issue comment text alone cannot clear an existing denial.
+- Owner-authenticated, revocable, one-use delegation grant tied to the
+  exact work/action/target/main SHA, valid at most 24h; a separately governed
+  atomic reservation ledger. A chat message never substitutes for the grant.
 - Trusted host user/app authentication, input validation, audit logs
   and a fixed one-method model-facing tool accepting ONLY the expected
   main SHA. Reject arbitrary URL, file path, GitHub API method,
@@ -68,6 +73,9 @@ Composition signature in trusted provider code:
             trusted_journal_actor=trusted_config.journal_writer,
             independent_checkpoint_reader=trusted_checkpoint_store.read,
             policy_authority_verifier=trusted_owner_policy_verifier,
+            operator_grant_reader=trusted_operator_grants.read,
+            operator_grant_verifier=trusted_operator_grants.verify_current,
+            operator_grant_reserver=trusted_operator_grants.reserve_once,
         ),
     )
     result = service.create_review_only_draft(
@@ -86,6 +94,8 @@ user-pasted secrets. They are not a runtime deployment recipe.
 - Issue #236 is closed and has 11 comments; none currently read back
   contain the required samuel-blocker-journal-v1 marker.
 - No independent immutable checkpoint provider is configured in repo.
+- No independently authenticated operator-grant or durable one-use
+  reservation provider is deployed.
 - Current ChatGPT GitHub tool does not expose the new protected Draft
   creation entrypoint.
 - No protected Workflow file has been created or signed smoke run
@@ -96,24 +106,27 @@ Result: PRODUCTION_WRITE_NOT_AUTHORIZED.
 ## 4. Activation in order, never around hard denials
 
 1. Human code reviewer validates PR #262 and merges source/tests.
-2. Integration admin deploys independent journal checkpoint and
+2. Human operator configures independent, revocable delegation evidence
+   and one-use reservation through a trusted host (see
+   docs/dea-v02-operator-delegation.md).
+3. Integration admin deploys independent journal checkpoint and
    trusted authority-verification service; migrates historical denials
    and registers the stable task.
-3. Integration admin registers a new model-facing protected tool
+4. Integration admin registers a new model-facing protected tool
    that delegates to this entrypoint, rather than allowing direct
    unguarded GitHub writes.
-4. Prove negative production tests: no policy exception, missing
+5. Prove negative production tests: no policy exception, missing
    independent checkpoint, stale main, active hard blocker, wrong
    account or changed file must produce NO GitHub writes.
-5. Human reviews PR #259 after updating it to current protected
+6. Human reviews PR #259 after updating it to current protected
    main and confirming green CI and the real trusted-host gate.
    The new exact-file allowlist is only policy-authorized after
    formal privileged merger/readback; keep repository-native
    hardcoded Workflow-write stop intact.
-6. ChatGPT may then call ONLY the protected Draft PR tool.
-7. Human reviews and merges that exact Workflow PR, then personally
+7. ChatGPT may then call ONLY the protected Draft PR tool.
+8. Human reviews and merges that exact Workflow PR, then personally
    approves the protected Environment to run the smoke test.
-8. Signed Artifact and Attestation readbacks remain independent and
+9. Signed Artifact and Attestation readbacks remain independent and
    do not imply DEA Fitness PASS.
 
 ## 5. Test meaning
@@ -127,6 +140,9 @@ denial, missing work registration, active blocker and wrong checkpoint.
 A fake journal checkpoint is NEVER a deployable or independently
 trusted checkpoint, and passing the local CI does not demonstrate
 that the ChatGPT-hosted plugin has been reconfigured.
+
+Mocked delegation tests also cannot attest independent operator identity,
+live revocation or atomic reservation in the external host.
 
 Missing external host deployment and plugin registration cannot be
 repaired by simply changing a JSON policy file or by switching to an
