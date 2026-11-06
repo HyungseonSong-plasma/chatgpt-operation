@@ -77,18 +77,36 @@ and branch creation/update (including connector). Therefore choosing
 `github-connector` must **not** be used to bypass a missing target
 policy or a prior owner/tool-safety denial.
 
-**Recommended portable direction:** keep the Samuel skill and capability
-registry centralized, but change the pre-provider branch/policy
-resolution contract in a separately reviewed follow-up so it can
-consume independently authenticated **target-specific policy evidence**,
-not necessarily a JSON at one hardcoded path in every repository.
-For example, a reviewed target-owner policy bundle resolved from
-trusted controller configuration at an immutable version could be
-supported. That bundle must bind repository identity, allowed
-operations/paths/branches, exact target revision, provider, and
-revocation/denial history, and remain independent of an ActionPlan
-or a self-authored Issue comment. None of those alternative trusted
-adapters is deployed by this PR.
+**Implemented portable pre-provider contract:** keep the Samuel skill
+and capability registry centralized. A consumer need not duplicate the
+Samuel policy JSON in its own repository. For a separately owner-approved
+and trusted enrolled consumer, the common **connector** preflight is
+`repository.central_policy_preflight.require_central_connector_preflight`.
+The `CentralPolicyBinding` is injected from trusted controller configuration,
+not from the ActionPlan, a user-editable Issue comment, or a self-authored
+policy. It fixes the exact consumer repository, target `main` SHA, protected
+Samuel source `main` SHA and an expected immutable source Git blob SHA.
+Two independent repository-scoped GitHub read transports verify their
+current `main` revisions; the central source's fixed
+`automation/consumer-policies/<owner>/<repo>.json` policy path must match
+the manifest identity. It validates raw Git blob bytes, strict schema,
+file/branch/action constraints and source/target repeat readbacks.
+
+The preflight's success receipt is explicitly
+`PREFLIGHT_PASSED_NOT_WRITE_AUTHORIZATION`: **no provider is executed**,
+no consumer is automatically enrolled and no credentials are conferred.
+The policy-owner approval and credential registration process is still a
+separate, trusted operational gate, as is post-mutation readback. Only
+`github-connector` is supported by this central resolver; a
+`repository-native` Engine will still require its own target-local policy
+independently. A prior tool safety or owner-policy denial must never be
+converted into a provider-switch opportunity.
+
+Tests `tests/test_central_policy_preflight.py` demonstrate a mock-only
+successful central policy resolution and fail-closed wrong transport,
+wrong identity, stale target/source revision, altered Git blob, missing
+policy, malformed schema, unsafe path/operation/branch and provider
+selection. None of the tests performs a GitHub write.
 
 Consequently, **`NATIVE_TARGET_POLICY_UNAVAILABLE` is a
 provider-local fail-closed diagnosis, not global
@@ -99,19 +117,36 @@ into a bypass.
 
 ## Current codeQA result and necessary next step
 
-At Issue #264 kickoff, the codeQA repository was inspected and had
-**no** `automation/samuel/repository-mutation-policy.json`. This is a
-known **UNSUPPORTED_CONSUMER_POLICY** state, not a failed live write.
-This patch does **not** add that policy to codeQA, grant permissions,
-deploy the native target mutation workflow, or modify codeQA PR #290.
-A reviewed codeQA-specific policy, exact target repository binding and
-target-side execution provider must be adopted separately by competent
-authority before cross-repo mutations are considered.
+At Issue #264 kickoff, codeQA had no target-native
+`automation/samuel/repository-mutation-policy.json`. Native mutation is
+therefore **UNSUPPORTED_CONSUMER_POLICY** (not a live failed write).
+Central connector preflight is implemented as a read-only library but no
+approved codeQA central policy source, target binding, or caller-side
+provider adapter has been enrolled; live connector writes remain **NOT AUTHORIZED**.
+No consumer policy/credentials, native target workflow, protected
+Workflow or codeQA pin are changed in this PR.
 
 The existing codeQA PR #290 is a **pin migration** (Phase A), not a
 declaration that consumer mutation authority is ready. Do not infer
 Gate 2 independent semantic approval from any of these preflight
 tests.
+
+## Explicit pending adoption gates
+
+1. A competent codeQA policy owner must review and approve a bounded
+   target policy. A future central source file merged on protected Samuel
+   `main` is not, by itself, evidence of that approval.
+2. Trusted controller configuration must enroll its precise target,
+   target revision, Samuel source revision, reviewed policy blob and
+   independently verifiable owner-authority receipt.
+3. The live GitHub Connector entrypoint must call the pre-provider gate
+   and same-work blocker history check **before any write**, preserving
+   capability registry provider order. The current GitHub plugin is not
+   automatically instrumented by this Python library.
+4. For real mutations, perform independent target exact-SHA read-before,
+   GitHub permission/ruleset checks and read-after postconditions.
+5. Preserve `NATIVE_TARGET_POLICY_UNAVAILABLE` for consumer-native
+   workflows until the target runtime has its own authorized policy.
 
 ## Tests and criteria
 
