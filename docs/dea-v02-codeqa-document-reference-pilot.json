@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "contract_id": "dea.v0.2.codeqa.documentation-reference-impact.pilot",
+  "decision_status": "OWNER_SELECTED_CONDITIONALLY_APPROVED_BUT_BLOCKED",
+  "work_scope": {
+    "repository": "HyungseonSong-plasma/codeQA",
+    "issue": 288,
+    "subtask": "phase-2-documentation-reference-impact-audit",
+    "phase1_pr": 289,
+    "allowed_work": "read-only analysis and tests; no documentation relocation or source mutation while admission blocked"
+  },
+  "baseline": {
+    "source_commit_sha": null,
+    "required": "adopted immutable codeQA phase-1 baseline after review",
+    "candidate_count": 3,
+    "unchanged_baseline": true
+  },
+  "candidate_strategies": [
+    {
+      "id": "A",
+      "kind": "FULL_SCAN",
+      "design": "full tracked-corpus scan with deterministic exact-source reference resolution"
+    },
+    {
+      "id": "B",
+      "kind": "REFERENCE_GRAPH",
+      "design": "versioned inbound/outbound reference graph and affected-consumer traversal"
+    },
+    {
+      "id": "C",
+      "kind": "INCREMENTAL_INDEX",
+      "design": "content-addressed delta recomputation with complete full-scan cross-check"
+    }
+  ],
+  "common_oracle": {
+    "owner": "codeQA",
+    "approved_revision_sha": null,
+    "profile_sha": null,
+    "fixture_set_sha": null,
+    "required_observations": [
+      "tracked_path_census",
+      "source_path_and_line",
+      "reference_literal_and_kind",
+      "resolved_target_path",
+      "fragment_slug",
+      "reference_status_and_reason",
+      "known_text_literal_references",
+      "known_consumer_impact",
+      "changed_file_backlinks"
+    ],
+    "semantic_hard_gates": [
+      "exact_source_identity",
+      "identical_case_denominator",
+      "observed_behavior_frozen_cases",
+      "local_reference_and_fragment_correctness",
+      "complete_known_internal_consumers",
+      "no_doc_mutation",
+      "no_public_api_schema_ccg_change",
+      "no_policy_boundary_change"
+    ],
+    "unknowns": [
+      "untracked_external_backlinks",
+      "external_url_reachability",
+      "all_possible_markdown_dialect_rendering"
+    ]
+  },
+  "fitness": {
+    "dimensions": [
+      {
+        "name": "wall_time_ms",
+        "direction": "min"
+      },
+      {
+        "name": "peak_memory_bytes",
+        "direction": "min"
+      },
+      {
+        "name": "recomputed_file_count",
+        "direction": "min"
+      },
+      {
+        "name": "implementation_complexity_proxy",
+        "direction": "min"
+      },
+      {
+        "name": "changed_source_lines",
+        "direction": "min"
+      }
+    ],
+    "hard_gate_fail_or_unknown_excludes": true,
+    "no_aggregate_score": true,
+    "champion_selection": "HUMAN_REVIEW_REQUIRED"
+  },
+  "admission": {
+    "confirmed_task": true,
+    "independent_review_complete": false,
+    "phase1_adopted_exact_commit": false,
+    "trusted_semantic_oracle_ready": false,
+    "evidence_origin_verified": false,
+    "matched_budget_frozen": false,
+    "branch_creation_authorized": false,
+    "merge_authorized": false
+  },
+  "authority": {
+    "samuel_controller_unchanged": true,
+    "owner_approval_scope": "conditioned future candidate competition",
+    "no_david_promotion": true
+  },
+  "reference_oracle": {
+    "kind": "BOUNDED_INDEPENDENT_REFERENCE_SCANNER",
+    "path": "src/chatgpt_operation/controller/dea_reference_oracle.py",
+    "verification_tests": "tests/test_dea_reference_oracle.py",
+    "preview_codeqa_sha": "24040c02ea97056de89c6711e847b4f727fb0dcb",
+    "source_readback": "EXACT_GIT_OBJECTS_IN_TRUSTED_CI",
+    "comparison": "PASS_BOUNDED|FAIL|UNKNOWN",
+    "trusted_candidate_output_attested": false,
+    "full_markdown_semantics_proven": false,
+    "external_consumer_proven": false,
+    "fresh_git_candidate_comparison": "verify_candidate_from_git",
+    "candidate_artifact_origin": "NOT_ATTESTED",
+    "runner_integrity": "NOT_ATTESTED"
+  },
+  "artifact_provenance": {
+    "contract_version": 1,
+    "acquisition_module": "src/chatgpt_operation/controller/dea_artifact_acquisition.py",
+    "artifact_identity_module": "src/chatgpt_operation/controller/dea_artifact_identity.py",
+    "read_only_fitness_gate_module": "src/chatgpt_operation/controller/dea_evidence_gate.py",
+    "documentation": "docs/dea-v02-artifact-provenance.md",
+    "tests": [
+      "tests/test_dea_artifact_acquisition.py",
+      "tests/test_dea_artifact_identity.py",
+      "tests/test_dea_evidence_gate.py"
+    ],
+    "complete_run_artifact_listing_required": true,
+    "exact_candidate_head_required": true,
+    "separate_analyzed_source_sha_required": true,
+    "github_zip_digest_and_internal_file_sha256_required": true,
+    "candidate_producer_job_attested": false,
+    "trusted_runner_integrity_attested": false,
+    "real_dea_candidate_artifact_evaluated": false,
+    "source_independent_bounded_semantic_oracle": true,
+    "fitness_semantic_gate_on_unattested_producer": "UNKNOWN",
+    "evidence_origin_verified_for_candidate": false,
+    "branch_creation_authorized": false
+  },
+  "human_evidence_review": {
+    "routing_module": "src/chatgpt_operation/controller/dea_review_routing.py",
+    "routing_mode": "HUMAN_REVIEW_REQUIRED_ON_VERIFICATION_FAILURE",
+    "preserve_original": "DO_NOT_DELETE_OR_REWRITE",
+    "quarantine_unsafe_archive": true,
+    "fitness_requires_fresh_evidence": true,
+    "manual_override_grants_pass": false,
+    "delivery_channel_configured": false,
+    "reviewer_identity_attested": false
+  },
+  "official_producer_attestation": {
+    "state": "IMPLEMENTATION_PREPARED_WORKFLOW_AUTHORITY_BLOCKED",
+    "format_version": 2,
+    "producer_module": "src/chatgpt_operation/controller/dea_payload_producer.py",
+    "signed_subject_module": "src/chatgpt_operation/controller/dea_attested_payload.py",
+    "attestation_verifier_module": "src/chatgpt_operation/controller/dea_attestation_verify.py",
+    "verified_evidence_gate_module": "src/chatgpt_operation/controller/dea_attested_evidence_gate.py",
+    "adoption_contract": "docs/dea-v02-producer-attestation-adoption.md",
+    "new_action_workflow_deployed": false,
+    "workflow_policy_denies_changes": true,
+    "real_signed_candidate_artifact_verified": false,
+    "signer_workflow_revision_pinned": false,
+    "run_to_job_attribution_attested": false,
+    "post_upload_artifact_id_separate_from_signed_subject": true,
+    "formal_adoption_issue": 254,
+    "first_producer_run_scope": "TRUSTED_NONCANDIDATE_SMOKE_TEST_ONLY",
+    "live_deployment_approved": false,
+    "actual_candidate_artifact_verified": false,
+    "owner_adoption_review_approved": true,
+    "owner_adoption_review_comment_id": 6685977537,
+    "human_controlled_smoke_blueprint": "docs/dea-v02-protected-producer-smoke.proposed.yml",
+    "human_handoff_runbook": "docs/dea-v02-producer-smoke-human-handoff.md",
+    "actual_producer_workflow_deployed": false,
+    "actual_signed_artifact_uploaded": false,
+    "policy_denial_remaining": ".github/workflows/**",
+    "candidate_competition_authorized": false
+  },
+  "human_exclusive_emergency": {
+    "status": "DESIGN_READ_ONLY_REQUESTS_NOT_DEPLOYED",
+    "request_module": "src/chatgpt_operation/controller/dea_human_break_glass.py",
+    "contract": "docs/dea-v02-human-exclusive-emergency-authority.md",
+    "allowed_actor": "NAMED_AUTHENTICATED_GITHUB_HUMAN_ONLY",
+    "ai_or_controller_can_request": true,
+    "ai_or_controller_can_authorize": false,
+    "ai_or_controller_can_execute_force": false,
+    "chat_message_is_authority": false,
+    "max_request_minutes": 30,
+    "one_use_required": true,
+    "independently_attested_github_human_gate_configured": false,
+    "github_protected_environment_name": "dea-human-break-glass",
+    "policy_denial_remains_binding": true,
+    "external_tool_safety_denial_remains_binding": true,
+    "workflow_policy_exception_granted": false,
+    "existing_admission_gates_unchanged": true,
+    "environment_created": "USER_CONFIRMED_2026-11-06",
+    "environment_protection_rules_verified": false,
+    "environment_api_access": "CONNECTOR_ENDPOINT_NOT_AVAILABLE",
+    "main_rulesets_observed_count": 0,
+    "branch_protection_api": "FORBIDDEN_UNVERIFIED",
+    "snapshot_preflight_module": "src/chatgpt_operation/controller/dea_environment_preflight.py",
+    "local_gh_readonly_preflight_module": "src/chatgpt_operation/controller/dea_environment_preflight_cli.py",
+    "activation_checklist": "docs/dea-v02-human-emergency-activation-checkpoint-2026-11-06.md",
+    "reviewed_producer_workflow_deployed": false,
+    "signed_artifact_live_validation_passed": false,
+    "independently_authenticated_human_gate_configured": false,
+    "actual_force_command_active": false,
+    "human_account": "HyungseonSong-plasma",
+    "environment_required_reviewers": "USER_CONFIRMED",
+    "environment_admin_bypass_disabled": "USER_CONFIRMED",
+    "environment_selected_branch_main_only": "USER_CONFIRMED",
+    "human_reported_configuration_complete": true,
+    "activated": false,
+    "official_workflow_adoption_issue": 254,
+    "official_workflow_adoption_status": "AWAITING_FORMAL_AUTHORITY_CLEARANCE",
+    "human_force_privilege_granted_by_controller": false,
+    "owner_approval_comment_url": "https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/254#issuecomment-6685977537",
+    "owner_approval_observed_github_author": "HyungseonSong-plasma",
+    "owner_approval_scope": "SCOPED_HUMAN_CONTROLLED_ADOPTION_REVIEW_ONLY",
+    "workflow_write_authority_granted_to_ai": false
+  }
+}
