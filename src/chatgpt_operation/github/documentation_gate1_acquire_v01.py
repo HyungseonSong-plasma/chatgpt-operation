@@ -96,7 +96,7 @@ def collect_live_core_gate1_v01(
     read_json: Callable[[str], Mapping[str, object]] = github_read_json,
     expected_head_sha: str | None = None,
 ) -> LiveCoreGate1Report:
-    """Check complete Core Python tree at current PR HEAD, then re-read HEAD.
+    """Check complete Core Python tree at pinned PR HEAD, then re-read HEAD.
 
     Requires an untruncated recursive Git tree. A missing or nonblob Python
     path, symlink, malformed API response or PR-head race fails closed.
@@ -110,8 +110,12 @@ def collect_live_core_gate1_v01(
     api = f"repos/{repository}"
     pr_endpoint = f"{api}/pulls/{pr_number}"
     start = read_json(pr_endpoint)
-    if not isinstance(start, Mapping) or start.get("state") != "open":
-        raise LabelError("PR not open or response invalid")
+    if not isinstance(start, Mapping):
+        raise LabelError("PR response invalid")
+    state = start.get("state")
+    merged = start.get("merged") is True
+    if not (state == "open" or state == "closed" and merged):
+        raise LabelError("PR must be open or verifiably merged")
     h = start.get("head")
     if not isinstance(h, Mapping) or not isinstance(h.get("repo"), Mapping):
         raise LabelError("PR head repository missing")
@@ -164,8 +168,9 @@ def collect_live_core_gate1_v01(
     finish = read_json(pr_endpoint)
     final_head = finish.get("head") if isinstance(finish, Mapping) else None
     if (not isinstance(final_head, Mapping) or final_head.get("sha") != head
-            or finish.get("state") != "open"):
-        raise LabelError("PR HEAD changed during GitHub source acquisition")
+            or finish.get("state") != state
+            or (finish.get("merged") is True) != merged):
+        raise LabelError("PR identity or state changed during GitHub source acquisition")
 
     scope = "ccg-core-package-direct-import-v0.1"
     checks = [{
