@@ -117,6 +117,10 @@ class TrustedWorkflowDraftAdapter:
     ) -> None:
         _require(getattr(transport, "repository", None) == REPO, "FOREIGN_GITHUB_TRANSPORT")
         _require(isinstance(blocker_gate, CommonPreWriteGate), "TRUSTED_GATE_REQUIRED")
+        _require(
+            callable(getattr(blocker_gate, "trusted_checkpoint_reader", None)),
+            "INDEPENDENT_JOURNAL_CHECKPOINT_REQUIRED",
+        )
         self.transport = transport
         self.blocker_gate = blocker_gate
 
