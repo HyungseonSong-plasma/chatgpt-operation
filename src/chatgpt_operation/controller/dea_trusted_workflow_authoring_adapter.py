@@ -24,6 +24,7 @@ from chatgpt_operation.controller.dea_workflow_authoring_preflight import (
 )
 from chatgpt_operation.repository.blocker_gate import CommonPreWriteGate
 from chatgpt_operation.repository.blocker_triage import logical_intent_id
+from chatgpt_operation.controller.dea_operator_delegation import OperatorDelegationGate
 
 
 class WorkflowAuthoringError(RuntimeError):
@@ -114,6 +115,7 @@ class TrustedWorkflowDraftAdapter:
         self, *,
         transport: GitHubBoundTransport,
         blocker_gate: CommonPreWriteGate,
+        operator_gate: OperatorDelegationGate,
     ) -> None:
         _require(getattr(transport, "repository", None) == REPO, "FOREIGN_GITHUB_TRANSPORT")
         _require(isinstance(blocker_gate, CommonPreWriteGate), "TRUSTED_GATE_REQUIRED")
@@ -121,8 +123,11 @@ class TrustedWorkflowDraftAdapter:
             callable(getattr(blocker_gate, "trusted_checkpoint_reader", None)),
             "INDEPENDENT_JOURNAL_CHECKPOINT_REQUIRED",
         )
+        _require(isinstance(operator_gate, OperatorDelegationGate),
+                 "TRUSTED_OPERATOR_DELEGATION_GATE_REQUIRED")
         self.transport = transport
         self.blocker_gate = blocker_gate
+        self.operator_gate = operator_gate
 
     def _read_main(self) -> str:
         response = self.transport.get("/git/ref/heads/main")
@@ -238,6 +243,12 @@ class TrustedWorkflowDraftAdapter:
         old_file = self._read_target() if old_branch_sha is not None else None
         _require(old_file is None, "TARGET_FILE_ALREADY_EXISTS")
         _require(not self._open_prs(), "PR_ALREADY_OPEN_FOR_BRANCH")
+        self._require_clear(observed_main)
+
+        # Reserve the operator's independently authenticated one-use grant
+        # only after policy, journal, branch and PR preflight pass. ChatGPT
+        # cannot issue, renew, revoke or attest its own delegation.
+        self.operator_gate.require_and_reserve(expected_main_sha=observed_main)
         self._require_clear(observed_main)
 
         if old_branch_sha is None:
