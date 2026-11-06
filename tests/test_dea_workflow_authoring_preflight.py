@@ -42,13 +42,16 @@ def proposal():
     )
 
 
-def inspect(request=None, *, policy=None, source=REF, head=SHA):
+_MISSING = object()
+
+
+def inspect(request=None, *, policy=_MISSING, source=REF, head=SHA):
     return assess_workflow_draft_intent(
         proposal() if request is None else request,
         observed_main_sha=head,
         trusted_reference_yaml=source,
         policy_document=(policy_with_reviewed_scoped_exception()
-                         if policy is None else policy),
+                         if policy is _MISSING else policy),
     )
 
 
