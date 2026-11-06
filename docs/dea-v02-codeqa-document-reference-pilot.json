@@ -184,6 +184,18 @@
     "policy_denial_remains_binding": true,
     "external_tool_safety_denial_remains_binding": true,
     "workflow_policy_exception_granted": false,
-    "existing_admission_gates_unchanged": true
+    "existing_admission_gates_unchanged": true,
+    "environment_created": "USER_REPORTED_2026-11-06",
+    "environment_protection_rules_verified": false,
+    "environment_api_access": "CONNECTOR_ENDPOINT_NOT_AVAILABLE",
+    "main_rulesets_observed_count": 0,
+    "branch_protection_api": "FORBIDDEN_UNVERIFIED",
+    "snapshot_preflight_module": "src/chatgpt_operation/controller/dea_environment_preflight.py",
+    "local_gh_readonly_preflight_module": "src/chatgpt_operation/controller/dea_environment_preflight_cli.py",
+    "activation_checklist": "docs/dea-v02-human-emergency-activation-checkpoint-2026-11-06.md",
+    "reviewed_producer_workflow_deployed": false,
+    "signed_artifact_live_validation_passed": false,
+    "independently_authenticated_human_gate_configured": false,
+    "actual_force_command_active": false
   }
 }
