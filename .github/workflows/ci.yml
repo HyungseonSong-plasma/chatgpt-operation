@@ -36,6 +36,17 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -v
           python3 tools/run_function_tests.py
+      - name: Live codeQA PR Core Gate 1 (draft-only pilot)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'samuel/document-status-qa-251' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.github.documentation_gate1_acquire_v01 \
+            --repository HyungseonSong-plasma/codeQA \
+            --pr 289 \
+            --expected-head 24040c02ea97056de89c6711e847b4f727fb0dcb
       - name: Verify CLI surface
         env:
           PYTHONPATH: src
