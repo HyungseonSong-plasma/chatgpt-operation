@@ -250,20 +250,47 @@ class TrustedWorkflowDraftAdapter:
 
         self._require_clear(observed_main)
         _require(self._read_target() is None, "TARGET_RACE_BEFORE_FILE_CREATE")
-        self.transport.request("PUT", "/contents/" + PATH, payload={
+        write_receipt = self.transport.request("PUT", "/contents/" + PATH, payload={
             "message": "feat(dea): stage human-reviewed protected smoke Workflow (#254)",
             "branch": BRANCH,
             "content": base64.b64encode(yaml).decode("ascii"),
         })
+        created_commit_sha = (
+            write_receipt.get("commit", {}).get("sha")
+            if isinstance(write_receipt, dict) else None
+        )
+        _require(isinstance(created_commit_sha, str)
+                 and SHA40.fullmatch(created_commit_sha),
+                 "CREATED_COMMIT_RECEIPT_MISSING")
+
+        # A matching file alone does not prove that the PR branch contains
+        # only that file. Bind the GitHub Contents write receipt to an exact
+        # single-parent, single-file commit and the current branch head.
+        commit = self.transport.get("/commits/" + created_commit_sha)
+        _require(
+            isinstance(commit, dict)
+            and commit.get("sha") == created_commit_sha
+            and isinstance(commit.get("parents"), list)
+            and len(commit["parents"]) == 1
+            and isinstance(commit["parents"][0], dict)
+            and commit["parents"][0].get("sha") == observed_main
+            and isinstance(commit.get("files"), list)
+            and len(commit["files"]) == 1
+            and isinstance(commit["files"][0], dict)
+            and commit["files"][0].get("filename") == PATH
+            and commit["files"][0].get("status") == "added",
+            "CREATED_COMMIT_SCOPE_MISMATCH",
+        )
         observed_file = self._read_target()
         _require(_github_content_bytes(observed_file, max_size=MAX_SOURCE_BYTES) == yaml,
                  "CREATED_WORKFLOW_BYTES_MISMATCH")
         branch_head = self._read_branch()
-        _require(branch_head is not None and branch_head != observed_main,
-                 "CREATED_WORKFLOW_COMMIT_MISSING")
+        _require(branch_head == created_commit_sha, "BRANCH_MOVED_AFTER_FILE_CREATE")
 
         self._require_clear(observed_main)
         _require(not self._open_prs(), "CONCURRENT_PR_CREATION")
+        _require(self._read_branch() == created_commit_sha,
+                 "BRANCH_MOVED_BEFORE_PR_CREATE")
         created = self.transport.request("POST", "/pulls", payload={
             "title": PR_TITLE,
             "body": PR_BODY,
@@ -280,10 +307,12 @@ class TrustedWorkflowDraftAdapter:
         _require(pr.get("draft") is True and pr.get("state") == "open"
                  and pr.get("merged") is False
                  and pr.get("head", {}).get("ref") == BRANCH
-                 and pr["head"].get("sha") == branch_head
+                 and pr["head"].get("sha") == created_commit_sha
                  and pr.get("base", {}).get("ref") == "main"
                  and pr["base"].get("sha") == observed_main,
                  "CREATED_PR_SCOPE_OR_SHA_MISMATCH")
+        _require(self._read_branch() == created_commit_sha,
+                 "BRANCH_MOVED_AFTER_PR_CREATE")
         _require(self._read_main() == observed_main,
                  "MAIN_MOVED_BEFORE_FINAL_PR_ATTESTATION")
         url = pr.get("html_url")
