@@ -14,20 +14,20 @@
     },
     "file_paths": {
       "allow": [
-        "src/**",
-        "tests/**",
-        "docs/**",
-        "schemas/**",
-        "skills/**",
-        "automation/**"
+      "src/**",
+      "tests/**",
+      "docs/**",
+      "schemas/**",
+      "skills/**",
+      "automation/**",
+      ".github/workflows/dea-evidence-producer.yml"
       ],
       "deny": [
-        "automation/samuel/decisions.json",
-        "automation/samuel/repository-mutation-policy.json",
-        "src/chatgpt_operation/controller/decisions.py",
-        "skills/capability-registry.json",
-        ".github/workflows/samuel-native-github.yml",
-        ".github/workflows/**"
+      "automation/samuel/decisions.json",
+      "automation/samuel/repository-mutation-policy.json",
+      "src/chatgpt_operation/controller/decisions.py",
+      "skills/capability-registry.json",
+      ".github/workflows/samuel-native-github.yml"
       ]
     },
     "branch_names": {
