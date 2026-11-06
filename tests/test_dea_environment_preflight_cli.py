@@ -7,7 +7,31 @@ import unittest
 from unittest.mock import patch
 
 from chatgpt_operation.controller import dea_environment_preflight_cli as cli
-from test_dea_environment_preflight import ENV, BRANCHES, RULES
+ENV = {
+    "name": "dea-human-break-glass",
+    "protection_rules": [{"type": "required_reviewers",
+                          "reviewers": [{"type": "User",
+                                         "reviewer": {"login": "human-operator"}}]}],
+    "deployment_branch_policy": {
+        "protected_branches": False, "custom_branch_policies": True,
+    },
+}
+BRANCHES = {"total_count": 1, "branch_policies": [{"name": "main"}]}
+RULES = [{
+    "name": "dea-main-protection", "enforcement": "active",
+    "target": "branch",
+    "conditions": {"ref_name": {
+        "include": ["refs/heads/main"], "exclude": [],
+    }},
+    "rules": [
+        {"type": "pull_request"},
+        {"type": "required_status_checks", "parameters": {
+            "required_status_checks": [{"context": "test"}],
+        }},
+        {"type": "non_fast_forward"},
+        {"type": "deletion"},
+    ],
+}]
 
 
 def mock_gh(argv, **kwargs):
