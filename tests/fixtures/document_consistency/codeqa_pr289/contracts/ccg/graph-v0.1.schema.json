@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codeqa:ccg:graph:v0.1",
+  "title": "codeQA Canonical Code Graph v0.1",
+  "description": "Language-independent, evidence-bearing facts extracted from one pinned source snapshot. Quality verdicts are defined elsewhere.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot",
+    "nodes",
+    "edges",
+    "coverage"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "coverage": {
+      "$ref": "#/$defs/coverage"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identity of the immutable input source snapshot, supplied by orchestration."
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "producer",
+        "method"
+      ],
+      "properties": {
+        "producer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Adapter or tool identifier responsible for this fact."
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How the fact was established (e.g. parser syntax or symbol resolution)."
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "start_line",
+        "end_line"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Snapshot-relative source path using POSIX separators."
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_column": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_column": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "1-based line numbers and optional 0-based columns; ordering is validated semantically by codeQA Core."
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "provenance"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "file",
+            "module",
+            "class",
+            "function",
+            "method",
+            "symbol"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "kind",
+        "resolution",
+        "provenance"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Existing source node ID."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "contains",
+            "defines",
+            "calls",
+            "imports",
+            "inherits",
+            "references"
+          ]
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "resolved",
+            "unresolved"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Existing target node ID; required only for resolved edges."
+        },
+        "target_hint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Observed unresolved identifier; never a fabricated target node."
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "resolution": {
+                "const": "resolved"
+              }
+            },
+            "required": [
+              "resolution"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ],
+            "not": {
+              "required": [
+                "target_hint"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "target_hint"
+            ],
+            "not": {
+              "required": [
+                "target"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "analyzed_paths",
+        "unprocessed"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "partial",
+            "none"
+          ]
+        },
+        "analyzed_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unprocessed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/unprocessed"
+          }
+        }
+      },
+      "description": "Explicit extraction coverage; absent or unprocessed input must not be silently treated as complete."
+    },
+    "unprocessed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "reason"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the source could not be analyzed; for example a parse error or unsupported language."
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
