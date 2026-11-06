@@ -74,6 +74,43 @@ class SemanticGateTests(unittest.TestCase):
         r = run(checks={"ccg": make_check(path="../unsafe.json")})
         self.assertIn("ccg:UNSAFE_PATH", r.issues)
 
+    def test_python_import_absence_and_presence(self):
+        for source, expected in (
+            ("import json\\n", "SCOPED_CHECKS_PASS"),
+            ("import codeqa.adapters.python\\n", "REVIEW_REQUIRED"),
+        ):
+            with self.subTest(source=source):
+                raw = source.encode("utf-8")
+                blob = hashlib.sha1(
+                    b"blob " + str(len(raw)).encode() + bytes([0]) + raw
+                ).hexdigest()
+                check = make_check(kind="PYTHON_IMPORT_ABSENT",
+                                   path="src/codeqa/core/example.py",
+                                   subject="codeqa.adapters",
+                                   content=source, blob_sha=blob)
+                r = run(checks={"ccg": check})
+                self.assertEqual(r.status, expected)
+                self.assertEqual(r.independent_approval, "REVIEW_REQUIRED")
+
+    def test_unresolved_relative_import_stays_unverified(self):
+        source = "from .internal import helper\\n"
+        raw = source.encode("utf-8")
+        blob = hashlib.sha1(
+            b"blob " + str(len(raw)).encode() + bytes([0]) + raw
+        ).hexdigest()
+        r = run(checks={"ccg": make_check(
+            kind="PYTHON_IMPORT_ABSENT",
+            path="src/codeqa/core/example.py",
+            subject="codeqa.adapters", content=source, blob_sha=blob)})
+        self.assertIn("ccg:UNVERIFIABLE_PREDICATE", r.issues)
+
+    def test_check_cannot_supply_approval(self):
+        c = make_check(approved="true", reviewer="not-an-authenticated-review")
+        r = run(checks={"ccg": c})
+        self.assertEqual(r.status, "SCOPED_CHECKS_PASS")
+        self.assertEqual(r.independent_approval, "REVIEW_REQUIRED")
+
+
 
 if __name__ == "__main__":
     unittest.main()
