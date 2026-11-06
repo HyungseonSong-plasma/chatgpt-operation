@@ -56,6 +56,7 @@ def guard(*, allow=True):
         assert len(logical_intent_id) == 64
         return GateDecision(True, "NO_ACTIVE_BLOCKER_NOT_AUTHORIZATION", 2, "tip")
     g.require_clear = _require_clear
+    g.trusted_checkpoint_reader = lambda: None  # Test double only, never a deployment anchor.
     return g
 
 
@@ -165,6 +166,17 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
         ):
             TrustedWorkflowDraftAdapter(
                 transport=api, blocker_gate=guard()
+            )
+        self.assertEqual(api.writes, [])
+
+    def test_checkpoint_reader_required_even_if_gate_type_is_valid(self):
+        api = FakeTrustedGitHub()
+        unchecked = object.__new__(CommonPreWriteGate)
+        with self.assertRaisesRegex(
+            WorkflowAuthoringError, "INDEPENDENT_JOURNAL_CHECKPOINT_REQUIRED"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=unchecked
             )
         self.assertEqual(api.writes, [])
 
