@@ -23,6 +23,9 @@ from urllib.request import (
 from chatgpt_operation.controller.dea_evidence_gate import (
     EvidenceGateError, check_evidence_bundle,
 )
+from chatgpt_operation.controller.dea_review_routing import (
+    ReviewRoutingError, review_from_exception,
+)
 
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 _API_HOST = "api.github.com"
@@ -151,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--artifact-id", type=int, required=True)
     args = p.parse_args(argv)
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    phase = "ACQUISITION"
     try:
         if not token:
             raise AcquisitionError("GH_TOKEN or GITHUB_TOKEN required")
@@ -158,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
             repository=args.repository, run_id=args.run_id,
             artifact_id=args.artifact_id, token=token,
         )
+        phase = "FITNESS_GATES"
         receipt = check_evidence_bundle(
             source_repo_root=args.source_repo_root,
             github_run=run, github_artifact_listing=listing,
@@ -172,13 +177,28 @@ def main(argv: list[str] | None = None) -> int:
             artifact_name=args.artifact_name,
         )
     except (AcquisitionError, EvidenceGateError) as exc:
-        # No secret, presigned URL or candidate-controlled JSON is printed.
-        print(json.dumps({
-            "status": "BLOCKED", "error_type": type(exc).__name__,
-            "reason": str(exc) if isinstance(exc, EvidenceGateError)
-            else "evidence acquisition or trust validation failed",
-            "pareto_eligible": False,
-        }, sort_keys=True))
+        # A validation failure becomes a review packet, NOT a PASS. Never
+        # expose tokens, ZIP content or untrusted exception text.
+        try:
+            packet = review_from_exception(
+                exc, repository=args.repository,
+                candidate_head_sha=args.candidate_head,
+                phase=phase, run_id=args.run_id,
+                artifact_id=args.artifact_id,
+                analyzed_source_sha=args.analyzed_source_sha,
+            )
+        except ReviewRoutingError:
+            packet = {
+                "status": "HUMAN_REVIEW_REQUIRED",
+                "review_queue": "DEA_EVIDENCE_EXCEPTIONS",
+                "category": "UNVERIFIED_REQUEST_IDENTITIES",
+                "pareto_eligible": False,
+                "repository_mutation_authorized": False,
+                "human_review_delivery": "NOT_CONFIGURED_BY_THIS_MODULE",
+            }
+        print(json.dumps(packet, sort_keys=True))
+        # Distinct nonzero status preserves CI's fail-closed machine outcome.
+        # The packet can be delivered by an authorized controller separately.
         return 2
     print(json.dumps(receipt, sort_keys=True))
     # Success means readback inspection completed, not fitness admission.
