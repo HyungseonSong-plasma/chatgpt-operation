@@ -15,7 +15,7 @@ import unittest
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from chatgpt_operation.controller.dea_evidence_gate import (
-    EvidenceGateError, check_evidence_bundle,
+    EvidenceGateError, check_evidence_bundle, to_fitness_semantic_receipt,
 )
 from chatgpt_operation.controller.dea_reference_oracle import scan_git_snapshot
 
@@ -135,6 +135,92 @@ class EvidenceGateTests(unittest.TestCase):
             self.assertFalse(result["repository_mutation_authorized"])
             self.assertEqual(result["producer_job_attribution"], "NOT_ATTESTED")
             self.assertEqual(before, git(root, "status", "--porcelain"))
+
+    def test_fitness_projection_can_never_claim_pass(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source_sha = init_source(root)
+            result = self.compare(root, source_sha)
+            projected = to_fitness_semantic_receipt(
+                result, analyzer_sha="d" * 40, profile_sha="e" * 40,
+            )
+            self.assertEqual(projected["status"], "UNKNOWN")
+            self.assertEqual(projected["producer_attestation"], "NOT_ATTESTED")
+            self.assertEqual(projected["observed_head_sha"], CANDIDATE_HEAD)
+            forged = deepcopy(result)
+            forged["semantic_fitness_hard_gate"] = "PASS"
+            forged["pareto_eligible"] = True
+            # Fake upstream flags never grant Fitness PASS.
+            self.assertEqual(
+                to_fitness_semantic_receipt(
+                    forged, analyzer_sha="d" * 40, profile_sha="e" * 40,
+                )["status"], "UNKNOWN",
+            )
+
+    def test_fitness_evaluator_excludes_unattested_faster_candidate(self):
+        from chatgpt_operation.controller.dea_v01_fitness import evaluate
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source_sha = init_source(root)
+            evidence = self.compare(root, source_sha)
+            candidate_gate = to_fitness_semantic_receipt(
+                evidence, analyzer_sha="d" * 40, profile_sha="e" * 40,
+            )
+            profile = {
+                "analyzer_sha": "d" * 40,
+                "profile_sha": "e" * 40,
+                "oracle_sha": ORACLE_REV,
+                "measurement_set_sha": MEASUREMENTS,
+                "hard_gates": ["semantic_contract"],
+                "metrics": {"wall_time_ms": "min"},
+            }
+            def metric(head, value):
+                return {
+                    "observed_head_sha": head,
+                    "analyzer_sha": profile["analyzer_sha"],
+                    "profile_sha": profile["profile_sha"],
+                    "oracle_sha": profile["oracle_sha"],
+                    "measurement_set_sha": profile["measurement_set_sha"],
+                    "evidence_ref": "fixture:synthetic",
+                    "value": value,
+                }
+            base = "f" * 40
+            manifest = {
+                "schema_version": 1, "work_id": "test:dea-evidence",
+                "base_sha": base, "profile": profile, "baseline_id": "baseline",
+                "candidates": [
+                    {
+                        "id": "baseline", "head_sha": base, "base_sha": base,
+                        "generation": 0,
+                        "evidence": {
+                            "hard_gates": {
+                                "semantic_contract": {
+                                    **metric(base, 0), "status": "PASS"
+                                }
+                            },
+                            "metrics": {"wall_time_ms": metric(base, 200)},
+                        },
+                    },
+                    {
+                        "id": "A", "head_sha": CANDIDATE_HEAD, "base_sha": base,
+                        "generation": 1,
+                        "evidence": {
+                            "hard_gates": {
+                                "semantic_contract": candidate_gate,
+                            },
+                            "metrics": {
+                                "wall_time_ms": metric(CANDIDATE_HEAD, 1),
+                            },
+                        },
+                    },
+                ],
+            }
+            result = evaluate(manifest)
+            self.assertEqual(result["candidate_evaluations"]["A"]["state"],
+                             "UNKNOWN_HARD_GATE")
+            self.assertEqual(result["pareto_review_set"], ["baseline"])
+            self.assertIsNone(result["champion"])
 
     def test_fake_candidate_pass_cannot_upgrade_producer(self):
         with tempfile.TemporaryDirectory() as td:
