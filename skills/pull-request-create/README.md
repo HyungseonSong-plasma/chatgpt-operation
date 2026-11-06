@@ -19,10 +19,20 @@ See `docs/mutation-blocker-recovery-v1.md` for evidence-based triage.
 ## Preconditions
 
 1. Resolve `GITHUB_PR_CREATE` from the exact pinned central catalog and registry **before** invoking a connector.
-2. Establish the repository and target branch identities from fresh GitHub reads; require the proposed head branch to exist with a verified exact head SHA and base branch to be current.
-3. Confirm there is no existing open PR for the same head/base. If one exists, reuse its identity instead of duplicating a PR.
-4. Confirm the proposed changes are source-scoped, compatible with consumer-owned policies, and reviewed for secrets or unwanted writes.
-5. PR creation is not semantic acceptance. Use draft PRs for unresolved human policy decisions and preserve frozen public contracts.
+2. **Before the GitHub provider is invoked**, validate the proposed PR head name against the **head repository's exact** `automation/samuel/repository-mutation-policy.json`; do not invent another allowlist. For Samuel, this read-only fail-closed preflight is:
+
+   ```bash
+   PYTHONPATH=src python -m chatgpt_operation.repository.branch_preflight \
+     --repository HyungseonSong-plasma/chatgpt-operation \
+     --branch "$HEAD_BRANCH" \
+     --policy automation/samuel/repository-mutation-policy.json
+   ```
+
+   Only an `ALLOWED` result permits the workflow to proceed. A missing/invalid policy, a different repository binding, `feat/*`, or `main` is a hard preflight stop. This is a **caller-side** preflight, not GitHub branch ruleset enforcement; external connector entrypoints must actually execute it before any request. Check the same trusted work identity's prior safety/policy blocker history independently; renaming a denied branch or switching provider never clears a recorded denial.
+3. Establish the repository and target branch identities from fresh GitHub reads; require the proposed head branch to exist with a verified exact head SHA and base branch to be current.
+4. Confirm there is no existing open PR for the same head/base. If one exists, reuse its identity instead of duplicating a PR.
+5. Confirm the proposed changes are source-scoped, compatible with consumer-owned policies, and reviewed for secrets or unwanted writes.
+6. PR creation is not semantic acceptance. Use draft PRs for unresolved human policy decisions and preserve frozen public contracts.
 
 ## Execution and verification
 
