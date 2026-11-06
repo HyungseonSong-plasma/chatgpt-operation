@@ -239,3 +239,26 @@ Until these gates are proved from fresh evidence: **v0.2 execution is
 CONDITIONALLY_APPROVED_BUT_BLOCKED**, with **zero candidate branch actions
 authorized now**. Documentation and read-only evidence/test development may
 continue without treating the blockers as resolved.
+
+
+## 7. Read-only candidate Artifact evidence milestone
+
+The existing Draft PR #249 now includes a GitHub Actions Artifact metadata/ZIP
+verifier, token-safe read-only downloader, source/semantic readback coordinator
+and a fail-closed Fitness semantic gate projection. See
+docs/dea-v02-artifact-provenance.md. Synthetic integration tests link a run's
+exact candidate HEAD, Artifact ID/digest and the separate immutable source
+SHA; the trusted source Oracle rejects forged output records.
+
+**Do not interpret this as a verified production candidate:** no
+independently attested Artifact-producing Job or protected producer workflow
+has been configured or executed, and producer/job identity remains
+NOT_ATTESTED. Candidate performance metrics are treated as untrusted.
+The projected semantic Fitness gate can be FAIL or UNKNOWN, never PASS, until
+the independent producer/runner and workflow attestation requirement is
+satisfied.
+
+The adopted Samuel mutation policy forbids editing .github/workflows/**
+in this scope. No workflow file, permission rule, branch competition or merge
+was changed. Approval for a separate protected producer/attestation
+workflow remains an explicit future gate.
