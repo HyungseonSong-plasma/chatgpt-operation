@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import copy
+from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 import json
 from pathlib import Path
@@ -19,6 +20,10 @@ from chatgpt_operation.github.dea_workflow_authoring_dispatch import (
 from chatgpt_operation.controller.dea_trusted_workflow_authoring_adapter import (
     BRANCH, PATH, POLICY_PATH, REFERENCE_PATH, REPO, WORK_ID,
     WorkflowAuthoringError,
+)
+from chatgpt_operation.controller.dea_operator_delegation import (
+    ACTION, DELEGATE_ID, OPERATOR_LOGIN,
+    OperatorDelegationError, OperatorDelegationGrant,
 )
 from chatgpt_operation.repository.blocker_checkpoint import JournalCheckpoint
 from chatgpt_operation.repository.blocker_journal import (
@@ -158,7 +163,27 @@ class FakeGitHubTransport:
         raise AssertionError("unexpected mutation attempted")
 
 
-def service(api, *, checkpoint_reader=None, authority_verifier=None):
+def service(api, *, checkpoint_reader=None, authority_verifier=None,
+            grant_reader=None, grant_verifier=None, grant_reserver=None):
+    """Test-only host wiring with fake owner identity and atomic ledger."""
+    now = datetime.now(timezone.utc)
+    grant = OperatorDelegationGrant(
+        grant_id="operator-254-integration",
+        operator_login=OPERATOR_LOGIN, delegate_id=DELEGATE_ID,
+        repository=REPO, work_id=WORK_ID, action=ACTION,
+        branch=BRANCH, target_path=PATH, expected_main_sha=MAIN_SHA,
+        issued_at=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+        evidence_ref="TEST_ONLY_OWNER_AUTHENTICATION",
+    )
+    consumed = set()
+
+    def reserve(value):
+        if value.grant_id in consumed:
+            return False
+        consumed.add(value.grant_id)
+        return True
+
     config = HostOwnedTrustConfig(
         journal_issue_number=ISSUE,
         trusted_journal_actor=ACTOR,
@@ -169,6 +194,15 @@ def service(api, *, checkpoint_reader=None, authority_verifier=None):
         policy_authority_verifier=(
             authority_verifier if authority_verifier is not None
             else lambda _: False
+        ),
+        operator_grant_reader=(
+            grant_reader if grant_reader is not None else lambda: grant
+        ),
+        operator_grant_verifier=(
+            grant_verifier if grant_verifier is not None else lambda _: True
+        ),
+        operator_grant_reserver=(
+            grant_reserver if grant_reserver is not None else reserve
         ),
     )
     return connect_hosted_dea_workflow_authoring(
@@ -210,6 +244,36 @@ class HostedDeaAuthoringIntegrationTests(unittest.TestCase):
             [("POST", "/git/refs"), ("PUT", "/contents/" + PATH)],
         )
         self.assertIsNone(api.pr)
+
+    def test_unverified_delegation_blocks_hosted_writes(self):
+        api = FakeGitHubTransport()
+        with self.assertRaisesRegex(
+            OperatorDelegationError, "DELEGATION_NOT_AUTHENTIC_OR_REVOKED"
+        ):
+            service(
+                api, grant_verifier=lambda _: False
+            ).create_review_only_draft(expected_main_sha=MAIN_SHA)
+        self.assertEqual(api.writes, [])
+
+    def test_missing_delegation_rejected_by_host(self):
+        api = FakeGitHubTransport()
+        with self.assertRaisesRegex(
+            OperatorDelegationError, "TYPED_DELEGATION_REQUIRED"
+        ):
+            service(
+                api, grant_reader=lambda: None
+            ).create_review_only_draft(expected_main_sha=MAIN_SHA)
+        self.assertEqual(api.writes, [])
+
+    def test_nonatomic_or_unavailable_reservation_blocks_hosted_writes(self):
+        api = FakeGitHubTransport()
+        with self.assertRaisesRegex(
+            OperatorDelegationError, "DELEGATION_ALREADY_USED_OR_NOT_RESERVED"
+        ):
+            service(
+                api, grant_reserver=lambda _: False
+            ).create_review_only_draft(expected_main_sha=MAIN_SHA)
+        self.assertEqual(api.writes, [])
 
     def test_unadopted_policy_refuses_before_writes(self):
         api = FakeGitHubTransport(policy=DEFAULT_POLICY)
@@ -278,6 +342,9 @@ class HostedDeaAuthoringIntegrationTests(unittest.TestCase):
                         trusted_journal_actor=ACTOR,
                         independent_checkpoint_reader=api.checkpoint,
                         policy_authority_verifier=lambda _: False,
+                        operator_grant_reader=lambda: None,
+                        operator_grant_verifier=lambda _: False,
+                        operator_grant_reserver=lambda _: False,
                     ),
                 )
         self.assertEqual(api.writes, [])
