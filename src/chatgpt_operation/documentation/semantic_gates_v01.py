@@ -37,7 +37,7 @@ class AutomatedGateV01:
 
 def _git_blob_sha(text: str) -> str:
     raw = text.encode("utf-8")
-    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\\x00" + raw).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + bytes([0]) + raw).hexdigest()
 
 
 def _matches_predicate(kind: str, text: str, subject: str, expected: str) -> bool:
@@ -119,7 +119,7 @@ def verify_automated_gate_v01(
             issues.append(f"{check_id}:BOUNDARY_MISMATCH")
             continue
         path = c["path"]
-        if (not path or path.startswith("/") or "\\\\" in path or ":"
+        if (not path or path.startswith("/") or chr(92) in path or ":"
                 in path or any(part in ("", ".", "..") for part in path.split("/"))):
             outcomes[check_id] = "FAIL"
             issues.append(f"{check_id}:UNSAFE_PATH")
