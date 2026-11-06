@@ -1,0 +1,46 @@
+name: Samuel Reasoning Context A/B (read-only)
+
+# Opt-in diagnostic, independent of Samuel Bootstrap's admitted-Issue selector.
+# No repository write or executor permissions. This runs only from main.
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: samuel-reasoning-context-ab
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: >-
+      github.event.issue.number == 256
+      && github.event.comment.user.login == 'HyungseonSong-plasma'
+      && contains(github.event.comment.body, '<!-- samuel-reasoning-ab-v1 -->')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PYTHONPATH: src
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SAMUEL_OPENAI_MODEL: gpt-5.6-luna
+    steps:
+      - name: Checkout the exact main-branch workflow revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run non-executing Production Schema A/B
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.reasoning_context_ab \
+            --output samuel-reasoning-context-ab.json
+      - name: Upload sanitized diagnostic artifact
+        if: always() && hashFiles('samuel-reasoning-context-ab.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-reasoning-context-ab-${{ github.run_id }}
+          path: samuel-reasoning-context-ab.json
+          if-no-files-found: error
+          retention-days: 30
