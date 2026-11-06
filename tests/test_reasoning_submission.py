@@ -15,11 +15,25 @@ class ReasoningSubmissionTests(unittest.TestCase):
     def test_duplicate_is_ambiguous(self):
         body=encode_submission(self.submission())
         with self.assertRaises(ReasoningSubmissionError):
-            select_submission([{"body":body},{"body":body}],"issue:44")
+            select_submission([{"body":body,"user":{"login":"owner"}},{"body":body,"user":{"login":"owner"}}],"issue:44",trusted_author="owner")
 
     def test_wrong_work_is_not_selected(self):
         body=encode_submission(self.submission())
-        self.assertIsNone(select_submission([{"body":body}],"issue:45"))
+        self.assertIsNone(select_submission([{"body":body,"user":{"login":"owner"}}],"issue:45",trusted_author="owner"))
+
+    def test_unauthenticated_submission_is_ignored(self):
+        body=encode_submission(self.submission())
+        self.assertIsNone(select_submission([{"body":body}],"issue:44"))
+        self.assertIsNone(select_submission([{"body":body}],"issue:44",trusted_author="owner"))
+        self.assertIsNone(select_submission([{"body":body,"user":{"login":"attacker"}}],"issue:44",trusted_author="owner"))
+        self.assertEqual(
+            select_submission([{"body":body,"user":{"login":"owner"}}],"issue:44",trusted_author="owner"),
+            self.submission(),
+        )
+
+    def test_untrusted_malformed_submission_is_not_parsed(self):
+        comments=[{"body":"<!-- samuel-reasoning-submission --> garbage","user":{"login":"attacker"}}]
+        self.assertIsNone(select_submission(comments,"issue:44",trusted_author="owner"))
 
     def test_round_trip_preserves_tilde_fence_inside_action_plan_content(self):
         proposal=IssueReasoningProposal(
