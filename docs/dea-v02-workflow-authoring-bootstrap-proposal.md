@@ -1,108 +1,178 @@
-# DEA #254 — scoped Workflow Draft PR authoring bootstrap
+# DEA #254 — GitHub-native protected Workflow adoption (no external Trusted Host)
 
-STATUS: PROPOSAL FOR HUMAN SECURITY/POLICY REVIEW ONLY. NO CURRENT WRITE AUTHORITY.
+**Status: OWNER-OPERATED ADOPTION PLAN, REVIEWABLE; NOT EXECUTED.**
+**Owner choice (2026-11-06):** use existing GitHub protections, GitHub Actions
+and the ChatGPT GitHub connection for *ordinary permitted work*; do not
+deploy an external Trusted Host, independent model-facing GitHub App, or
+ChatGPT operator-grant server for this one-time smoke Workflow adoption.
 
-Owner-approved adoption review: https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/254#issuecomment-6685977537
+Related: Issue #254, original review-only approval
+https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/254#issuecomment-6685977537 .
+That prior owner comment explicitly authorized **preparation for adoption review**,
+not the protected Workflow write, final merge, Environment deployment approval,
+or exemption from any currently effective policy.
 
-## Goal
+## 1. Separation of responsibilities
 
-After one formally authorized privileged bootstrap, ChatGPT may create
-a new branch, add EXACTLY the reviewed DEA Producer Workflow file, and
-open a Draft PR. A human retains exclusive authority to approve protected
-deployment, approve the final review, merge, or change repository policy.
+- **Human owner `HyungseonSong-plasma`** retains competent repository policy
+  authority; prepares/authorizes the **one** protected Workflow introduction
+  using their independently authenticated GitHub account and an ordinary
+  reviewable GitHub PR; personally reviews/merges when authorized; personally
+  reviews the protected Environment deployment. A human review must never
+  be impersonated by the ChatGPT GitHub integration.
+- **ChatGPT** does preflight, source verification, permitted `src/`,
+  `tests/`, `docs/` changes, ordinary reviewable PRs, CI inspection and
+  post-deployment read-only artifact/attestation evaluation. It may prepare
+  exact copy instructions and review evidence, but **must not write**
+  `.github/workflows/**` through the existing connector, repository-native
+  engine, Git-data fallback or any alternative provider.
+- **GitHub** enforces the protected `main` PR/CI Ruleset and, when
+  independently configured, the `dea-human-break-glass` Environment gate.
+  The existence of an Environment name is not proof the reviewer/branch
+  settings or approval were enforced.
 
-Allowed target: .github/workflows/dea-evidence-producer.yml
-Allowed branch: issue-254-producer-adoption
-Work identity: DEA-254-PRODUCER-SMOKE
-Target base: protected main at an independently verified fresh SHA
-Source YAML: docs/dea-v02-protected-producer-smoke.proposed.yml
-Excluded: wildcard workflows, core Samuel workflows, force merge, admin
-tokens, signed release without a GitHub-human approval, A/B/C candidates.
+**No blanket automation policy exception is part of this design.**
+Keep `automation/samuel/repository-mutation-policy.json` and its
+`.github/workflows/**` denial **unchanged**. Keep the repository-native
+hardcoded Workflow write stop unchanged. Therefore old policy PR #259 and
+external-host code PR #262 are superseded and MUST NOT be merged to
+activate this approach.
 
-## Why ChatGPT cannot open this Workflow PR yet
+## 2. Exact one-time human adoption scope
 
-(1) automation/samuel/repository-mutation-policy.json currently has
-a blanket .github/workflows/** deny and no allow entry for the file.
-The policy file itself is protected from automation changes.
+| Field | Bound value |
+| --- | --- |
+| Repository | `HyungseonSong-plasma/chatgpt-operation` |
+| Work identity | `DEA-254-PRODUCER-SMOKE` |
+| Reviewed source on protected `main` | `docs/dea-v02-protected-producer-smoke.proposed.yml` |
+| Source Git blob | `8215bb3d07f3918c6a3ecd9f92e152538625691a` |
+| New Workflow path | `.github/workflows/dea-evidence-producer.yml` |
+| Human-created branch | `issue-254-producer-adoption` based on fresh `main` |
+| PR | Draft, targeting `main`, exactly one added file |
+| Effect | Non-candidate signed Artifact smoke only |
+| Deployment | `dea-human-break-glass`, named human approval |
 
-(2) src/chatgpt_operation/repository/mutation.py separately rejects
-ALL workflow-file writes on its repository-native GitHub Actions route,
-regardless of JSON allowlist. Keep that hard stop and never use an
-alternate native API to circumvent it.
+Source implementation PR #249 was **merged** on 2026-11-06. The Workflow
+file is deliberately absent from `.github/workflows/` until human adoption.
+The intended branch was read back as absent on 2026-11-06; recheck live state
+before acting. Commit SHA and Actions versions MUST be freshly reverified
+before the protected PR is merged.
 
-(3) The github-connector may need GitHub App Workflows:write permission
-in addition to its ordinary Contents/PR permissions. This is not
-established by repository admin: true metadata. Granting a GitHub App
-permission does not clear Samuel policy, and Issue #254's approval
-explicitly only permits a scoped adoption review.
+## 3. Owner-only GitHub-native handoff
 
-## Proposed one-time human policy PR (not made by this proposal)
+Before any write, the human owner reviews this scope and confirms that
+**a distinct, human-initiated protected Workflow adoption PR is an eligible
+authorized path** under current repository governance. If their policy
+authority does not permit that exception, STOP and seek formal owner policy
+adoption. Do not treat chat instruction or Issue comments as proof of a
+GitHub write permission.
 
-The competent human authority must approve a reviewed privileged PR
-that applies ONLY the following file path policy delta:
+### Option A — GitHub web UI
 
-- file_paths.allow: append the literal value
+1. Sign into GitHub as `HyungseonSong-plasma`; view current protected
+   `main` and the exact reviewed source YAML above. Check the source Git
+   blob identity, SHA-pinned Actions and one-run-only smoke scope.
+2. Create branch `issue-254-producer-adoption` from **current main**.
+   Confirm the target Workflow file does not exist.
+3. In that branch, create **one file only** at the exact Workflow path,
+   copying the source YAML verbatim from the same verified main snapshot.
+4. Open a **Draft PR** into `main`; reference #254 and the exact
+   owner-controlled adoption decision. Inspect `Files changed`: one
+   added file, not a policy mutation, existing Workflow modification,
+   branch protection change or source-code side effect.
+5. Check live CI on the **exact PR head SHA** and independent technical /
+   security review when applicable. Human owner makes the ordinary
+   reviewed merge decision in GitHub; no bot/admin bypass or self-approved
+   model review.
+6. When deployed on `main`, the owner dispatches the **one** smoke run on
+   exact current `main` with matching `expected_main_sha`. The
+   `dea-human-break-glass` deployment approval must be executed
+   personally by the eligible named GitHub human after verifying the
+   waiting job and commit.
+
+### Option B — equivalent owner-authenticated local GitHub CLI
+
+These are **instructions for the human to run**, NOT a command for
+ChatGPT/repository-native Actions to execute. Use the owner's existing
+authenticated workstation; never provide a token or credential in chat.
+The commands require a clean local clone and a **new** branch name:
+
+```bash
+set -euo pipefail
+gh auth status
+git status --short
+# STOP unless the checkout is clean and the repo's owner is correct.
+gh repo view --json nameWithOwner --jq .nameWithOwner
+git fetch origin main
+git switch -c issue-254-producer-adoption origin/main
+
+test "$(git hash-object docs/dea-v02-protected-producer-smoke.proposed.yml)" = \
+  8215bb3d07f3918c6a3ecd9f92e152538625691a
+test ! -e .github/workflows/dea-evidence-producer.yml
+mkdir -p .github/workflows
+cp docs/dea-v02-protected-producer-smoke.proposed.yml \
   .github/workflows/dea-evidence-producer.yml
-- file_paths.deny: remove the pattern .github/workflows/**
-- preserve all other allow/deny entries and existing branch rules
-- keep the deny for .github/workflows/samuel-native-github.yml
-- preserve protected policy and capability registry denials
-- never replace the blanket deny with a wildcard allow
+git add -- .github/workflows/dea-evidence-producer.yml
+test "$(git diff --cached --name-only)" = \
+  ".github/workflows/dea-evidence-producer.yml"
+git diff --cached --check
+git diff --cached --name-status
+# Human inspects exact one-file addition before the next commands.
+git commit -m "feat(dea): human-adopt reviewed signed Artifact smoke Workflow (#254)"
+git push -u origin issue-254-producer-adoption
+gh pr create --draft --base main --head issue-254-producer-adoption \
+  --title "feat(dea): human-adopt protected signed Artifact smoke (#254)" \
+  --body "Human-controlled one-file protected Workflow adoption for #254; no automated policy exception, no candidate Fitness PASS. Requires GitHub review, exact-head CI and separate human Environment approval."
+```
 
-The broad deny MUST be removed when adding the narrow allow because
-the current policy checks deny patterns first. Other Workflow paths
-remain disallowed because they match no allow pattern.
+The operator must independently confirm the `gh repo view` output matches
+`HyungseonSong-plasma/chatgpt-operation` before using this recipe.
+`git status --short` is for inspection, not an automatic clean-check.
+If a branch/file already exists or any command fails, **do not re-run
+blindly**: inspect GitHub state and reconcile the work.
 
-IMPORTANT: The repository-native hardcoded workflow mutation blocker
-continues to apply after this change. This is intentional and means
-the Workflow PR should go ONLY through a separately authorized,
-trusted external provider with an enforcing prewrite gate.
+This CLI recipe is an **alternative UI for the same human-owned action**,
+not permission for a ChatGPT connector to push Workflow content. Actions
+workflows cannot be installed from the non-privileged execution channel.
 
-## Protected external provider prewrite gate, mandatory before any write
+## 4. Independent acceptance after the human PR
 
-The human-controlled bootstrap must include a trust-boundary-enforced
-prewrite gate on the real connector execution path. It must check:
-1. exact repository, stable task ID, single exact new file target;
-2. branch named issue-254-producer-adoption and exact current main SHA;
-3. only file.create and PR.create, no updates/deletions/merge;
-4. proposed bytes identical to the human-reviewed YAML source;
-5. human owner policy authorization still current and independently
-   verified, hard TOOL_SAFETY/REPOSITORY_POLICY denials absent;
-6. Draft PR only, base main, no self-review, no protected job dispatch.
+ChatGPT may resume read-only evidence gathering and normal permitted
+source/test/docs work after the human has created the PR. Acceptance:
 
-A Python function in tests or a document that is NOT enforced at the
-actual connector boundary is INSUFFICIENT to authorize mutation.
-Until such enforcement is deployed, the Workflow write remains denied.
+1. Verify actual repository, protected-main SHA, exact proposed YAML
+   Git blob/digest, added file content, single changed file, review state,
+   GitHub Ruleset and `test` check at the current PR head.
+2. Verify actual human GitHub merge event and exact deployed `main`
+   revision. A green CI run alone is NOT adoption or execution.
+3. Before signing, verify the job is waiting on the protected
+   `dea-human-break-glass` Environment and is not executing untrusted
+   candidate code. The human operator must personally approve.
+4. Read actual run/job/artifact metadata and the **inner**
+   `dea-evidence.zip`; verify its SHA-256 independently with
+   `gh attestation verify`, including signer workflow and exact
+   source/signer digest. Compare with GitHub Artifact wrapper digest
+   separately.
+5. If provenance or identity is missing/mismatched, report
+   `HUMAN_REVIEW_REQUIRED`; never mark DEA Fitness PASS, enable A/B/C
+   candidate competition or auto-promote a Champion on a smoke test.
 
-## One-time GitHub App/connector permission check
+The detailed human handoff is
+`docs/dea-v02-producer-smoke-human-handoff.md` and the signed-subject
+contract is `docs/dea-v02-producer-attestation-adoption.md`.
 
-Human administrator checks the GitHub connection or installs a
-repository-limited GitHub App with required Contents and Workflows
-permissions for editing Actions workflow files and PR creation. The
-Workflows permission is not intrinsically limited to one file: Samuel
-must enforce the exact file/branch/work ID in its trusted execution
-boundary. Never paste access tokens or account secrets in chat.
-Reauthorization may be required if permissions change.
+## 5. Status and rollback
 
-## Once bootstrap is formally adopted
+`GITHUB_NATIVE_ROUTE_SELECTED`
+`EXTERNAL_TRUSTED_HOST_NOT_REQUIRED`
+`REVIEWED_YAML_PREPARED`
+`HUMAN_WORKFLOW_PR_NOT_CREATED`
+`HUMAN_DEPLOYMENT_NOT_APPROVED`
+`SIGNED_SMOKE_NOT_VERIFIED`
 
-ChatGPT independently reads current base SHA, prepares the exact
-reviewed file in branch issue-254-producer-adoption, and opens a Draft
-PR. It then reads back the head SHA, base SHA, file patch, CI and
-policy evidence. The human owner reviews and merges later.
-A successful CI does not prove the workflow has ever executed.
-
-Human review and later signed Artifact smoke execution remain separate.
-The full handoff: docs/dea-v02-producer-smoke-human-handoff.md
-
-## Evidence states
-
-BOOTSTRAP_PROPOSED -> HUMAN_POLICY_ADOPTED (requires actual privileged
-merge and trusted provider readback) -> WORKFLOW_DRAFT_CREATED ->
-HUMAN_DEPLOYMENT_APPROVED -> LIVE_SMOKE_VERIFIED.
-
-This PR creates only the first state. No AI escalation is implied.
-
-GitHub references:
-https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app
-https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps
+Old PR #262 and policy PR #259 must remain unmerged; their source history
+may be retained as closed/superseded proposals. Preserve the automation
+Workflow-denial guard and human-only emergency authority. For a failed
+or compromised smoke, disable/stop the specific Workflow using competent
+GitHub authority and conduct a separate reviewed rollback PR; do not
+make ChatGPT auto-delete protected files.
