@@ -57,6 +57,46 @@ with a clearly classified policy/preflight error; they must not be
 reinterpreted as provider unavailability or authorization to switch to an
 alternate GitHub API.
 
+## Samuel skill vs individual execution providers
+
+**Important distinction:** Absence of a consumer-owned
+`automation/samuel/repository-mutation-policy.json` does **not**
+make Samuel's reusable `repository-mutation` **skill** unavailable.
+Samuel owns the skill and the trigger/capability/provider router; a
+consumer binds it to an immutable Samuel revision.
+
+The file-specific restriction implemented in this PR applies to
+the `ExecutionGateway`'s **repository-native
+`REPOSITORY_MUTATION` dispatch path**, not to the GitHub Connector
+provider or to read-only Samuel, PR creation, CI observation, or the
+independently governed branch-delete contract.
+
+The canonical `skills/repository-mutation/README.md` currently
+also specifies a **pre-provider** target branch-policy check for file
+and branch creation/update (including connector). Therefore choosing
+`github-connector` must **not** be used to bypass a missing target
+policy or a prior owner/tool-safety denial.
+
+**Recommended portable direction:** keep the Samuel skill and capability
+registry centralized, but change the pre-provider branch/policy
+resolution contract in a separately reviewed follow-up so it can
+consume independently authenticated **target-specific policy evidence**,
+not necessarily a JSON at one hardcoded path in every repository.
+For example, a reviewed target-owner policy bundle resolved from
+trusted controller configuration at an immutable version could be
+supported. That bundle must bind repository identity, allowed
+operations/paths/branches, exact target revision, provider, and
+revocation/denial history, and remain independent of an ActionPlan
+or a self-authored Issue comment. None of those alternative trusted
+adapters is deployed by this PR.
+
+Consequently, **`NATIVE_TARGET_POLICY_UNAVAILABLE` is a
+provider-local fail-closed diagnosis, not global
+`SAMUEL_MUTATION_UNAVAILABLE`**. When no separately verified
+provider-specific authorization exists, do not write codeQA.
+Registry provider resolution cannot turn an upstream policy hard-stop
+into a bypass.
+
 ## Current codeQA result and necessary next step
 
 At Issue #264 kickoff, the codeQA repository was inspected and had
