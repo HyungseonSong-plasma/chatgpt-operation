@@ -20,10 +20,16 @@ def witness(axis, **changes):
     return result
 
 
-def run(declared=None, witnesses=None, verified=None, snapshot_sha=SHA):
+def run(declared=None, witnesses=None, verified=None, snapshot_sha=SHA,
+        consumer_repository="owner/consumer", scope="bounded-feature-A",
+        at_revisions=None):
     return audit_evidence_v02(
         declared=DECLARED if declared is None else declared,
         snapshot_sha=snapshot_sha,
+        consumer_repository=consumer_repository,
+        scope=scope,
+        at_revisions=({axis: snapshot_sha for axis in DECLARED}
+                      if at_revisions is None else at_revisions),
         witnesses={axis: witness(axis) for axis in DECLARED} if witnesses is None else witnesses,
         independently_verified={axis: True for axis in DECLARED} if verified is None else verified,
     )
@@ -49,6 +55,65 @@ class EvidenceAuditV02Tests(unittest.TestCase):
                                 "implementation": witness("implementation", revision=OLD)})
         self.assertIn("implementation:STALE_EVIDENCE", result.issues)
         self.assertEqual(result.verified["implementation"], "NOT_EVALUATED")
+
+    def test_historical_adr_keeps_valid_at_revision_without_staling_current_source(self):
+        witnesses = {axis: witness(axis) for axis in DECLARED}
+        witnesses["decision"] = witness("decision", revision=OLD)
+        result = run(witnesses=witnesses,
+                     at_revisions=dict.fromkeys(DECLARED, SHA) | {"decision": OLD})
+        self.assertEqual(result.status, "EVIDENCE_COVERED")
+        self.assertEqual(result.verified, DECLARED)
+        self.assertEqual(result.at_revisions["decision"], OLD)
+        self.assertEqual(result.at_revisions["implementation"], SHA)
+        # Historical-revision ancestry and meaningful adoption are still caller-attested.
+
+    def test_wrong_repository_is_not_covered_even_if_attested(self):
+        witnesses = {axis: witness(axis) for axis in DECLARED}
+        witnesses["implementation"] = witness("implementation",
+                                               repository="other/repository")
+        result = run(witnesses=witnesses)
+        self.assertIn("implementation:REPOSITORY_MISMATCH", result.issues)
+        self.assertEqual(result.verified["implementation"], "NOT_EVALUATED")
+        self.assertIn("implementation", result.revalidation_queue)
+
+    def test_wrong_scope_is_not_covered_even_at_matching_revision(self):
+        witnesses = {axis: witness(axis) for axis in DECLARED}
+        witnesses["review"] = witness("review", scope="unrelated-feature")
+        result = run(witnesses=witnesses)
+        self.assertIn("review:SCOPE_MISMATCH", result.issues)
+        self.assertEqual(result.verified["review"], "NOT_EVALUATED")
+
+    def test_changed_source_makes_old_review_stale_but_not_historical_adr(self):
+        witnesses = {axis: witness(axis) for axis in DECLARED}
+        witnesses["decision"] = witness("decision", revision=OLD)
+        witnesses["review"] = witness("review", revision=OLD)
+        result = run(witnesses=witnesses,
+                     at_revisions=dict.fromkeys(DECLARED, SHA) | {"decision": OLD})
+        self.assertEqual(result.verified["decision"], "ADOPTED")
+        self.assertEqual(result.verified["implementation"], "IMPLEMENTED")
+        self.assertEqual(result.verified["review"], "NOT_EVALUATED")
+        self.assertIn("review:STALE_EVIDENCE", result.issues)
+
+    def test_caller_cannot_relax_current_implementation_or_review_revision(self):
+        for axis in ("implementation", "review"):
+            with self.subTest(axis=axis), self.assertRaises(LabelError):
+                run(at_revisions=dict.fromkeys(DECLARED, SHA) | {axis: OLD})
+
+    def test_malformed_repository_scope_and_revision_mapping_fail_closed(self):
+        with self.assertRaises(LabelError):
+            run(consumer_repository="other/repo/extra")
+        with self.assertRaises(LabelError):
+            run(scope=" ")
+        with self.assertRaises(LabelError):
+            run(at_revisions={"decision": SHA, "review": SHA})
+        with self.assertRaises(LabelError):
+            run(at_revisions=dict.fromkeys(DECLARED, "main"))
+
+    def test_self_review_identity_comparison_is_case_insensitive(self):
+        witnesses = {axis: witness(axis) for axis in DECLARED}
+        witnesses["review"] = witness("review", reviewer=" Owner ")
+        result = run(witnesses=witnesses)
+        self.assertIn("review:INDEPENDENCE_NOT_ATTESTED", result.issues)
 
     def test_wrong_kind_and_unverified_evidence(self):
         result = run(witnesses={**{a: witness(a) for a in DECLARED},
