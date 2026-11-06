@@ -142,5 +142,30 @@
     "fitness_semantic_gate_on_unattested_producer": "UNKNOWN",
     "evidence_origin_verified_for_candidate": false,
     "branch_creation_authorized": false
+  },
+  "human_evidence_review": {
+    "routing_module": "src/chatgpt_operation/controller/dea_review_routing.py",
+    "routing_mode": "HUMAN_REVIEW_REQUIRED_ON_VERIFICATION_FAILURE",
+    "preserve_original": "DO_NOT_DELETE_OR_REWRITE",
+    "quarantine_unsafe_archive": true,
+    "fitness_requires_fresh_evidence": true,
+    "manual_override_grants_pass": false,
+    "delivery_channel_configured": false,
+    "reviewer_identity_attested": false
+  },
+  "official_producer_attestation": {
+    "state": "IMPLEMENTATION_PREPARED_WORKFLOW_AUTHORITY_BLOCKED",
+    "format_version": 2,
+    "producer_module": "src/chatgpt_operation/controller/dea_payload_producer.py",
+    "signed_subject_module": "src/chatgpt_operation/controller/dea_attested_payload.py",
+    "attestation_verifier_module": "src/chatgpt_operation/controller/dea_attestation_verify.py",
+    "verified_evidence_gate_module": "src/chatgpt_operation/controller/dea_attested_evidence_gate.py",
+    "adoption_contract": "docs/dea-v02-producer-attestation-adoption.md",
+    "new_action_workflow_deployed": false,
+    "workflow_policy_denies_changes": true,
+    "real_signed_candidate_artifact_verified": false,
+    "signer_workflow_revision_pinned": false,
+    "run_to_job_attribution_attested": false,
+    "post_upload_artifact_id_separate_from_signed_subject": true
   }
 }
