@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import copy
+from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 import json
 from pathlib import Path
@@ -12,6 +13,11 @@ from chatgpt_operation.controller.dea_trusted_workflow_authoring_adapter import 
     BRANCH, PATH, POLICY_PATH, REFERENCE_PATH, REPO,
     TrustedWorkflowDraftAdapter, WorkflowAuthoringError,
 )
+from chatgpt_operation.controller.dea_operator_delegation import (
+    ACTION, DELEGATE_ID, OPERATOR_LOGIN,
+    OperatorDelegationError, OperatorDelegationGate, OperatorDelegationGrant,
+)
+from chatgpt_operation.controller.dea_workflow_authoring_preflight import WORK_ID
 from chatgpt_operation.repository.blocker_gate import (
     BlockerGateError, CommonPreWriteGate, GateDecision,
 )
@@ -58,6 +64,39 @@ def guard(*, allow=True):
     g.require_clear = _require_clear
     g.trusted_checkpoint_reader = lambda: None  # Test double only, never a deployment anchor.
     return g
+
+
+def delegation_gate(*, revoked=False, expired=False, wrong_scope=False,
+                    available=True):
+    """Test-only fake callbacks, never a deployed identity/ledger."""
+    now = datetime.now(timezone.utc)
+    grant = OperatorDelegationGrant(
+        grant_id="owner-dea-254-once",
+        operator_login=OPERATOR_LOGIN,
+        delegate_id=DELEGATE_ID,
+        repository=REPO,
+        work_id=WORK_ID,
+        action=ACTION,
+        branch=BRANCH,
+        target_path=PATH,
+        expected_main_sha="c" * 40 if wrong_scope else SHA,
+        issued_at=now - timedelta(minutes=1),
+        expires_at=now - timedelta(seconds=1) if expired else now + timedelta(hours=1),
+        evidence_ref="TEST_ONLY_SIGNED_AUTHORITY_RECEIPT",
+    )
+    used = set()
+
+    def reserve(value):
+        if not available or value.grant_id in used:
+            return False
+        used.add(value.grant_id)
+        return True
+
+    return OperatorDelegationGate(
+        trusted_grant_reader=lambda: grant,
+        trusted_grant_verifier=lambda value: not revoked,
+        atomic_grant_reserver=reserve,
+    )
 
 
 class FakeTrustedGitHub:
@@ -150,7 +189,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
     def test_exact_human_reviewed_scope_creates_only_draft(self):
         api = FakeTrustedGitHub()
         result = TrustedWorkflowDraftAdapter(
-            transport=api, blocker_gate=guard()
+            transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
         ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(result.status, "DRAFT_PR_CREATED_REVIEW_REQUIRED")
         self.assertEqual(result.pr_number, 99)
@@ -167,6 +206,60 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
         )
         self.assertEqual(api.file, YAML)
 
+    def test_missing_delegation_gate_rejected_before_write(self):
+        api = FakeTrustedGitHub()
+        with self.assertRaisesRegex(
+            WorkflowAuthoringError, "TRUSTED_OPERATOR_DELEGATION_GATE_REQUIRED"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard(), operator_gate=None
+            )
+        self.assertEqual(api.writes, [])
+
+    def test_revoked_operator_grant_blocks_draft(self):
+        api = FakeTrustedGitHub()
+        with self.assertRaisesRegex(
+            OperatorDelegationError, "DELEGATION_NOT_AUTHENTIC_OR_REVOKED"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard(),
+                operator_gate=delegation_gate(revoked=True),
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual(api.writes, [])
+
+    def test_expired_operator_grant_blocks_draft(self):
+        api = FakeTrustedGitHub()
+        with self.assertRaisesRegex(
+            OperatorDelegationError, "DELEGATION_EXPIRED_OR_OUT_OF_BOUNDS"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard(),
+                operator_gate=delegation_gate(expired=True),
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual(api.writes, [])
+
+    def test_wrong_scope_operator_grant_blocks_draft(self):
+        api = FakeTrustedGitHub()
+        with self.assertRaisesRegex(
+            OperatorDelegationError, "DELEGATION_SCOPE_MISMATCH"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard(),
+                operator_gate=delegation_gate(wrong_scope=True),
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual(api.writes, [])
+
+    def test_used_operator_grant_blocks_draft(self):
+        api = FakeTrustedGitHub()
+        with self.assertRaisesRegex(
+            OperatorDelegationError, "DELEGATION_ALREADY_USED_OR_NOT_RESERVED"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard(),
+                operator_gate=delegation_gate(available=False),
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual(api.writes, [])
+
     def test_repository_native_credential_cannot_be_used_here(self):
         api = FakeTrustedGitHub()
         api.repository = "someone/another-repo"
@@ -174,7 +267,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "FOREIGN_GITHUB_TRANSPORT"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             )
         self.assertEqual(api.writes, [])
 
@@ -185,7 +278,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "INDEPENDENT_JOURNAL_CHECKPOINT_REQUIRED"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=unchecked
+                transport=api, blocker_gate=unchecked, operator_gate=delegation_gate()
             )
         self.assertEqual(api.writes, [])
 
@@ -194,13 +287,13 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(
             WorkflowAuthoringError, "TRUSTED_GATE_REQUIRED"
         ):
-            TrustedWorkflowDraftAdapter(transport=api, blocker_gate=None)
+            TrustedWorkflowDraftAdapter(transport=api, blocker_gate=None, operator_gate=delegation_gate())
         self.assertEqual(api.writes, [])
 
     def test_denied_human_adoption_policy_never_writes(self):
         api = FakeTrustedGitHub(policy=ORIGINAL_POLICY)
         adapter = TrustedWorkflowDraftAdapter(
-            transport=api, blocker_gate=guard()
+            transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
         )
         with self.assertRaisesRegex(
             WorkflowAuthoringError, "EXACT_PATH_POLICY_NOT_ADOPTED"
@@ -211,7 +304,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
     def test_blocker_gate_failure_stops_before_any_write(self):
         api = FakeTrustedGitHub()
         adapter = TrustedWorkflowDraftAdapter(
-            transport=api, blocker_gate=guard(allow=False)
+            transport=api, blocker_gate=guard(allow=False), operator_gate=delegation_gate()
         )
         with self.assertRaises(BlockerGateError):
             adapter.prepare_and_create_draft(expected_main_sha=SHA)
@@ -220,7 +313,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
     def test_stale_main_or_wrong_sha_never_writes(self):
         api = FakeTrustedGitHub()
         adapter = TrustedWorkflowDraftAdapter(
-            transport=api, blocker_gate=guard()
+            transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
         )
         for sha in ("c"*40, "HEAD", ""):
             with self.subTest(sha=sha), self.assertRaises(
@@ -236,7 +329,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "BRANCH_EXISTS_AT_UNRELATED_SHA"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
@@ -248,7 +341,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "TARGET_FILE_ALREADY_EXISTS"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
@@ -262,7 +355,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "PR_ALREADY_OPEN_FOR_BRANCH"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
@@ -278,7 +371,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "GITHUB_CONTENT_BLOB_SHA_MISMATCH"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
@@ -289,7 +382,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "REVIEWED_WORKFLOW_BLUEPRINT_CHANGED"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
@@ -300,7 +393,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "CREATED_WORKFLOW_BYTES_MISMATCH"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(
             [m for m, _, _ in api.writes], ["POST", "PUT"]
@@ -316,7 +409,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "CREATED_COMMIT_SCOPE_MISMATCH"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual([m for m, _, _ in api.writes], ["POST", "PUT"])
         self.assertIsNone(api.pr)
@@ -328,7 +421,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "CREATED_COMMIT_SCOPE_MISMATCH"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual([m for m, _, _ in api.writes], ["POST", "PUT"])
         self.assertIsNone(api.pr)
@@ -340,7 +433,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "BRANCH_MOVED_AFTER_FILE_CREATE"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual([m for m, _, _ in api.writes], ["POST", "PUT"])
         self.assertIsNone(api.pr)
@@ -354,7 +447,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "EXACT_PATH_POLICY_NOT_ADOPTED"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=guard()
+                transport=api, blocker_gate=guard(), operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
@@ -373,7 +466,7 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             WorkflowAuthoringError, "MAIN_MOVED_AFTER_GATE"
         ):
             TrustedWorkflowDraftAdapter(
-                transport=api, blocker_gate=g
+                transport=api, blocker_gate=g, operator_gate=delegation_gate()
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
