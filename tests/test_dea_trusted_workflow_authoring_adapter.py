@@ -72,6 +72,9 @@ class FakeTrustedGitHub:
         self.pr = None
         self.writes: list[tuple[str, str, dict]] = []
         self.corrupt_readback = False
+        self.created_commit_parent = SHA
+        self.created_commit_files = [{"filename": PATH, "status": "added"}]
+        self.branch_head_after_put = CREATED_SHA
 
     def get(self, path, *, query=None):
         if path == "/git/ref/heads/main":
@@ -97,6 +100,12 @@ class FakeTrustedGitHub:
             return gh_blob(
                 b"tampered" if self.corrupt_readback else self.file, PATH
             )
+        if path == "/commits/" + CREATED_SHA:
+            return {
+                "sha": CREATED_SHA,
+                "parents": [{"sha": self.created_commit_parent}],
+                "files": self.created_commit_files,
+            }
         if path == "/pulls":
             assert query == {
                 "state": "open", "head": "HyungseonSong-plasma:" + BRANCH,
@@ -121,7 +130,7 @@ class FakeTrustedGitHub:
         if method == "PUT" and path == "/contents/" + PATH:
             assert payload["branch"] == BRANCH
             self.file = base64.b64decode(payload["content"])
-            self.branch = CREATED_SHA
+            self.branch = self.branch_head_after_put
             return {"commit": {"sha": CREATED_SHA}}
         if method == "POST" and path == "/pulls":
             assert payload["draft"] is True
@@ -296,6 +305,44 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
         self.assertEqual(
             [m for m, _, _ in api.writes], ["POST", "PUT"]
         )
+        self.assertIsNone(api.pr)
+
+    def test_unrelated_file_in_created_commit_prevents_pr(self):
+        api = FakeTrustedGitHub()
+        api.created_commit_files.append({
+            "filename": "src/unreviewed.py", "status": "modified",
+        })
+        with self.assertRaisesRegex(
+            WorkflowAuthoringError, "CREATED_COMMIT_SCOPE_MISMATCH"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard()
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual([m for m, _, _ in api.writes], ["POST", "PUT"])
+        self.assertIsNone(api.pr)
+
+    def test_created_commit_must_have_exact_main_parent(self):
+        api = FakeTrustedGitHub()
+        api.created_commit_parent = "c" * 40
+        with self.assertRaisesRegex(
+            WorkflowAuthoringError, "CREATED_COMMIT_SCOPE_MISMATCH"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard()
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual([m for m, _, _ in api.writes], ["POST", "PUT"])
+        self.assertIsNone(api.pr)
+
+    def test_concurrent_branch_move_after_put_prevents_pr(self):
+        api = FakeTrustedGitHub()
+        api.branch_head_after_put = "c" * 40
+        with self.assertRaisesRegex(
+            WorkflowAuthoringError, "BRANCH_MOVED_AFTER_FILE_CREATE"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard()
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual([m for m, _, _ in api.writes], ["POST", "PUT"])
         self.assertIsNone(api.pr)
 
     def test_policy_wildcard_denied_before_write(self):
