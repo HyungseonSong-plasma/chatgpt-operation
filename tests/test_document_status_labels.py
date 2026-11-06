@@ -120,7 +120,7 @@ class DocumentStatusLabelTests(unittest.TestCase):
         args = fixture()
         row = args["markdown"].splitlines()[2]
         import re
-        images = re.findall(r"!\\[[^\\]]+\\]\\([^)]+\\)", row)
+        images = re.findall(r"!\[[^\]]+\]\([^)]+\)", row)
         self.assertEqual(len(images), 3)
         first = images[0]
         for modified in (row + " " + first, "See: " + row, row + " explanation"):
@@ -132,7 +132,7 @@ class DocumentStatusLabelTests(unittest.TestCase):
         args = fixture()
         row = args["markdown"].splitlines()[2]
         import re
-        images = re.findall(r"!\\[[^\\]]+\\]\\([^)]+\\)", row)
+        images = re.findall(r"!\[[^\]]+\]\([^)]+\)", row)
         self.assertEqual(len(images), 3)
         args["markdown"] = args["markdown"].replace(row, " ".join(reversed(images)), 1)
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
