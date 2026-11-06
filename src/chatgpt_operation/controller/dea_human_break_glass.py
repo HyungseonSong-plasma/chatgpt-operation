@@ -56,13 +56,19 @@ def prepare_emergency_request(
     A chat user, tool, bot, issue comment or manifest cannot self-attest
     the approver role. Security/policy denials remain binding.
     """
-    _check(isinstance(repository, str) and bool(_REPO.fullmatch(repository)),
+    _check(isinstance(repository, str) and bool(_REPO.fullmatch(repository))
+           and all(part not in ("", ".", "..") and not part.startswith(".")
+                   for part in repository.split("/")),
            "invalid repository")
     _check(isinstance(target_head_sha, str)
            and bool(_SHA40.fullmatch(target_head_sha)),
            "exact source head required")
     _check(action in _ACTIONS, "unapproved emergency action")
-    _check(isinstance(work_id, str) and re.fullmatch(r"[A-Za-z0-9_.:#/-]{1,100}", work_id) is not None,
+    _check(isinstance(work_id, str)
+           and re.fullmatch(r"[A-Za-z0-9_.:#/-]{1,100}", work_id) is not None
+           and ".." not in work_id
+           and all(part not in ("", ".", "..") for part in work_id.split("/"))
+           and not work_id.startswith((".", "/")),
            "stable work ID required")
     _check(reason_code in {
         "TIME_CRITICAL_VERIFICATION",
