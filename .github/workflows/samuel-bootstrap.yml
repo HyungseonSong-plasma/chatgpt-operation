@@ -178,9 +178,10 @@ jobs:
         env:
           PYTHONPATH: src
           GH_TOKEN: ${{ github.token }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SAMUEL_OPENAI_MODEL: gpt-5.6-luna
-          SAMUEL_REASONING_MODE: AUTO_WITH_AUDIT
+          # ChatGPT writes authenticated typed reasoning submissions to Issue #44.
+          # GitHub runs deterministic policy/verification/execution only.
+          SAMUEL_REASONING_MODE: EXTERNAL
+          SAMUEL_REASONING_TRUSTED_AUTHOR: HyungseonSong-plasma
           ISSUE_JSON: ${{ github.event_name == 'issues' && toJSON(github.event.issue) || 'null' }}
         run: |
           set -euo pipefail
