@@ -18,6 +18,9 @@ from chatgpt_operation.controller.dea_trusted_workflow_authoring_adapter import 
     REPO, GitHubBoundTransport, TrustedWorkflowDraftAdapter, WorkflowDraftReceipt,
     WorkflowAuthoringError,
 )
+from chatgpt_operation.controller.dea_operator_delegation import (
+    OperatorDelegationGate, OperatorDelegationGrant,
+)
 from chatgpt_operation.repository.blocker_checkpoint import JournalCheckpoint
 from chatgpt_operation.repository.blocker_gate import CommonPreWriteGate
 from chatgpt_operation.repository.blocker_journal import GitHubIssueBlockerJournal
@@ -39,6 +42,10 @@ class HostOwnedTrustConfig:
     trusted_journal_actor: str
     independent_checkpoint_reader: Callable[[], JournalCheckpoint]
     policy_authority_verifier: Callable[[ClearanceEvidence], bool]
+    # Authenticated human delegation is NOT a replacement for policy authority.
+    operator_grant_reader: Callable[[], OperatorDelegationGrant]
+    operator_grant_verifier: Callable[[OperatorDelegationGrant], bool]
+    operator_grant_reserver: Callable[[OperatorDelegationGrant], bool]
 
 
 class HostedDeaDraftService:
@@ -63,7 +70,10 @@ class HostedDeaDraftService:
                 or not isinstance(host_config.trusted_journal_actor, str)
                 or not host_config.trusted_journal_actor.strip()
                 or not callable(host_config.independent_checkpoint_reader)
-                or not callable(host_config.policy_authority_verifier)):
+                or not callable(host_config.policy_authority_verifier)
+                or not callable(host_config.operator_grant_reader)
+                or not callable(host_config.operator_grant_verifier)
+                or not callable(host_config.operator_grant_reserver)):
             raise WorkflowAuthoringError("HOST_TRUST_CONFIG_INVALID")
         self._readbacks = TrustedGitHubReadbacks(
             github_transport, repository=REPO, branch="main",
@@ -80,8 +90,14 @@ class HostedDeaDraftService:
             authority_verifier=host_config.policy_authority_verifier,
             trusted_checkpoint_reader=host_config.independent_checkpoint_reader,
         )
+        self._operator_gate = OperatorDelegationGate(
+            trusted_grant_reader=host_config.operator_grant_reader,
+            trusted_grant_verifier=host_config.operator_grant_verifier,
+            atomic_grant_reserver=host_config.operator_grant_reserver,
+        )
         self._adapter = TrustedWorkflowDraftAdapter(
             transport=github_transport, blocker_gate=self._gate,
+            operator_gate=self._operator_gate,
         )
 
     def create_review_only_draft(
@@ -90,7 +106,9 @@ class HostedDeaDraftService:
         """Perform the one eligible scoped write sequence, if independently authorized.
 
         A trusted service must authenticate the caller and prove real
-        adoption authority BEFORE invoking this method. This method does
+        adoption authority BEFORE invoking this method. The adapter also
+        requires an unexpired, non-revoked, one-use operator delegation
+        from host-owned verifiers/reservation storage. This method does
         not treat conversational approval or static CI as a clearance.
         """
         return self._adapter.prepare_and_create_draft(
