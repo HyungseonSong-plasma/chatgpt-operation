@@ -51,11 +51,21 @@ def decode_submission(body: str) -> ReasoningSubmission:
         raise ReasoningSubmissionError("reasoning submission JSON fence missing")
     return ReasoningSubmission.from_dict(json.loads(body[start+7:end].strip()))
 
-def select_submission(comments: list[dict[str,Any]], work_id: str) -> ReasoningSubmission|None:
+def select_submission(
+    comments: list[dict[str,Any]], work_id: str,
+    *, trusted_author: str | None = None,
+) -> ReasoningSubmission|None:
+    # Fail closed: a chat-supplied proposal may contain a mutation ActionPlan.
+    # Trust the GitHub API comment.user.login identity, never text in its body.
+    if not isinstance(trusted_author,str) or not trusted_author.strip():
+        return None
     matches=[]
     for comment in comments:
         body=str(comment.get("body",""))
         if REASONING_SUBMISSION_MARKER not in body:
+            continue
+        user=comment.get("user")
+        if not isinstance(user,dict) or user.get("login") != trusted_author:
             continue
         item=decode_submission(body)
         if item.work_id==work_id:

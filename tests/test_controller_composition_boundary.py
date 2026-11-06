@@ -114,7 +114,9 @@ def test_bootstrap_runs_only_from_trusted_default_branch_event_surfaces():
         encoding="utf-8"
     )
     assert "\n  pull_request:" not in workflow
-    assert "SAMUEL_REASONING_MODE: AUTO_WITH_AUDIT" in workflow
+    assert "SAMUEL_REASONING_MODE: EXTERNAL" in workflow
+    assert "SAMUEL_REASONING_TRUSTED_AUTHOR: HyungseonSong-plasma" in workflow
+    assert "OPENAI_API_KEY:" not in workflow
     assert "samuel-planning-comment-payload.json" in workflow
     assert "--input samuel-planning-comment-payload.json" in workflow
 

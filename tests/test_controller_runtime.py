@@ -407,6 +407,7 @@ def controller(reasoning=None, now=None):
     return SamuelController(
         decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
         reasoning=reasoning,
+        reasoning_trusted_author="owner",
         now=now,
     )
 
@@ -457,6 +458,7 @@ def reasoning_comment(action_plan=None):
     return {
         "id":8,
         "body":encode_submission(ReasoningSubmission("issue:44",proposal)),
+        "user":{"login":"owner"},
     }
 
 

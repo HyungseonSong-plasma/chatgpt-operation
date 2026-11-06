@@ -587,10 +587,12 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             reasoning_enabled=False
         else:
             raise ValueError("unsupported SAMUEL_REASONING_MODE")
+        trusted_author=os.environ.get("SAMUEL_REASONING_TRUSTED_AUTHOR","").strip()
         controller=SamuelController(
             decisions=DecisionRegistry.load(args.decisions),
             reasoning=reasoning,
             reasoning_enabled=reasoning_enabled,
+            reasoning_trusted_author=trusted_author or None,
         )
         cycle=controller.run_cycle(
             trigger,

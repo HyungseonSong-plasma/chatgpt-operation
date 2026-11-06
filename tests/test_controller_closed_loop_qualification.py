@@ -104,6 +104,7 @@ def reasoning_comment():
     return {
         "id":8,
         "body":encode_submission(ReasoningSubmission("issue:44",proposal)),
+        "user":{"login":"owner"},
     }
 
 
@@ -114,7 +115,8 @@ def state_comment(state):
 class ControllerClosedLoopQualificationTests(unittest.TestCase):
     def test_root_dispatch_observe_ingest_replay_and_stop(self):
         controller=SamuelController(
-            decisions=DecisionRegistry.load("automation/samuel/decisions.json")
+            decisions=DecisionRegistry.load("automation/samuel/decisions.json"),
+            reasoning_trusted_author="owner",
         )
 
         # 1. Typed reasoning enters the composition root and becomes one
