@@ -119,7 +119,10 @@ class DocumentStatusLabelTests(unittest.TestCase):
     def test_four_banners_or_extra_text_in_header_rejected(self):
         args = fixture()
         row = args["markdown"].splitlines()[2]
-        first = row.split(" ", 1)[0]
+        import re
+        images = re.findall(r"!\\[[^\\]]+\\]\\([^)]+\\)", row)
+        self.assertEqual(len(images), 3)
+        first = images[0]
         for modified in (row + " " + first, "See: " + row, row + " explanation"):
             with self.subTest(modified=modified):
                 changed = dict(args, markdown=args["markdown"].replace(row, modified, 1))
@@ -128,8 +131,10 @@ class DocumentStatusLabelTests(unittest.TestCase):
     def test_reordered_axes_rejected_even_if_each_status_valid(self):
         args = fixture()
         row = args["markdown"].splitlines()[2]
-        tokens = row.split(" ")
-        args["markdown"] = args["markdown"].replace(row, " ".join(tokens[::-1]), 1)
+        import re
+        images = re.findall(r"!\\[[^\\]]+\\]\\([^)]+\\)", row)
+        self.assertEqual(len(images), 3)
+        args["markdown"] = args["markdown"].replace(row, " ".join(reversed(images)), 1)
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
     def test_extra_blank_line_before_badges_is_rejected(self):
