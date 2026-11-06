@@ -99,6 +99,23 @@ class ExecutionKernel:
             raise ExecutionKernelError(
                 "native action has no registered capability: " + action.value
             ) from exc
+        # Enforce Samuel's canonical branch policy before selecting any
+        # GitHub mutation provider. Connector-backed and native providers are
+        # held to the same check for centrally owned PR creation. External
+        # connector calls made outside this kernel remain out of scope.
+        if action is NativeGitHubAction.CREATE_PR and plan.payload.get("repository") == "HyungseonSong-plasma/chatgpt-operation":
+            from chatgpt_operation.repository.branch_preflight import require_allowed_branch
+            from chatgpt_operation.repository.mutation import PolicyError
+            try:
+                require_allowed_branch(
+                    repository=plan.payload["repository"],
+                    branch=plan.payload["target"]["head"],
+                    policy_path="automation/samuel/repository-mutation-policy.json",
+                )
+            except (KeyError, TypeError, PolicyError) as exc:
+                raise ExecutionKernelError(
+                    "create_pr branch failed canonical repository policy preflight"
+                ) from exc
         providers = tuple(p for p in self._providers if capability in p.capabilities)
         if recovery_authorization is not None:
             providers = tuple(
