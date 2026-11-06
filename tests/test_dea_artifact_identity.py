@@ -193,6 +193,24 @@ class ArtifactIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactEvidenceError, "file SHA-256"):
             check_archive(b.getvalue())
 
+    def test_duplicate_json_keys_and_nan_fail_closed(self):
+        archive = payload()
+        for injected in (
+            b'{"decision":"PASS","decision":"FAIL"}',
+            b'{"performance":NaN}',
+        ):
+            b = BytesIO()
+            with ZipFile(BytesIO(archive)) as z, ZipFile(b, "w") as out:
+                for info in z.infolist():
+                    data = z.read(info.filename)
+                    if info.filename == "validation-summary.json":
+                        data = injected
+                    out.writestr(info.filename, data)
+            with self.subTest(injected=injected), self.assertRaises(
+                ArtifactEvidenceError
+            ):
+                check_archive(b.getvalue())
+
     def test_unparseable_zip_and_json(self):
         with self.assertRaises(ArtifactEvidenceError):
             check_archive(b"not a zip")
