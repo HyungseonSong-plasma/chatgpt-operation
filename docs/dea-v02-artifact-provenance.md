@@ -109,3 +109,35 @@ Successful evidence readback is not admission to branch competition.
 
 The owner has conditionally approved v0.2 competition *after* these gates,
 not prematurely authorized the A/B/C branches.
+
+
+## Human-review routing and pre-upload Artifact ID correction
+
+The strict parsers still raise on inconsistent identities, unsafe ZIPs and
+tampered data **to protect CI and prevent automatic Fitness eligibility**.
+The operator-facing acquisition command and v2 integration wrapper convert
+these exceptions into structured HUMAN_REVIEW_REQUIRED packets instead of
+discarding the evidence. Packets retain exact Run/Artifact IDs when known,
+the verifier-owned category, a deterministic review identifier and links to
+original GitHub evidence. No unsafe bytes are executed or rewritten.
+An authorized reviewer can request a new attempt or record a finding.
+A human decision is *not* evidence that invalid bytes suddenly became valid,
+and reviewer identity is not independently attested by the packet generator.
+Real GitHub issue/PR notification delivery still requires separately
+authorized workflow/connector integration.
+
+The legacy v1 synthetic ZIP places artifact_id in its execution manifest;
+**do not deploy this circular ID contract** to a real producer, since GitHub
+assigns the numeric Artifact ID after successful upload. The new v2
+signable file dea-evidence.zip omits that ID and binds the post-upload
+Artifact ID independently using trusted GitHub API metadata. GitHub's outer
+artifact ZIP digest and the signed inner file digest are different identities.
+The inner file is the exact subject of the official GitHub Sigstore
+Attestation. The independent consumer uses pinned signer workflow and source
+SHAs and checks the inner file hash and bounded Oracle observations.
+
+Implementation/authority review details live in
+docs/dea-v02-producer-attestation-adoption.md. The official producer
+workflow remains NOT DEPLOYED because the current Samuel mutation policy
+explicitly denies changes to .github/workflows/**. No bypass or alternate
+GitHub write route is authorized by this design.
