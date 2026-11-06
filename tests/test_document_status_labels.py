@@ -89,6 +89,62 @@ class DocumentStatusLabelTests(unittest.TestCase):
         args["markdown"] = "# Architecture\n\n" + ("body\n" * 11) + badge_line
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
+    def test_pilot_row_without_blank_line_is_valid(self):
+        args = fixture()
+        args["markdown"] = args["markdown"].replace("# Architecture\\n\\n", "# Architecture\\n", 1)
+        self.assertEqual(audit_document_labels(**args).status, "MATCH")
+
+    def test_paragraph_between_h1_and_badges_is_rejected(self):
+        args = fixture()
+        args["markdown"] = args["markdown"].replace(
+            "# Architecture\\n\\n", "# Architecture\\n\\nA paragraph.\\n\\n", 1
+        )
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_fenced_code_badges_are_not_a_header(self):
+        args = fixture()
+        args["markdown"] = args["markdown"].replace(
+            "# Architecture\\n\\n", "# Architecture\\n\\n```markdown\\n", 1
+        ) + "```\\n"
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_duplicate_badge_outside_canonical_row_is_rejected(self):
+        args = fixture()
+        row = args["markdown"].splitlines()[2]
+        args["markdown"] = args["markdown"].replace(
+            row + "\\n\\n", row + "\\n" + row + "\\n\\n", 1
+        )
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_four_banners_or_extra_text_in_header_rejected(self):
+        args = fixture()
+        row = args["markdown"].splitlines()[2]
+        first = row.split(" ", 1)[0]
+        for modified in (row + " " + first, "See: " + row, row + " explanation"):
+            with self.subTest(modified=modified):
+                changed = dict(args, markdown=args["markdown"].replace(row, modified, 1))
+                self.assertEqual(audit_document_labels(**changed).status, "MISMATCH")
+
+    def test_reordered_axes_rejected_even_if_each_status_valid(self):
+        args = fixture()
+        row = args["markdown"].splitlines()[2]
+        tokens = row.split(" ")
+        args["markdown"] = args["markdown"].replace(row, " ".join(tokens[::-1]), 1)
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_extra_blank_line_before_badges_is_rejected(self):
+        args = fixture()
+        args["markdown"] = args["markdown"].replace(
+            "# Architecture\\n\\n", "# Architecture\\n\\n\\n", 1
+        )
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
+    def test_body_image_is_not_mistaken_for_header(self):
+        args = fixture()
+        row = args["markdown"].splitlines()[2]
+        args["markdown"] = "# Architecture\\n\\nSome text.\\n" + row
+        self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
+
     def test_skill_is_on_demand_and_not_in_init(self):
         import json
         from pathlib import Path
