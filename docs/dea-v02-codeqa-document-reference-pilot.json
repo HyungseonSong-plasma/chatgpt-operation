@@ -166,7 +166,11 @@
     "real_signed_candidate_artifact_verified": false,
     "signer_workflow_revision_pinned": false,
     "run_to_job_attribution_attested": false,
-    "post_upload_artifact_id_separate_from_signed_subject": true
+    "post_upload_artifact_id_separate_from_signed_subject": true,
+    "formal_adoption_issue": 254,
+    "first_producer_run_scope": "TRUSTED_NONCANDIDATE_SMOKE_TEST_ONLY",
+    "live_deployment_approved": false,
+    "actual_candidate_artifact_verified": false
   },
   "human_exclusive_emergency": {
     "status": "DESIGN_READ_ONLY_REQUESTS_NOT_DEPLOYED",
@@ -185,7 +189,7 @@
     "external_tool_safety_denial_remains_binding": true,
     "workflow_policy_exception_granted": false,
     "existing_admission_gates_unchanged": true,
-    "environment_created": "USER_REPORTED_2026-11-06",
+    "environment_created": "USER_CONFIRMED_2026-11-06",
     "environment_protection_rules_verified": false,
     "environment_api_access": "CONNECTOR_ENDPOINT_NOT_AVAILABLE",
     "main_rulesets_observed_count": 0,
@@ -196,6 +200,15 @@
     "reviewed_producer_workflow_deployed": false,
     "signed_artifact_live_validation_passed": false,
     "independently_authenticated_human_gate_configured": false,
-    "actual_force_command_active": false
+    "actual_force_command_active": false,
+    "human_account": "HyungseonSong-plasma",
+    "environment_required_reviewers": "USER_CONFIRMED",
+    "environment_admin_bypass_disabled": "USER_CONFIRMED",
+    "environment_selected_branch_main_only": "USER_CONFIRMED",
+    "human_reported_configuration_complete": true,
+    "activated": false,
+    "official_workflow_adoption_issue": 254,
+    "official_workflow_adoption_status": "AWAITING_FORMAL_AUTHORITY_CLEARANCE",
+    "human_force_privilege_granted_by_controller": false
   }
 }
