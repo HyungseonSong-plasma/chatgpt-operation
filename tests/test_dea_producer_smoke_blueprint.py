@@ -99,6 +99,17 @@ class ProducerSmokeBlueprintTests(unittest.TestCase):
         self.assertNotIn("verify_sigstore_payload(", code)
         self.assertNotIn("github_attestation", code)
 
+    def test_if_installed_later_workflow_must_match_human_reviewed_blueprint(self):
+        deployed = (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/dea-evidence-producer.yml"
+        )
+        if deployed.is_file():
+            self.assertEqual(
+                deployed.read_bytes(), BLUEPRINT.read_bytes(),
+                "Privileged workflow differs from approved reviewed proposal",
+            )
+
     def test_no_automatic_champion_or_fitness_pass(self):
         self.assertNotIn('"status": "PASS"', self.s)
         self.assertNotIn('"pareto_eligible": True', self.s)
