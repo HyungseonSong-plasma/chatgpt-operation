@@ -49,7 +49,48 @@ def command(kind, revision=2, action_id=ACTION):
     return ControllerCommand(kind, action_id, "r", revision)
 
 
+def repository_mutation_plan(branch):
+    return ActionPlan.from_dict({
+        "schema_version": 1,
+        "research_id": "r",
+        "stage": "execute",
+        "executor": "repository_mutation",
+        "payload": {
+            "schema_version": 1,
+            "repository": "HyungseonSong-plasma/chatgpt-operation",
+            "resource": "file",
+            "action": "update",
+            "target": {"path": "src/chatgpt_operation/documentation/status_labels.py", "branch": branch},
+            "expected": {"sha": "a" * 40},
+            "desired": {"content": "updated"},
+            "commit_message": "test",
+        },
+        "expected_observation": "verified",
+    })
+
+
 class ExecutionGatewayTests(unittest.TestCase):
+    @patch("chatgpt_operation.controller.execution_gateway.dispatch_workflow")
+    def test_mutation_dispatch_rejects_forbidden_branch_before_workflow(self, dispatch):
+        candidate = repository_mutation_plan("feat/document-consistency-badges")
+        with self.assertRaisesRegex(ExecutionGatewayError, "canonical branch policy"):
+            ExecutionGateway(object())._dispatch_action_plan(
+                candidate,
+                intent(candidate.idempotency_key, "samuel-repository-mutation.yml"),
+            )
+        dispatch.assert_not_called()
+
+    @patch("chatgpt_operation.controller.execution_gateway.dispatch_workflow")
+    def test_mutation_dispatch_allows_valid_branch_and_uses_existing_route(self, dispatch):
+        candidate = repository_mutation_plan("samuel/docs-251")
+        dispatch.return_value = {"workflow_run_id": 51}
+        value = ExecutionGateway(object())._dispatch_action_plan(
+            candidate,
+            intent(candidate.idempotency_key, "samuel-repository-mutation.yml"),
+        )
+        self.assertEqual(value["workflow_run_id"], 51)
+        dispatch.assert_called_once()
+
     def test_stale_command_is_rejected_before_runtime_access(self):
         state=ResearchState("r","work",revision=3)
         gateway=ExecutionGateway(object())

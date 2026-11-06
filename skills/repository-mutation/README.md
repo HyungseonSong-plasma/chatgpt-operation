@@ -30,6 +30,27 @@ Registered ordered providers are:
 2. `repository-native` (`.github/workflows/samuel-repository-mutation.yml`,
    restricted by `automation/samuel/repository-mutation-policy.json`).
 
+**Mandatory pre-provider branch-name check for all registered providers:** after
+checking prior same-work safety/policy blocker history, validate the target branch
+against the exact head repository's `automation/samuel/repository-mutation-policy.json`
+using the shared read-only CLI (or its `require_allowed_branch` function):
+
+```bash
+PYTHONPATH=src python -m chatgpt_operation.repository.branch_preflight \
+  --repository HyungseonSong-plasma/chatgpt-operation \
+  --branch "$TARGET_BRANCH" \
+  --policy automation/samuel/repository-mutation-policy.json
+```
+
+This applies to `GITHUB_BRANCH_CREATE`, `GITHUB_FILE_CREATE`, and
+`GITHUB_FILE_UPDATE`, even when `github-connector` (first-ranked provider)
+performs the write. A failed/missing preflight stops the request **before**
+provider invocation. The native mutation engine additionally keeps its existing
+`authorize_manifest` policy check. The preflight checks branch-name
+eligibility only; it does not grant write permission or clear a previous denial.
+Direct connectors must run the preflight themselves; this document alone
+cannot impose GitHub server-side branch rules.
+
 Before execution, re-read file blob SHA (update) or absence (create), target
 branch and expected head SHA. After execution, verify created/updated content,
 branch head and resulting commit; a provider's success response alone is not

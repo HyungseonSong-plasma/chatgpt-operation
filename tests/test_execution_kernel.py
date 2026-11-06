@@ -237,6 +237,30 @@ def create_pr_plan():
     })
 
 
+def test_create_pr_rejects_forbidden_branch_before_provider_read_or_write():
+    plan = create_pr_plan()
+    plan.payload["target"]["head"] = "feat/not-policy-allowed"
+    provider = ExecutionProvider(
+        name="github-connector",
+        capabilities=frozenset({GitHubCapability.CREATE_PR}),
+        read_state=lambda action, payload: (_ for _ in ()).throw(
+            AssertionError("provider read must not run")
+        ),
+        mutate=lambda action, payload: (_ for _ in ()).throw(
+            AssertionError("provider mutate must not run")
+        ),
+    )
+    try:
+        ExecutionKernel(
+            [provider],
+            state=ResearchState("samuel-55", "create PR", stage=ResearchStage.IMPLEMENT),
+        ).execute(plan)
+    except ExecutionKernelError as exc:
+        assert "canonical repository policy preflight" in str(exc)
+    else:
+        raise AssertionError("unapproved PR branch must fail before provider")
+
+
 def test_create_pr_is_registered_in_execution_kernel():
     states=iter([
         {"pr_present":False},

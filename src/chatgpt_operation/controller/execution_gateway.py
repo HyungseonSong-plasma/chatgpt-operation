@@ -168,6 +168,29 @@ class ExecutionGateway:
                 workflow=intent.workflow,
             )
         if plan.executor is ExecutorKind.REPOSITORY_MUTATION:
+            # The gateway is the trusted dispatch boundary: reject forbidden
+            # branches before launching even an Actions workflow. The native
+            # mutation engine still checks its complete manifest and policy
+            # independently before any GitHub write.
+            from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
+            from chatgpt_operation.repository.branch_preflight import require_allowed_branch
+            from chatgpt_operation.repository.mutation import PolicyError
+            from .action_plan import ActionPlanError
+            try:
+                manifest = to_repository_manifest(plan)
+                target_branch = (
+                    manifest.target["name"] if manifest.resource == "branch"
+                    else manifest.target["branch"]
+                )
+                require_allowed_branch(
+                    repository=manifest.repository,
+                    branch=target_branch,
+                    policy_path="automation/samuel/repository-mutation-policy.json",
+                )
+            except (ActionPlanError, PolicyError, KeyError, TypeError) as exc:
+                raise ExecutionGatewayError(
+                    "repository mutation dispatch blocked by canonical branch policy"
+                ) from exc
             payload={
                 "schema_version":1,
                 "research_id":plan.research_id,

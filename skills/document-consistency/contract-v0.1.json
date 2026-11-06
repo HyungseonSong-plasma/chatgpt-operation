@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "contract_id": "samuel.documentation-consistency.v0.1",
+  "os": "Samuel",
+  "trigger": "DOCUMENTATION_CONSISTENCY_QA",
+  "execution_mode": "READ_ONLY",
+  "consumer_semantic_authority": "RETAINED",
+  "purpose": "deterministic display/palette validation, not adoption or implementation proof",
+  "axes": {
+    "decision": {
+      "statuses": {
+        "PROPOSED": "0969DA",
+        "ADOPTED": "2DA44E",
+        "SUPERSEDED": "6E7781",
+        "NOT_EVALUATED": "6E7781"
+      }
+    },
+    "implementation": {
+      "statuses": {
+        "IMPLEMENTED": "2DA44E",
+        "PARTIAL": "BF8700",
+        "NOT_IMPLEMENTED": "CF222E",
+        "NOT_EVALUATED": "6E7781"
+      }
+    },
+    "review": {
+      "statuses": {
+        "REVIEWED": "2DA44E",
+        "REVIEW_REQUIRED": "BF8700",
+        "NOT_EVALUATED": "6E7781"
+      }
+    }
+  },
+  "presentation": {
+    "format": "local SVG",
+    "style": "rounded-pill",
+    "height_px": 22,
+    "label_order": [
+      "decision",
+      "implementation",
+      "review"
+    ],
+    "location": "immediately below first Markdown H1",
+    "external_badge_service": false,
+    "alt_text_required": true,
+    "corner_radius_px": 11,
+    "segment_count": 1,
+    "visible_text": "status_only",
+    "accessibility": "axis_and_status_in_image_alt_and_svg_title",
+    "palette": {
+      "2DA44E": {
+        "background": "DAFBE1",
+        "text": "116329",
+        "border": "ACE6BF"
+      },
+      "0969DA": {
+        "background": "DDF4FF",
+        "text": "0550AE",
+        "border": "B6DEFA"
+      },
+      "BF8700": {
+        "background": "FFF8C5",
+        "text": "7D4E00",
+        "border": "E7D08A"
+      },
+      "CF222E": {
+        "background": "FFEBE9",
+        "text": "B42318",
+        "border": "F5B5B4"
+      },
+      "6E7781": {
+        "background": "EAECEF",
+        "text": "57606A",
+        "border": "D0D7DE"
+      }
+    }
+  },
+  "evidence": {
+    "snapshot_sha": "exact 40-digit lowercase hex",
+    "source_inventory": "caller-attested complete",
+    "source_assets": "caller-provided exact bytes",
+    "status_claims": "consumer-owned",
+    "adoption_or_implementation_certification": false
+  },
+  "result": {
+    "presentation_status": [
+      "MATCH",
+      "MISMATCH"
+    ],
+    "semantic_status": "NOT_EVALUATED",
+    "authority_upgrade": "FORBIDDEN"
+  },
+  "mutation": {
+    "writes_permitted": false,
+    "provider": "Samuel repository-mutation only after separate authorization",
+    "consumer_pin_upgrade": "explicit"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "description": "codeQA PR #289 bounded Gate 1: CCG v0.1 identity and Core adapter-import boundary; no runtime/semantic approval",
+  "consumer_repository": "HyungseonSong-plasma/codeQA",
+  "revision": "24040c02ea97056de89c6711e847b4f727fb0dcb",
+  "scope": "ccg-core-contract-boundary-v0.1",
+  "checks": [
+    {
+      "id": "ccg_contract_id",
+      "kind": "JSON_POINTER_EQUALS",
+      "path": "contracts/ccg/graph-v0.1.schema.json",
+      "blob_sha": "75a0116a87d7eb3929ac148b4d142c4764f53c87",
+      "subject": "/$id",
+      "expected": "urn:codeqa:ccg:graph:v0.1"
+    },
+    {
+      "id": "core_no_adapters_import",
+      "kind": "PYTHON_IMPORT_ABSENT",
+      "path": "src/codeqa/core/graph.py",
+      "blob_sha": "0545d0266b9e9856f1be6ec875c46e23b7588655",
+      "subject": "codeqa.adapters"
+    }
+  ]
+}
