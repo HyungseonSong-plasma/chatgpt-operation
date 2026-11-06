@@ -405,11 +405,13 @@ class SamuelController:
         decisions: DecisionRegistry,
         reasoning: ReasoningProviderRegistry | None = None,
         reasoning_enabled: bool = True,
+        reasoning_trusted_author: str | None = None,
         now: Callable[[], datetime] | None = None,
     ):
         self.decisions = decisions
         self.reasoning = reasoning or ReasoningProviderRegistry()
         self.reasoning_enabled = reasoning_enabled
+        self.reasoning_trusted_author = reasoning_trusted_author
         self.now = now or (lambda: datetime.now(timezone.utc))
 
     def _requested_at(self) -> str:
@@ -1376,6 +1378,7 @@ class SamuelController:
                 work_id,
                 registry=self.decisions,
                 state=working_state,
+                trusted_author=self.reasoning_trusted_author,
             )
         if result.outcome == "reasoning_required":
             initial_state_write = None
