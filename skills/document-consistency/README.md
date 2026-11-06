@@ -61,3 +61,21 @@ The consumer owns the accepted design decision, evidence/claims, implementation 
 `documentation-refinement` remains the existing optional read-only renderer and link/readability auditor. This skill complements it; it does not change the `INIT` set. Source verification, repository reads and actual documentation writes are caller-owned; any write must use the separately authorized Samuel mutation route with fresh branch/HEAD/blob evidence and postcondition checks. Consumers adopt a new central pin only through their own explicit reviewed update.
 
 For codeQA, the initial pilot integrates selected representative header labels and a local consistency check; it is **not** a claim that every historical document has been semantically classified, nor a requirement to move all documents in one PR.
+
+## Explicit two-gate semantic QA (experimental)
+
+[Semantic QA two-gate v0.1](semantic-gates-v0.1.md) is an **optional,
+read-only** companion to the presentation-only v0.1 status badge check and
+the [evidence coverage v0.2](evidence-coverage-v0.2.md) attestation audit.
+
+- **Gate 1** evaluates explicitly enumerated, revision- and blob-bound
+  *machine-checkable* predicates. `SCOPED_CHECKS_PASS` is limited to those
+  assertions, not an unrestricted semantic `PASS`.
+- **Gate 2** is independent domain/architecture approval with an authenticated
+  reviewer decision bound to the same repository, scope and exact revision.
+  It remains `REVIEW_REQUIRED` even when Gate 1 passes. No caller Boolean,
+  local test success, review comment or GitHub blob equality can confer approval.
+
+The two verdicts MUST remain separate. A consumer may require both for a
+governed merge, but a passed Gate 1 must never change a document's Review
+badge, certify an adopted architecture, or upgrade a consumer pin automatically.
