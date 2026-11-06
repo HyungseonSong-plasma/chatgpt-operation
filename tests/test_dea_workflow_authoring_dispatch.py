@@ -66,6 +66,8 @@ class FakeGitHubTransport:
         self.yaml = SOURCE
         self.writes = []
         self.events = []
+        self.created_commit_parent = MAIN_SHA
+        self.created_commit_files = [{"filename": PATH, "status": "added"}]
         self._last_tip = ZERO
         self._last_sequence = 0
         self.register_event({
@@ -118,6 +120,12 @@ class FakeGitHubTransport:
             if self.file is None:
                 raise ApiError("file not found", status=404)
             return blob(self.file, PATH)
+        if path == "/commits/" + PR_SHA:
+            return {
+                "sha": PR_SHA,
+                "parents": [{"sha": self.created_commit_parent}],
+                "files": self.created_commit_files,
+            }
         if path == "/pulls":
             assert query["head"] == "HyungseonSong-plasma:" + BRANCH
             assert query["base"] == "main"
@@ -187,6 +195,21 @@ class HostedDeaAuthoringIntegrationTests(unittest.TestCase):
                 ("POST", "/pulls"),
             ],
         )
+
+    def test_hosted_broker_rejects_unscoped_commit_before_pr(self):
+        api = FakeGitHubTransport()
+        api.created_commit_files.append({
+            "filename": "src/extra.py", "status": "modified",
+        })
+        with self.assertRaisesRegex(
+            WorkflowAuthoringError, "CREATED_COMMIT_SCOPE_MISMATCH"
+        ):
+            service(api).create_review_only_draft(expected_main_sha=MAIN_SHA)
+        self.assertEqual(
+            api.writes,
+            [("POST", "/git/refs"), ("PUT", "/contents/" + PATH)],
+        )
+        self.assertIsNone(api.pr)
 
     def test_unadopted_policy_refuses_before_writes(self):
         api = FakeGitHubTransport(policy=DEFAULT_POLICY)
