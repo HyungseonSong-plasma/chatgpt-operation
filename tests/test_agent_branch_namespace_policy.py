@@ -89,12 +89,41 @@ class AgentBranchNamespacePolicyTests(unittest.TestCase):
             )
 
     def test_main_deny_and_workflow_write_restriction_unchanged(self):
-        self.assertIn(".github/workflows/**", self.policy.file_deny)
-        with self.assertRaisesRegex(PolicyError, "workflow file mutation"):
-            authorize_manifest(
-                update_file_manifest("agent/251-doc-qa", ".github/workflows/ci.yml"),
-                policy=self.policy, repository=REPO,
+        """Repository-native writes remain impossible even with a scoped path policy.
+
+        Issue #254 permits a separately authorized external *Draft PR* route
+        only after a trusted pre-write gate is deployed. It does NOT grant
+        repository-native Actions any workflow-file write authority.
+        """
+        self.assertEqual(self.policy.branch_deny, ("main",))
+        workflow_allows = [
+            p for p in self.policy.file_allow
+            if p.startswith(".github/workflows/")
+        ]
+        self.assertIn(
+            workflow_allows,
+            ([], [".github/workflows/dea-evidence-producer.yml"]),
+        )
+        if ".github/workflows/**" not in self.policy.file_deny:
+            # Any new exception must be EXACTLY the DEA path; never a
+            # workflow wildcard or the Samuel execution workflows.
+            self.assertEqual(
+                workflow_allows,
+                [".github/workflows/dea-evidence-producer.yml"],
             )
+        for path in (
+            ".github/workflows/ci.yml",
+            ".github/workflows/samuel-native-github.yml",
+            ".github/workflows/dea-evidence-producer.yml",
+        ):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(
+                    PolicyError, "workflow file mutation"
+                ):
+                    authorize_manifest(
+                        update_file_manifest("agent/251-doc-qa", path),
+                        policy=self.policy, repository=REPO,
+                    )
 
 
 if __name__ == "__main__":
