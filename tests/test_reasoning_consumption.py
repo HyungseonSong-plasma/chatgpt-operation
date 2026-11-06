@@ -14,21 +14,35 @@ class ReasoningConsumptionTests(unittest.TestCase):
         self.state=ResearchState("issue:44","Samuel OS")
 
     def test_wait_without_submission(self):
-        x=consume_reasoning_submission([],self.work,"issue:44",registry=self.registry,state=self.state)
+        x=consume_reasoning_submission([],self.work,"issue:44",registry=self.registry,state=self.state,trusted_author="owner")
         self.assertEqual(x.outcome,"reasoning_required")
 
     def test_analyze_only_proposal_does_not_false_block(self):
         p=IssueReasoningProposal("analyze","github_execution_authority",True,False,None)
         body=encode_submission(ReasoningSubmission("issue:44",p))
-        x=consume_reasoning_submission([{"body":body}],self.work,"issue:44",registry=self.registry,state=self.state)
+        x=consume_reasoning_submission([{"body":body,"user":{"login":"owner"}}],self.work,"issue:44",registry=self.registry,state=self.state,trusted_author="owner")
         self.assertEqual(x.outcome,"reasoning_required")
         self.assertEqual(x.work["issue:44"]["status"],"reasoning_required")
         self.assertIsNone(x.action_id)
 
+    def test_untrusted_action_plan_is_ignored(self):
+        p=IssueReasoningProposal("analyze","github_execution_authority",True,False,{
+            "schema_version":1,"research_id":"issue:44","stage":"implement",
+            "executor":"github_native","payload":{"operation":"COMMENT_ISSUE"},
+            "expected_observation":"comment exists",
+        })
+        body=encode_submission(ReasoningSubmission("issue:44",p))
+        result=consume_reasoning_submission(
+            [{"body":body,"user":{"login":"attacker"}}],self.work,"issue:44",
+            registry=self.registry,state=self.state,trusted_author="owner",
+        )
+        self.assertEqual(result.outcome,"reasoning_required")
+        self.assertIsNone(result.action_id)
+
     def test_unknown_decision_still_blocks(self):
         p=IssueReasoningProposal("analyze","not-a-locked-decision",True,False,None)
         body=encode_submission(ReasoningSubmission("issue:44",p))
-        x=consume_reasoning_submission([{"body":body}],self.work,"issue:44",registry=self.registry,state=self.state)
+        x=consume_reasoning_submission([{"body":body,"user":{"login":"owner"}}],self.work,"issue:44",registry=self.registry,state=self.state,trusted_author="owner")
         self.assertEqual(x.outcome,"blocked")
         self.assertEqual(x.work["issue:44"]["status"],"blocked")
 
@@ -39,7 +53,7 @@ class ReasoningConsumptionTests(unittest.TestCase):
             "expected_observation":"comment exists",
         })
         body=encode_submission(ReasoningSubmission("issue:44",p))
-        x=consume_reasoning_submission([{"body":body}],self.work,"issue:44",registry=self.registry,state=self.state)
+        x=consume_reasoning_submission([{"body":body,"user":{"login":"owner"}}],self.work,"issue:44",registry=self.registry,state=self.state,trusted_author="owner")
         self.assertEqual(x.outcome,"planned")
         self.assertEqual(x.work["issue:44"]["status"],"planned")
         self.assertIn(x.action_id,x.state.action_queue)
