@@ -91,28 +91,28 @@ class DocumentStatusLabelTests(unittest.TestCase):
 
     def test_pilot_row_without_blank_line_is_valid(self):
         args = fixture()
-        args["markdown"] = args["markdown"].replace("# Architecture\\n\\n", "# Architecture\\n", 1)
+        args["markdown"] = args["markdown"].replace("# Architecture\n\n", "# Architecture\n", 1)
         self.assertEqual(audit_document_labels(**args).status, "MATCH")
 
     def test_paragraph_between_h1_and_badges_is_rejected(self):
         args = fixture()
         args["markdown"] = args["markdown"].replace(
-            "# Architecture\\n\\n", "# Architecture\\n\\nA paragraph.\\n\\n", 1
+            "# Architecture\n\n", "# Architecture\n\nA paragraph.\n\n", 1
         )
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
     def test_fenced_code_badges_are_not_a_header(self):
         args = fixture()
         args["markdown"] = args["markdown"].replace(
-            "# Architecture\\n\\n", "# Architecture\\n\\n```markdown\\n", 1
-        ) + "```\\n"
+            "# Architecture\n\n", "# Architecture\n\n```markdown\n", 1
+        ) + "```\n"
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
     def test_duplicate_badge_outside_canonical_row_is_rejected(self):
         args = fixture()
         row = args["markdown"].splitlines()[2]
         args["markdown"] = args["markdown"].replace(
-            row + "\\n\\n", row + "\\n" + row + "\\n\\n", 1
+            row + "\n\n", row + "\n" + row + "\n\n", 1
         )
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
@@ -135,14 +135,14 @@ class DocumentStatusLabelTests(unittest.TestCase):
     def test_extra_blank_line_before_badges_is_rejected(self):
         args = fixture()
         args["markdown"] = args["markdown"].replace(
-            "# Architecture\\n\\n", "# Architecture\\n\\n\\n", 1
+            "# Architecture\n\n", "# Architecture\n\n\n", 1
         )
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
     def test_body_image_is_not_mistaken_for_header(self):
         args = fixture()
         row = args["markdown"].splitlines()[2]
-        args["markdown"] = "# Architecture\\n\\nSome text.\\n" + row
+        args["markdown"] = "# Architecture\n\nSome text.\n" + row
         self.assertEqual(audit_document_labels(**args).status, "MISMATCH")
 
     def test_skill_is_on_demand_and_not_in_init(self):
