@@ -100,9 +100,9 @@ The commands require a clean local clone and a **new** branch name:
 ```bash
 set -euo pipefail
 gh auth status
-git status --short
-# STOP unless the checkout is clean and the repo's owner is correct.
-gh repo view --json nameWithOwner --jq .nameWithOwner
+test -z "$(git status --porcelain)"
+test "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" = \
+  "HyungseonSong-plasma/chatgpt-operation"
 git fetch origin main
 git switch -c issue-254-producer-adoption origin/main
 
@@ -125,9 +125,9 @@ gh pr create --draft --base main --head issue-254-producer-adoption \
   --body "Human-controlled one-file protected Workflow adoption for #254; no automated policy exception, no candidate Fitness PASS. Requires GitHub review, exact-head CI and separate human Environment approval."
 ```
 
-The operator must independently confirm the `gh repo view` output matches
-`HyungseonSong-plasma/chatgpt-operation` before using this recipe.
-`git status --short` is for inspection, not an automatic clean-check.
+The authenticated operator must independently confirm that the GitHub
+account, branch and exact copy scope are correct. The recipe also
+fails when the repository identity is wrong or the local clone is dirty.
 If a branch/file already exists or any command fails, **do not re-run
 blindly**: inspect GitHub state and reconcile the work.
 
