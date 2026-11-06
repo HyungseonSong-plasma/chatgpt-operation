@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   forward:
-    if: ${{ contains(github.event.comment.body, '<!-- samuel-reasoning-submission -->') }}
+    if: >-
+      github.event.issue.number == 44
+      && github.event.comment.user.login == 'HyungseonSong-plasma'
+      && contains(github.event.comment.body, '<!-- samuel-reasoning-submission -->')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
