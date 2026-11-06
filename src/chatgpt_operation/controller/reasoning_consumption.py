@@ -23,11 +23,12 @@ class ReasoningConsumption:
 def consume_reasoning_submission(
     comments:list[dict[str,Any]], work:dict[str,dict[str,Any]], work_id:str,
     *, registry:DecisionRegistry, state:ResearchState,
+    trusted_author: str | None = None,
 )->ReasoningConsumption:
     item=work.get(work_id)
     if item is None or item.get("status")!="reasoning_required":
         raise ValueError("work is not awaiting semantic reasoning")
-    submission=select_submission(comments,work_id)
+    submission=select_submission(comments,work_id,trusted_author=trusted_author)
     if submission is None:
         return ReasoningConsumption("reasoning_required","typed reasoning submission not present",work,state,None)
     envelope=plan_admitted_issue(item,registry=registry).envelope
