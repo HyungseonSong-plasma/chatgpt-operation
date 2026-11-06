@@ -588,8 +588,6 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
         else:
             raise ValueError("unsupported SAMUEL_REASONING_MODE")
         trusted_author=os.environ.get("SAMUEL_REASONING_TRUSTED_AUTHOR","").strip()
-        if mode=="EXTERNAL" and not trusted_author:
-            raise ValueError("EXTERNAL reasoning requires a trusted GitHub submitter")
         controller=SamuelController(
             decisions=DecisionRegistry.load(args.decisions),
             reasoning=reasoning,
