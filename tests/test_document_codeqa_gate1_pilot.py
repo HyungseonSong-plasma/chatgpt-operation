@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import copy
+from contextlib import redirect_stdout
+import io
 import hashlib
 import json
 from pathlib import Path
 import unittest
 
-from chatgpt_operation.documentation.gate1_manifest_v01 import run_gate1_manifest_v01
+from chatgpt_operation.documentation.gate1_manifest_v01 import run_gate1_manifest_v01, main
 from chatgpt_operation.documentation.status_labels import LabelError
 
 
@@ -47,6 +49,19 @@ class CodeQAGate1PinnedPilotTests(unittest.TestCase):
                          {"ccg_contract_id": "PASS", "core_no_adapters_import": "PASS"})
         self.assertEqual(result.independent_approval, "REVIEW_REQUIRED")
         self.assertEqual(result.semantic_certification, "NOT_EVALUATED")
+
+    def test_cli_runs_pinned_actual_snapshot_as_scoped_gate(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "--manifest", str(MANIFEST),
+                "--snapshot-root", str(FIXTURES),
+            ])
+        self.assertEqual(exit_code, 0)
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["status"], "SCOPED_CHECKS_PASS")
+        self.assertEqual(report["independent_approval"], "REVIEW_REQUIRED")
+        self.assertEqual(report["semantic_certification"], "NOT_EVALUATED")
 
     def test_mutated_codeqa_source_fails_pinned_blob(self):
         manifest, sources = witness()
