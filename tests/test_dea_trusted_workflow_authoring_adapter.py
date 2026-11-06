@@ -261,6 +261,17 @@ class TrustedWorkflowDraftAdapterTests(unittest.TestCase):
             ).prepare_and_create_draft(expected_main_sha=SHA)
         self.assertEqual(api.writes, [])
 
+    def test_main_blueprint_changed_without_review_is_denied(self):
+        api = FakeTrustedGitHub()
+        api.yaml = YAML + b"\n# unauthorized later revision\n"
+        with self.assertRaisesRegex(
+            WorkflowAuthoringError, "REVIEWED_WORKFLOW_BLUEPRINT_CHANGED"
+        ):
+            TrustedWorkflowDraftAdapter(
+                transport=api, blocker_gate=guard()
+            ).prepare_and_create_draft(expected_main_sha=SHA)
+        self.assertEqual(api.writes, [])
+
     def test_modified_file_readback_does_not_open_pr(self):
         api = FakeTrustedGitHub()
         api.corrupt_readback = True
