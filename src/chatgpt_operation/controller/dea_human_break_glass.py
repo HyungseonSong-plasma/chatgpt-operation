@@ -157,3 +157,37 @@ def assess_untrusted_force_claim(
         "may_merge_or_promote": False,
         "repository_mutation_authorized": False,
     }
+
+
+def expedite_existing_review_packet(
+    packet: dict[str, Any], *, work_id: str,
+    created_at_utc: str, expires_at_utc: str,
+) -> dict[str, Any]:
+    """Prepare fast human review from an existing verifier-created exception.
+
+    This is neither acceptance of the exception nor authorization to run.
+    """
+    _check(isinstance(packet, dict)
+           and packet.get("schema_version") == 1
+           and packet.get("status") == "HUMAN_REVIEW_REQUIRED"
+           and packet.get("review_queue") == "DEA_EVIDENCE_EXCEPTIONS"
+           and packet.get("pareto_eligible") is False
+           and packet.get("repository_mutation_authorized") is False,
+           "not an eligible untrusted evidence review packet")
+    ident = packet.get("identity")
+    _check(isinstance(ident, dict), "missing evidence identity")
+    review_id = packet.get("review_packet_id")
+    _check(isinstance(review_id, str)
+           and re.fullmatch(r"dea-review-[0-9a-f]{24}", review_id) is not None,
+           "missing stable review packet ID")
+    result = prepare_emergency_request(
+        repository=ident.get("repository"),
+        target_head_sha=ident.get("candidate_head_sha"),
+        action="EXPEDITE_EVIDENCE_REVIEW",
+        work_id=work_id, reason_code="MISSING_OR_INVALID_ARTIFACT",
+        created_at_utc=created_at_utc, expires_at_utc=expires_at_utc,
+        run_id=ident.get("run_id"), artifact_id=ident.get("artifact_id"),
+    )
+    result["linked_review_packet_id"] = review_id
+    result["original_evidence_must_be_preserved"] = True
+    return result
