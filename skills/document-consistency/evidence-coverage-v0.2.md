@@ -86,3 +86,20 @@ Conflicting evidence across different scope IDs, external link reachability,
 live rendered-page checks and bounded cross-repository verification remain
 outside this local deterministic function. Do not change the consumer Samuel
 pin, mark semantic acceptance or merge solely because the v0.2 tests pass.
+
+## Explicit gate separation (additive)
+
+This audit's `EVIDENCE_COVERED` is a **provenance shape/attestation projection**
+and is **neither** an automated semantic check result **nor** an independent
+approval result. These have separate status namespaces in
+[Semantic QA two-gate v0.1](semantic-gates-v0.1.md):
+
+- Gate 1 `SCOPED_CHECKS_PASS` proves only each declared static check against
+  supplied, internally blob-consistent bytes. Authenticating their external
+  GitHub origin remains a distinct source-acquisition obligation.
+- Gate 2 `REVIEW_REQUIRED` remains in place until an independently
+  authenticated reviewer approves the *same* scope and exact revision.
+
+No inferred transition from `independently_verified=True` to Gate 2 approval,
+and no review badge promotion from CI or Gate 1. The earlier v0.2 Python
+API is preserved; the two-gate module is additive and experimental.
