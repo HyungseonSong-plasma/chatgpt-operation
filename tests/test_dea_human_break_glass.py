@@ -6,7 +6,7 @@ import unittest
 
 from chatgpt_operation.controller.dea_human_break_glass import (
     EmergencyAuthorityError, prepare_emergency_request,
-    assess_untrusted_force_claim,
+    assess_untrusted_force_claim, expedite_existing_review_packet,
 )
 
 BASE = {
@@ -120,6 +120,42 @@ class HumanOnlyEmergencyTests(unittest.TestCase):
         forged["force_command_dispatchable_by_controller"] = True
         with self.assertRaises(EmergencyAuthorityError):
             assess_untrusted_force_claim(forged)
+
+    def test_existing_bad_artifact_can_be_fast_reviewed_not_force_executed(self):
+        from chatgpt_operation.controller.dea_review_routing import make_review_packet
+
+        p = make_review_packet(
+            repository=BASE["repository"], candidate_head_sha=BASE["target_head_sha"],
+            phase="ARCHIVE_INTEGRITY", category="INTEGRITY_MISMATCH",
+            run_id=42, artifact_id=7,
+        )
+        req = expedite_existing_review_packet(
+            p, work_id="DEA:246",
+            created_at_utc="2026-11-06T12:00:00Z",
+            expires_at_utc="2026-11-06T12:10:00Z",
+        )
+        self.assertEqual(req["linked_review_packet_id"], p["review_packet_id"])
+        self.assertEqual(req["scope"]["run_id"], 42)
+        self.assertEqual(req["scope"]["artifact_id"], 7)
+        self.assertTrue(req["original_evidence_must_be_preserved"])
+        self.assertEqual(req["scope"]["action"], "EXPEDITE_EVIDENCE_REVIEW")
+        self.assertFalse(req["force_command_dispatchable_by_controller"])
+        self.assertFalse(assess_untrusted_force_claim(req)["may_execute_force"])
+
+    def test_forged_review_packet_is_not_fast_approved(self):
+        from chatgpt_operation.controller.dea_review_routing import make_review_packet
+
+        p = make_review_packet(
+            repository=BASE["repository"], candidate_head_sha=BASE["target_head_sha"],
+            phase="ARCHIVE_INTEGRITY", category="INTEGRITY_MISMATCH",
+        )
+        p["status"] = "PASS"
+        with self.assertRaises(EmergencyAuthorityError):
+            expedite_existing_review_packet(
+                p, work_id="DEA:246",
+                created_at_utc="2026-11-06T12:00:00Z",
+                expires_at_utc="2026-11-06T12:10:00Z",
+            )
 
     def test_force_claim_while_request_pending_remains_review_only(self):
         item = request(action="REQUEST_HUMAN_ONLY_MANUAL_RECOVERY",
