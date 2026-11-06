@@ -54,6 +54,18 @@ class ProducerSmokeBlueprintTests(unittest.TestCase):
         for a in actions:
             self.assertRegex(a, r"@[0-9a-f]{40}$")
 
+    def test_all_github_expressions_have_two_closing_braces(self):
+        expressions = re.findall(r"\$\{\{[^\r\n]*?\}\}", self.s)
+        self.assertEqual(len(expressions), 8)
+        self.assertEqual(self.s.count("${{"), len(expressions))
+        for expression in expressions:
+            self.assertTrue(expression.endswith("}}"), expression)
+        self.assertNotIn("__EXPR__", self.s)
+        self.assertIn(
+            'name: "dea-smoke-${{ github.run_id }}-${{ github.run_attempt }}"',
+            self.s,
+        )
+
     def test_signing_permissions_are_scoped_and_not_global(self):
         self.assertIn("permissions: {}", self.s)
         for p in ("contents: read", "id-token: write", "attestations: write"):
