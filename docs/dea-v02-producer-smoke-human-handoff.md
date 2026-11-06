@@ -1,6 +1,8 @@
 # Issue #254 — Human-controlled Producer Workflow adoption handoff
 
-**Status:** OWNER ADOPTION REVIEW APPROVED; WORKFLOW NOT INSTALLED.
+**Status:** GITHUB-NATIVE OWNER-OPERATED ADOPTION SELECTED; WORKFLOW NOT INSTALLED.
+**Current handoff:** docs/dea-v02-workflow-authoring-bootstrap-proposal.md
+(Human GitHub UI / CLI route; no external Trusted Host or automation policy exception).
 **GitHub approval evidence:** [Owner comment #6685977537](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/254#issuecomment-6685977537) by authenticated account HyungseonSong-plasma, repository administrator.
 
 The owner's comment explicitly approves **preparation of a scoped, reviewable adoption**, NOT blanket workflow-write permission, bypass, workflow merge, deployment or candidate competition.
@@ -27,19 +29,18 @@ toolchain integration only, NOT codeQA evaluation.
 
 ## Actual next steps — performed by a human in GitHub
 
-1. **Adopt code separately.** Complete review of code-only Draft PR #249
-   and explicitly approve/merge its unprivileged src/tests/docs changes
-   through the repository's normal protected-PR process. Do not silently
-   mark Draft as merged or create a new Workflow while this code is missing
-   from main. CodeQA PR #289 remains a separate dependent decision.
-2. **Confirm competent policy authority.** The current Samuel
+1. **Confirm code baseline.** Code-only PR #249 was **merged on
+   2026-11-06** and source files are on protected main. Revalidate the
+   current exact main HEAD and signed-subject modules before drafting
+   the Workflow. CodeQA PR #289 remains a separate dependent decision.
+2. **Confirm competent policy authority.** The existing Samuel
    repository-mutation-policy.json deliberately denies automation writes
-   to .github/workflows/** and to policy/registry. A reviewer must
-   acknowledge that the human-run privileged GitHub UI/PR adoption
-   is an authorized governance mechanism for this exact path and that
-   AI/connector/repository-native mutation providers remain denied.
-   If that authority is unavailable, STOP here and request formal
-   authorization; do not simulate an approval by Issue comment.
+   to .github/workflows/** and to policy/registry, and remains unchanged.
+   Human owner must confirm the separately governed, ordinary GitHub
+   UI/CLI protected-PR adoption is permitted for this exact path; this
+   does not clear the AI/connector/repository-native denial.
+   If authority is unavailable, STOP. The external Trusted Host design
+   is superseded; do not merge policy PR #259 for this one-time adoption.
 3. **Create a separate human-controlled branch** in GitHub UI, based on
    current protected main; for example issue-254-producer-adoption.
    Open docs/dea-v02-protected-producer-smoke.proposed.yml from reviewed
@@ -102,7 +103,8 @@ toolchain integration only, NOT codeQA evaluation.
 - Protect main Ruleset: VERIFIED previously, active with PR and CI test.
 - Trusted SHA-pinned smoke YAML: PREPARED, NOT DEPLOYED.
 - Workflow policy exception: NOT GRANTED TO AI OR CONTROLLER.
-- code-only PR #249: DRAFT OPEN, code not adopted in main.
+- Workflow human adoption PR: NOT YET CREATED; no external Trusted Host.
+- code-only PR #249: MERGED 2026-11-06, code baseline in main.
 - Actual GitHub signed Artifact and deployment review: NOT YET EXECUTED.
 
 ## Relevant contracts
