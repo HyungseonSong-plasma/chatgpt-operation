@@ -76,8 +76,8 @@ class SemanticGateTests(unittest.TestCase):
 
     def test_python_import_absence_and_presence(self):
         for source, expected in (
-            ("import json\\n", "SCOPED_CHECKS_PASS"),
-            ("import codeqa.adapters.python\\n", "REVIEW_REQUIRED"),
+            ("import json" + chr(10), "SCOPED_CHECKS_PASS"),
+            ("import codeqa.adapters.python" + chr(10), "REVIEW_REQUIRED"),
         ):
             with self.subTest(source=source):
                 raw = source.encode("utf-8")
@@ -93,7 +93,7 @@ class SemanticGateTests(unittest.TestCase):
                 self.assertEqual(r.independent_approval, "REVIEW_REQUIRED")
 
     def test_unresolved_relative_import_stays_unverified(self):
-        source = "from .internal import helper\\n"
+        source = "from .internal import helper" + chr(10)
         raw = source.encode("utf-8")
         blob = hashlib.sha1(
             b"blob " + str(len(raw)).encode() + bytes([0]) + raw
