@@ -141,8 +141,31 @@ def audit_document_labels(
     lines = markdown.splitlines()
     if not lines or not lines[0].startswith("# "):
         issues.append("document must begin with Markdown H1")
-    head = "\n".join(lines[1:11])
-    observed = IMAGE.findall(head)
+    # The badge row is part of the H1 header, not a search anywhere in the
+    # first ten lines. Permit a single blank line after H1, but no prose,
+    # fenced-code opener, extra blank line, inline text, or reordered badges.
+    row_index = 1
+    if row_index < len(lines) and not lines[row_index].strip():
+        row_index += 1
+    row = lines[row_index] if row_index < len(lines) else ""
+    matches = list(IMAGE.finditer(row))
+    observed = [match.groups() for match in matches]
+    exact_row = (
+        len(matches) == len(AXES)
+        and tuple(axis.casefold() for axis, _, _ in observed) == AXES
+        and not row[:matches[0].start()].strip()
+        and not row[matches[-1].end():].strip()
+        and all(
+            row[left.end():right.start()].isspace()
+            for left, right in zip(matches, matches[1:])
+        )
+    ) if matches else False
+    if not exact_row:
+        issues.append("badges must form the exact Decision/Implementation/Review row immediately after H1")
+    # A second status row near the top is ambiguous even when the first one
+    # matches. This is a display-integrity failure, never semantic evidence.
+    if IMAGE.search("\n".join(lines[row_index + 1:row_index + 10])):
+        issues.append("duplicate status badge outside the canonical H1 row")
     for axis in AXES:
         rows = [(status, url) for axis_name, status, url in observed
                 if axis_name.casefold() == axis]
