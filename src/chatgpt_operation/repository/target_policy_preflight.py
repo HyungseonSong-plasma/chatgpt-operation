@@ -21,6 +21,7 @@ from typing import Any
 from chatgpt_operation.repository.branch_preflight import require_allowed_branch
 from chatgpt_operation.repository.mutation import (
     Manifest,
+    ManifestError,
     PolicyError,
     SHA40,
     authorize_manifest,
@@ -92,7 +93,7 @@ def _read_pinned_consumer_policy(
         raise PolicyError("consumer policy pinned GitHub file evidence malformed")
     try:
         content = base64.b64decode(
-            response["content"], validate=False
+            response["content"].replace("\n", ""), validate=True
         )
     except (ValueError, binascii.Error) as exc:
         raise PolicyError("consumer policy base64 bytes invalid") from exc
@@ -165,7 +166,7 @@ def require_target_mutation_policy(
 
     try:
         normalized = normalize_branch(branch, "branch")
-    except ValueError as exc:
+    except (ManifestError, ValueError) as exc:
         raise PolicyError("consumer target branch invalid") from exc
     authorize_manifest(manifest, policy=policy, repository=target)
     return normalized
