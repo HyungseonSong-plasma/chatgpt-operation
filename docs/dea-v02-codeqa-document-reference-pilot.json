@@ -170,7 +170,15 @@
     "formal_adoption_issue": 254,
     "first_producer_run_scope": "TRUSTED_NONCANDIDATE_SMOKE_TEST_ONLY",
     "live_deployment_approved": false,
-    "actual_candidate_artifact_verified": false
+    "actual_candidate_artifact_verified": false,
+    "owner_adoption_review_approved": true,
+    "owner_adoption_review_comment_id": 6685977537,
+    "human_controlled_smoke_blueprint": "docs/dea-v02-protected-producer-smoke.proposed.yml",
+    "human_handoff_runbook": "docs/dea-v02-producer-smoke-human-handoff.md",
+    "actual_producer_workflow_deployed": false,
+    "actual_signed_artifact_uploaded": false,
+    "policy_denial_remaining": ".github/workflows/**",
+    "candidate_competition_authorized": false
   },
   "human_exclusive_emergency": {
     "status": "DESIGN_READ_ONLY_REQUESTS_NOT_DEPLOYED",
@@ -209,6 +217,10 @@
     "activated": false,
     "official_workflow_adoption_issue": 254,
     "official_workflow_adoption_status": "AWAITING_FORMAL_AUTHORITY_CLEARANCE",
-    "human_force_privilege_granted_by_controller": false
+    "human_force_privilege_granted_by_controller": false,
+    "owner_approval_comment_url": "https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/254#issuecomment-6685977537",
+    "owner_approval_observed_github_author": "HyungseonSong-plasma",
+    "owner_approval_scope": "SCOPED_HUMAN_CONTROLLED_ADOPTION_REVIEW_ONLY",
+    "workflow_write_authority_granted_to_ai": false
   }
 }
