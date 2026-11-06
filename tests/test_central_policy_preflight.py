@@ -13,11 +13,56 @@ from chatgpt_operation.repository.central_policy_preflight import (
     CentralPolicyBinding,
     require_central_connector_preflight,
 )
-from chatgpt_operation.repository.mutation import PolicyError
+from chatgpt_operation.repository.mutation import PolicyError, parse_manifest
 from chatgpt_operation.repository.target_policy_preflight import SAMUEL_REPOSITORY
-from test_target_policy_preflight import (
-    CONSUMER, HEAD, OTHER, manifest, policy,
-)
+
+CONSUMER = "HyungseonSong-plasma/codeQA"
+HEAD = "a" * 40
+OTHER = "b" * 40
+
+
+def policy(repository=CONSUMER):
+    return {
+        "schema_version": 1,
+        "repository": repository,
+        "mutation": {
+            "allow": {"file": ["create", "update"], "branch": ["create"]},
+            "file_paths": {
+                "allow": ["src/**", "tests/**", "docs/**"],
+                "deny": [".github/workflows/**", "automation/**"],
+            },
+            "branch_names": {
+                "allow": ["samuel/*", "issue-*"], "deny": ["main"],
+            },
+        },
+        "validation_gate": {
+            "mode": "named_workflows",
+            "workflows": ["CI"],
+            "ignore_current_run": True,
+        },
+    }
+
+
+def manifest(repository=CONSUMER, branch="issue-264-compat", action="update", path="docs/qa.md"):
+    if action == "branch-create":
+        raw = {
+            "schema_version": 1, "repository": repository,
+            "resource": "branch", "action": "create",
+            "target": {"name": branch},
+            "expected": {"absent": True},
+            "desired": {"sha": HEAD},
+        }
+    else:
+        raw = {
+            "schema_version": 1, "repository": repository,
+            "resource": "file", "action": action,
+            "target": {"path": path, "branch": branch},
+            "expected": {"absent": True} if action == "create" else {"sha": OTHER},
+            "desired": {"content": "test"},
+            "commit_message": "test",
+        }
+    return parse_manifest(raw)
+
 
 SOURCE_HEAD = "c" * 40
 SOURCE_BLOB = "d" * 40
