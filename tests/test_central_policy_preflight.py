@@ -55,7 +55,8 @@ class FakeGitHubReadTransport:
             ).hexdigest()
             return {
                 "type": "file",
-                "path": (path[1:] + ".other") if self.bad_identity else path[1:],
+                "path": (path.removeprefix("/contents/") + ".other") if self.bad_identity
+                        else path.removeprefix("/contents/"),
                 "encoding": "utf-8" if self.bad_encoding else "base64",
                 "content": base64.b64encode(raw).decode(),
                 "sha": "e" * 40 if self.bad_blob else blob,
@@ -185,6 +186,7 @@ class CentralPolicyTests(unittest.TestCase):
                 self.check(binding=self.binding(target_main_sha=target_sha))
         with self.assertRaisesRegex(PolicyError, "expected target revision"):
             self.check(expected_target_main_sha=OTHER)
+        self.target.reads.clear()
         self.target.advance_sha = OTHER
         with self.assertRaisesRegex(PolicyError, "changed during readback"):
             self.check()
@@ -194,6 +196,7 @@ class CentralPolicyTests(unittest.TestCase):
         for source_sha in (OTHER, "main", "Z" * 40):
             with self.subTest(source_sha=source_sha), self.assertRaises(PolicyError):
                 self.check(binding=self.binding(source_main_sha=source_sha))
+        self.source.reads.clear()
         self.source.advance_sha = OTHER
         with self.assertRaisesRegex(PolicyError, "changed during readback"):
             self.check()
