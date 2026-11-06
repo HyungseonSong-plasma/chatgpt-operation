@@ -18,7 +18,7 @@ from .status_labels import LabelError
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _ID = re.compile(r"^[A-Za-z0-9_.-]+$")
-_KINDS = {"JSON_POINTER_EQUALS", "PYTHON_IMPORT_ABSENT"}
+_KINDS = {"JSON_POINTER_EQUALS", "PYTHON_IMPORT_ABSENT", "PYTHON_PACKAGE_IMPORT_ABSENT"}
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,9 @@ def _git_blob_sha(text: str) -> str:
     return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + bytes([0]) + raw).hexdigest()
 
 
-def _matches_predicate(kind: str, text: str, subject: str, expected: str) -> bool:
+def _matches_predicate(
+    kind: str, text: str, subject: str, expected: str, *, path: str = "",
+) -> bool:
     if kind == "JSON_POINTER_EQUALS":
         if not subject.startswith("/") or not subject[1:]:
             raise ValueError("JSON_POINTER_MALFORMED")
@@ -66,6 +68,45 @@ def _matches_predicate(kind: str, text: str, subject: str, expected: str) -> boo
             else:
                 continue
             if any(m == subject or m.startswith(subject + ".") for m in modules):
+                return False
+        return True
+    if kind == "PYTHON_PACKAGE_IMPORT_ABSENT":
+        # Resolve relative imports against the package containing this module.
+        # No import execution or dynamic-call approximation is attempted.
+        prefix = "src/"
+        if not path.startswith(prefix) or not path.endswith(".py"):
+            raise ValueError("PACKAGE_PATH_UNSUPPORTED")
+        module_parts = path[len(prefix):-3].split("/")
+        if len(module_parts) < 2 or any(not part.isidentifier() for part in module_parts):
+            raise ValueError("PACKAGE_PATH_UNSUPPORTED")
+        package = module_parts[:-1] if module_parts[-1] != "__init__" else module_parts[:-1]
+        if not subject or any(not part.isidentifier() for part in subject.split(".")):
+            raise ValueError("MODULE_PREFIX_MALFORMED")
+        tree = ast.parse(text)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = (alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    drop = node.level - 1
+                    if drop >= len(package):
+                        raise ValueError("RELATIVE_IMPORT_ESCAPES_PACKAGE")
+                    base = package[:len(package) - drop]
+                    if node.module:
+                        base += node.module.split(".")
+                    absolute = ".".join(base)
+                else:
+                    absolute = node.module or ""
+                names = (absolute,) + tuple(
+                    absolute + "." + alias.name
+                    for alias in node.names if alias.name != "*"
+                )
+                if any(alias.name == "*" for alias in node.names):
+                    # Wildcard imports are not automatically safe for this narrow predicate.
+                    raise ValueError("WILDCARD_IMPORT_UNSUPPORTED")
+            else:
+                continue
+            if any(name == subject or name.startswith(subject + ".") for name in names):
                 return False
         return True
     raise ValueError("UNSUPPORTED_PREDICATE")
@@ -136,7 +177,7 @@ def verify_automated_gate_v01(
             outcomes[check_id] = "FAIL"
             issues.append(f"{check_id}:MISSING_EXPECTED_VALUE")
             continue
-        if c["kind"] == "PYTHON_IMPORT_ABSENT" and not path.endswith(".py"):
+        if c["kind"] in {"PYTHON_IMPORT_ABSENT", "PYTHON_PACKAGE_IMPORT_ABSENT"} and not path.endswith(".py"):
             outcomes[check_id] = "FAIL"
             issues.append(f"{check_id}:NOT_PYTHON_SOURCE")
             continue
@@ -146,7 +187,8 @@ def verify_automated_gate_v01(
             continue
         try:
             accepted = _matches_predicate(
-                c["kind"], c["content"], c["subject"], c.get("expected", ""))
+                c["kind"], c["content"], c["subject"], c.get("expected", ""),
+                path=path)
         except (ValueError, SyntaxError, TypeError, json.JSONDecodeError):
             outcomes[check_id] = "FAIL"
             issues.append(f"{check_id}:UNVERIFIABLE_PREDICATE")
