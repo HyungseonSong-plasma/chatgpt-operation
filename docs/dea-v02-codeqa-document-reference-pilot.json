@@ -167,5 +167,23 @@
     "signer_workflow_revision_pinned": false,
     "run_to_job_attribution_attested": false,
     "post_upload_artifact_id_separate_from_signed_subject": true
+  },
+  "human_exclusive_emergency": {
+    "status": "DESIGN_READ_ONLY_REQUESTS_NOT_DEPLOYED",
+    "request_module": "src/chatgpt_operation/controller/dea_human_break_glass.py",
+    "contract": "docs/dea-v02-human-exclusive-emergency-authority.md",
+    "allowed_actor": "NAMED_AUTHENTICATED_GITHUB_HUMAN_ONLY",
+    "ai_or_controller_can_request": true,
+    "ai_or_controller_can_authorize": false,
+    "ai_or_controller_can_execute_force": false,
+    "chat_message_is_authority": false,
+    "max_request_minutes": 30,
+    "one_use_required": true,
+    "independently_attested_github_human_gate_configured": false,
+    "github_protected_environment_name": "dea-human-break-glass",
+    "policy_denial_remains_binding": true,
+    "external_tool_safety_denial_remains_binding": true,
+    "workflow_policy_exception_granted": false,
+    "existing_admission_gates_unchanged": true
   }
 }
