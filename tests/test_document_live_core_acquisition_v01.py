@@ -35,6 +35,9 @@ class FakeGitHub:
         self.truncated = False
         self.unexpected_mode = None
         self.change_head_at_end = False
+        self.pr_state = "open"
+        self.pr_merged = False
+        self.change_state_at_end = False
         self.read_count = 0
         self.return_malformed_blob = False
 
@@ -44,8 +47,10 @@ class FakeGitHub:
             calls = getattr(self, "pr_calls", 0) + 1
             self.pr_calls = calls
             sha = "c" * 40 if calls == 2 and self.change_head_at_end else HEAD
-            return {"state": "open", "head": {
-                "sha": sha, "repo": {"full_name": REPO}}}
+            state = ("closed" if calls == 2 and self.change_state_at_end
+                     else self.pr_state)
+            return {"state": state, "merged": self.pr_merged,
+                    "head": {"sha": sha, "repo": {"full_name": REPO}}}
         if endpoint == API + "/git/commits/" + HEAD:
             return {"sha": HEAD, "tree": {"sha": TREE}}
         if endpoint == API + "/git/trees/" + TREE + "?recursive=1":
@@ -141,6 +146,28 @@ class CoreLiveSourceAcquisitionTests(unittest.TestCase):
     def test_head_drift_fails_closed(self):
         c = FakeGitHub()
         c.change_head_at_end = True
+        with self.assertRaises(LabelError):
+            c.verify()
+
+    def test_merged_pr_preserves_original_head_witness(self):
+        c = FakeGitHub()
+        c.pr_state = "closed"
+        c.pr_merged = True
+        r = c.verify()
+        self.assertEqual(r.gate1.status, "SCOPED_CHECKS_PASS")
+        self.assertEqual(r.exact_head_sha, HEAD)
+        self.assertEqual(r.independent_approval, "REVIEW_REQUIRED")
+
+    def test_closed_unmerged_pr_is_rejected(self):
+        c = FakeGitHub()
+        c.pr_state = "closed"
+        c.pr_merged = False
+        with self.assertRaises(LabelError):
+            c.verify()
+
+    def test_pr_state_transition_mid_acquisition_fails_closed(self):
+        c = FakeGitHub()
+        c.change_state_at_end = True
         with self.assertRaises(LabelError):
             c.verify()
 
