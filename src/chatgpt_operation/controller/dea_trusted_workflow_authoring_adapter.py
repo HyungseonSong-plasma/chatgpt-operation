@@ -44,6 +44,7 @@ class GitHubBoundTransport(Protocol):
 
 POLICY_PATH = "automation/samuel/repository-mutation-policy.json"
 REFERENCE_PATH = "docs/dea-v02-protected-producer-smoke.proposed.yml"
+PINNED_REVIEWED_BLUEPRINT_BLOB_SHA = "8215bb3d07f3918c6a3ecd9f92e152538625691a"
 PR_TITLE = "feat(dea): adopt protected signed Artifact smoke Workflow (#254)"
 PR_BODY = (
     "Draft for human review only. Related #254 and approval comment "
@@ -200,6 +201,11 @@ class TrustedWorkflowDraftAdapter:
         # a caller-provided JSON, Issue body, PR comment or unreviewed branch.
         policy_raw = self._fetch_main_bytes(POLICY_PATH, observed_main, 100000)
         yaml = self._fetch_main_bytes(REFERENCE_PATH, observed_main, MAX_SOURCE_BYTES)
+        _require(
+            sha1(b"blob " + str(len(yaml)).encode("ascii") + b"\x00" + yaml).hexdigest()
+            == PINNED_REVIEWED_BLUEPRINT_BLOB_SHA,
+            "REVIEWED_WORKFLOW_BLUEPRINT_CHANGED",
+        )
         try:
             policy = json.loads(policy_raw.decode("utf-8"),
                                 object_pairs_hook=_json_unique)
