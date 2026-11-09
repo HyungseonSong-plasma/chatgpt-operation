@@ -20,6 +20,10 @@ from chatgpt_operation.controller.codeqa_governed_write import (
     execute_branch_and_file,
 )
 from chatgpt_operation.repository.mutation import GitHubTransport, ApiError
+from chatgpt_operation.controller.scoped_issue_write import (
+    needs_source_comment_ownership_lookup,
+    require_source_review_ledger_write,
+)
 
 POLICY_FILE = Path("automation/samuel/codeqa-write-target-candidate-v1.json")
 RESULT_FILE = Path("samuel-codeqa-write-result.json")
@@ -63,6 +67,16 @@ class API:
         self.token = token
 
     def call(self, method: str, path: str, payload: dict | None = None):
+        # Source workers can edit only their Issue #220 review ledger.
+        # A generic comment-ID PATCH has no Issue number in its URL,
+        # therefore independently fetch that comment's Issue ownership.
+        known_comment = None
+        if path.startswith("/repos/" + SOURCE + "/issues/"):
+            if needs_source_comment_ownership_lookup(method, path):
+                known_comment = self.get(path)
+            require_source_review_ledger_write(
+                method, path, current_comment=known_comment,
+            )
         data = None if payload is None else json.dumps(payload).encode()
         req = Request(
             "https://api.github.com" + path, data=data, method=method,
