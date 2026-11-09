@@ -49,8 +49,11 @@ def make_readonly_document_manifest(
     if type(run_id) is not int or run_id < 1 or run_attempt != 1:
         raise SourceEvidenceError("run identity or attempt invalid")
     root = repository_root.resolve(strict=True)
-    target = (root / unit_id).resolve(strict=True)
-    if root not in target.parents or not target.is_file() or target.is_symlink():
+    candidate = root / unit_id
+    if candidate.is_symlink():
+        raise SourceEvidenceError("symlinked source is not allowed")
+    target = candidate.resolve(strict=True)
+    if root not in target.parents or not target.is_file():
         raise SourceEvidenceError("unsafe or absent source path")
     if target.stat().st_size > _MAX_SOURCE_BYTES:
         raise SourceEvidenceError("source document exceeds pilot limit")
