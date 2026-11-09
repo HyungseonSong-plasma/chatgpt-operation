@@ -13,6 +13,22 @@ class NativeGitHubRuntimeError(RuntimeError):
     pass
 
 
+def _forbid_samuel_state_issue_mutation(
+    repository: str, action: NativeGitHubAction, target: dict[str, Any],
+) -> None:
+    # Defense in depth: only the serialized Samuel Bootstrap state writer
+    # can modify Issue #44. General issue-write capabilities remain needed
+    # for unrelated Issues, so repository-scoped rights alone are insufficient.
+    if (
+        repository.casefold() == "hyungseonsong-plasma/chatgpt-operation"
+        and action in {NativeGitHubAction.COMMENT_ISSUE, NativeGitHubAction.CLOSE_ISSUE}
+        and str(target.get("number")) == "44"
+    ):
+        raise NativeGitHubRuntimeError(
+            "Samuel Issue #44 is reserved for the single durable state writer"
+        )
+
+
 class GitHubNativeTransport:
     def __init__(
         self,
@@ -68,6 +84,7 @@ class GitHubNativeTransport:
         repo=target["repository"]
         if repo != self.repository:
             raise NativeGitHubRuntimeError("runtime repository mismatch")
+        _forbid_samuel_state_issue_mutation(repo, action, target)
 
         if action is NativeGitHubAction.MERGE_PR:
             number=int(target["number"])
@@ -176,6 +193,7 @@ class GitHubNativeTransport:
         repo=target["repository"]
         if repo != self.repository:
             raise NativeGitHubRuntimeError("runtime repository mismatch")
+        _forbid_samuel_state_issue_mutation(repo, action, target)
 
         if action is NativeGitHubAction.MERGE_PR:
             payload={"sha": target["expected_head_sha"]}
