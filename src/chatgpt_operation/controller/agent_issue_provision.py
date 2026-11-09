@@ -124,13 +124,18 @@ def _assignment_spec(assignment: dict[str, Any]) -> dict[str, Any]:
     })
 
 
-def _snapshot(reader: IssueReader, path: str, *, limit: int) -> list[dict[str, Any]]:
+def _snapshot(
+    reader: IssueReader, path: str, *, limit: int,
+    filters: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
     """Read all GitHub REST pages twice, fail closed on unstable inventory."""
     def fetch() -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         ids: set[int] = set()
         for page in range(1, limit // 100 + 2):
-            rows = reader.get(path, query={"per_page": "100", "page": str(page)})
+            rows = reader.get(
+                path, query={**dict(filters or {}), "per_page": "100", "page": str(page)}
+            )
             if not isinstance(rows, list) or len(rows) > 100:
                 raise ProvisionError("GitHub inventory page is invalid")
             for row in rows:
@@ -235,7 +240,12 @@ def plan_next_child_provision(
         raise ProvisionError("trusted writer comment author is required")
     # This is a bounded review-only scanner: never use a worker-supplied Issue
     # number or guess a missing result from partial GitHub pagination.
-    all_issues = _snapshot(reader, "/issues?state=all", limit=_MAX_ISSUES)
+    live_parent = reader.get("/issues/" + str(s["parent_issue"]))
+    if not isinstance(live_parent, Mapping) or live_parent != parent_issue:
+        raise ProvisionError("parent issue must match authenticated GitHub readback")
+    all_issues = _snapshot(
+        reader, "/issues", limit=_MAX_ISSUES, filters={"state": "all"}
+    )
     matching = [
         item for item in all_issues
         if item.get("pull_request") is None and _matches_issue(item, s)
@@ -247,6 +257,10 @@ def plan_next_child_provision(
         if (
             child.get("state") != "open"
             or type(child.get("number")) is not int
+            or type(child.get("id")) is not int
+            or child["id"] <= 0
+            or child.get("url") != "https://api.github.com/repos/"
+                + s["repository"] + "/issues/" + str(child["number"])
             or child["number"] == s["parent_issue"]
         ):
             raise ProvisionError("Child Issue identity or state mismatch")
