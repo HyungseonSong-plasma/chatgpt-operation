@@ -17,7 +17,10 @@ from chatgpt_operation.github.actions_runtime import (
     ActionsApiError, GitHubActionsTransport,
 )
 from .agent_issue_append import plan_child_append, reconcile_child_append_ack
-from .agent_issue_partition import AgentIssueError, validate_receipt
+from .agent_issue_partition import (
+    ASSIGNMENT_MARKER, AgentIssueError, _decode,
+    validate_assignment, validate_receipt,
+)
 from .agent_issue_provision import read_live_parent_registry
 from .agent_issue_runtime import read_stable_child_comments
 from .agent_issue_source import build_readonly_document_receipt
@@ -26,7 +29,7 @@ SOURCE_REPOSITORY = "HyungseonSong-plasma/chatgpt-operation"
 EXPECTED_WORKFLOW = ".github/workflows/samuel-agent-child-evidence.yml"
 EXPECTED_ACTOR = "HyungseonSong-plasma"
 EXPECTED_EVENT = "workflow_dispatch"
-PARENT_ISSUE = 44
+LEGACY_CONTROLLER_ISSUE = 44
 
 
 class AgentWorkerError(AgentIssueError):
@@ -79,14 +82,29 @@ def verified_worker_identity(
 def _assignment_for_child(
     reader: GitHubActionsTransport, *, child_issue: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if type(child_issue) is not int or child_issue <= 0 or child_issue == PARENT_ISSUE:
+    if (
+        type(child_issue) is not int or child_issue <= 0
+        or child_issue == LEGACY_CONTROLLER_ISSUE
+    ):
         raise AgentWorkerError("invalid requested Child Issue number")
+    child=reader.get("/issues/"+str(child_issue))
+    if not isinstance(child,dict) or child.get("number")!=child_issue:
+        raise AgentWorkerError("Child Issue identity is missing")
+    # The Child's body only supplies a candidate parent to look up;
+    # authority comes from the independent parent registry and native link.
+    try:
+        claimed=validate_assignment(_decode(child.get("body"),ASSIGNMENT_MARKER))
+    except AgentIssueError as exc:
+        raise AgentWorkerError("Child lacks approved ownership contract") from exc
+    parent_number=claimed["parent_issue"]
+    if parent_number==LEGACY_CONTROLLER_ISSUE or parent_number==child_issue:
+        raise AgentWorkerError("global Issue #44 is not an Agent work parent")
     registry = read_live_parent_registry(
-        reader,repository=SOURCE_REPOSITORY,parent_issue=PARENT_ISSUE,
+        reader,repository=SOURCE_REPOSITORY,parent_issue=parent_number,
     )
     selected = [x for x in registry if x["child_issue"] == child_issue]
-    if len(selected) != 1:
-        raise AgentWorkerError("Child is not uniquely allocated by parent Bootstrap")
+    if len(selected) != 1 or selected[0] != claimed:
+        raise AgentWorkerError("Child is not uniquely allocated by a task parent")
     return selected[0],registry
 
 
@@ -95,7 +113,7 @@ def produce_child_manifest(
     environment: Mapping[str, str], child_issue: int,
     unit_id: str, source_root: Path,
 ) -> dict[str, Any]:
-    if type(child_issue) is not int or child_issue <= 0 or child_issue == PARENT_ISSUE:
+    if type(child_issue) is not int or child_issue <= 0 or child_issue == LEGACY_CONTROLLER_ISSUE:
         raise AgentWorkerError("invalid requested Child Issue number")
     run_id,sha=verified_worker_identity(reader,environment)
     assignment,_ = _assignment_for_child(reader,child_issue=child_issue)
@@ -111,7 +129,7 @@ def publish_child_manifest(
     environment: Mapping[str, str], child_issue: int,
     manifest: dict[str, Any],
 ) -> dict[str, Any]:
-    if type(child_issue) is not int or child_issue <= 0 or child_issue == PARENT_ISSUE:
+    if type(child_issue) is not int or child_issue <= 0 or child_issue == LEGACY_CONTROLLER_ISSUE:
         raise AgentWorkerError("invalid requested Child Issue number")
     run_id,sha=verified_worker_identity(reader,environment)
     assignment,registry=_assignment_for_child(reader,child_issue=child_issue)
