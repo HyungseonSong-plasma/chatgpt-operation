@@ -34,9 +34,13 @@ compressed comment/decode bounds. A larger result **fails closed**; it is not
 truncated. Immutable, independently verified Git blob references might
 support larger complete details later, but they are not a v0.1 capability.
 
-Existing ledgers without `progress_checkpoint` decode unchanged. Updating a
-checkpoint increments the existing `ResearchState.revision`; there is no
-separate mutable cookie or source of truth.
+Existing ledgers without `progress_checkpoint` decode unchanged. To
+prevent a rollback to older Samuel source from **silently discarding**
+structured progress, the durable envelope remains **schema v4** when the
+optional checkpoint is absent, but uses **schema v5** once the checkpoint
+is present. Older readers that support only v4 fail closed on v5.
+Updating a checkpoint increments the existing `ResearchState.revision`;
+there is no separate mutable cookie or source of truth.
 
 ## B. Deterministic resume decisions
 
