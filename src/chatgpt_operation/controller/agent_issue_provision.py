@@ -343,3 +343,63 @@ def plan_next_child_provision(
             assignment=assignment,
         )
     return _plan("READY", assignment=assignment)
+
+
+def read_live_parent_registry(
+    reader: IssueReader, *, repository: str, parent_issue: int,
+    trusted_author: str = "github-actions[bot]",
+) -> list[dict[str, Any]]:
+    """Read immutable parent allocation records, not worker-supplied registry.
+
+    All records must still have native Sub-issue links and exact Child body.
+    A fully drained registry may be empty, but consumers must not interpret
+    an empty registry as permission to dispatch any agent.
+    """
+    _positive(parent_issue, "parent_issue")
+    if not isinstance(repository, str) or not re.fullmatch(
+        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
+    ):
+        raise ProvisionError("invalid parent repository")
+    parent = reader.get("/issues/" + str(parent_issue))
+    if not (
+        isinstance(parent, Mapping)
+        and parent.get("number") == parent_issue
+        and parent.get("url") == "https://api.github.com/repos/"
+            + repository + "/issues/" + str(parent_issue)
+    ):
+        raise ProvisionError("unverified canonical parent Issue")
+    comments = _snapshot(
+        reader, "/issues/" + str(parent_issue) + "/comments",
+        limit=_MAX_PARENT_COMMENTS,
+    )
+    raw = _registered_allocations(comments, trusted_author=trusted_author)
+    # Collapse exact logical duplicate comment replays while keeping the
+    # strong rejection of contradictory agent or Child assignment claims.
+    by_identity: dict[str, dict[str, Any]] = {}
+    for item in raw:
+        if item["repository"] != repository or item["parent_issue"] != parent_issue:
+            raise ProvisionError("cross-parent allocation in authoritative registry")
+        by_identity[item["assignment_id"]] = item
+    registry = list(by_identity.values())
+    if not registry:
+        return []
+    from .agent_issue_partition import validate_parent_registry
+    registry = validate_parent_registry(registry)
+    linked = _snapshot(
+        reader, "/issues/" + str(parent_issue) + "/sub_issues",
+        limit=_MAX_SUBISSUES,
+    )
+    linked_by_number = {x.get("number"):x for x in linked}
+    for assignment in registry:
+        child_no=assignment["child_issue"]
+        candidate=linked_by_number.get(child_no)
+        if not isinstance(candidate, Mapping):
+            raise ProvisionError("registered Child lacks native Sub-issue relation")
+        child=reader.get("/issues/" + str(child_no))
+        if not isinstance(child, Mapping):
+            raise ProvisionError("registered Child is unavailable")
+        from .agent_issue_partition import validate_child_ownership
+        validate_child_ownership(child, assignment, parent_registry=registry)
+        if candidate.get("id") != child.get("id"):
+            raise ProvisionError("registered Sub-issue identity was replaced")
+    return registry
