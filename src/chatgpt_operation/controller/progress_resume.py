@@ -254,6 +254,8 @@ def refresh_unit_inputs(
 ) -> ResearchState:
     """Invalidate only changed inputs and their transitive dependents."""
     checkpoint = validate_checkpoint(state.progress_checkpoint)
+    if checkpoint["work_id"] != state.research_id:
+        raise ProgressResumeError("progress state identity changed")
     if not isinstance(live_inputs, Mapping):
         raise ProgressResumeError("live inputs must be a mapping")
     units = checkpoint["units"]
