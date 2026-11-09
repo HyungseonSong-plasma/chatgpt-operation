@@ -252,6 +252,19 @@ def plan_next_child_provision(
     ]
     if len(matching) > 1:
         raise ProvisionError("duplicate provisional/final Child Issues found")
+    parent_comments = _snapshot(
+        reader, "/issues/" + str(s["parent_issue"]) + "/comments",
+        limit=_MAX_PARENT_COMMENTS,
+    )
+    registered = _registered_allocations(
+        parent_comments, trusted_author=trusted_author,
+    )
+    for existing in registered:
+        if (
+            existing["agent_id"] == s["agent_id"]
+            and _assignment_spec(existing) != s
+        ):
+            raise ProvisionError("parent agent allocation conflict")
     if matching:
         child = matching[0]
         if (
@@ -315,11 +328,7 @@ def plan_next_child_provision(
             assignment=assignment,
         )
 
-    comments = _snapshot(
-        reader, "/issues/" + str(s["parent_issue"]) + "/comments",
-        limit=_MAX_PARENT_COMMENTS,
-    )
-    approved = _registered_allocations(comments, trusted_author=trusted_author)
+    approved = registered
     for old in approved:
         if old["agent_id"] == s["agent_id"] and old != assignment:
             raise ProvisionError("parent agent allocation conflict")
