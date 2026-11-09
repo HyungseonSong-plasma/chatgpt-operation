@@ -41,3 +41,37 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m chatgpt_operation.controller.live_sandbox_282
+
+
+  child-allocations:
+    if: ${{ github.repository == 'HyungseonSong-plasma/chatgpt-operation' && github.ref == 'refs/heads/samuel/live-child-qualification-282-v01' && github.event_name == 'push' }}
+    needs: [native-subissues]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact isolated Child qualification source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate source and compile isolated writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -m compileall -q src/chatgpt_operation/controller/live_sandbox_282_batch.py
+      - name: Qualify at most five actual GitHub Child allocations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.live_sandbox_282_batch | tee live-child-batch-282.log
+      - name: Upload bounded sanitized qualification summary
+        if: ${{ always() && hashFiles('live-child-batch-282.log') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-child-batch-282-${{ github.run_id }}
+          path: live-child-batch-282.log
+          if-no-files-found: error
