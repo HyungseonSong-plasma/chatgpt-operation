@@ -232,5 +232,88 @@ class RepositoryOwnedScopeTests(unittest.TestCase):
         self.assertIsNone(result.state_write)
 
 
+class ScopedWakeRootTests(unittest.TestCase):
+    def make_root(self):
+        from chatgpt_operation.controller.decisions import DecisionRegistry
+        from chatgpt_operation.controller.runtime import SamuelController
+        return SamuelController(decisions=DecisionRegistry())
+
+    def trigger(self, *, sha=HEAD, event=None):
+        from chatgpt_operation.controller.runtime import ControllerTrigger, TriggerKind
+        return ControllerTrigger(
+            event or TriggerKind.WORKFLOW_DISPATCH,
+            action="", head_sha=sha, ref="refs/heads/main",
+            executor_ref="main", executor_head_sha=sha,
+        )
+
+    def run(self, *, comments=None, context=None, policy=None,
+            expected_work_id=None, trigger=None, reader=None):
+        if comments is None or context is None:
+            comments, context = setup()
+        return self.make_root().run_cycle(
+            self.trigger() if trigger is None else trigger,
+            comments=comments,
+            pending=[],
+            repository_context=context,
+            requested_work_id=expected_work_id,
+            scoped_repository_policy=scope() if policy is None else policy,
+            scoped_native_run_reader=ReadOnlyGitHub() if reader is None else reader,
+            scoped_native_run_id=RUN,
+            scoped_native_run_attempt=1,
+        )
+
+    def test_trusted_run_scoped_root_is_preview_only(self):
+        cycle = self.run()
+        self.assertEqual(cycle.selected_work["kind"], "scoped_preview")
+        self.assertEqual(cycle.selected_work["work_id"], "issue:281")
+        self.assertFalse(cycle.selected_work["dispatch_authorized"])
+        self.assertEqual(cycle.selected_work["verified_run_id"], RUN)
+        self.assertIsNone(cycle.admission_write)
+        self.assertIsNone(cycle.state_write)
+        self.assertIsNone(cycle.execution_command)
+        self.assertIsNone(cycle.issue_planning)
+
+    def test_disabled_policy_root_blocks_without_write(self):
+        cycle = self.run(policy=scope(enabled=False))
+        self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
+        self.assertIsNone(cycle.admission_write)
+        self.assertIsNone(cycle.state_write)
+        self.assertIsNone(cycle.execution_command)
+
+    def test_caller_selected_work_id_cannot_override_repository_policy(self):
+        cycle = self.run(expected_work_id="issue:256")
+        self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
+        self.assertIsNone(cycle.admission_write)
+
+    def test_stale_trusted_sha_blocks_before_child_work(self):
+        cycle = self.run(trigger=self.trigger(sha="b" * 40))
+        self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
+        self.assertIsNone(cycle.execution_command)
+
+    def test_255_and_256_conflicts_block_root_without_state_write(self):
+        comments, context = setup(
+            active="issue:255", extra_issues=(issue(256),),
+        )
+        cycle = self.run(comments=comments, context=context)
+        self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
+        self.assertIsNone(cycle.state_write)
+        self.assertIsNone(cycle.admission_write)
+        self.assertIsNone(cycle.execution_command)
+
+    def test_no_policy_but_run_evidence_is_rejected(self):
+        comments, context = setup()
+        cycle = self.make_root().run_cycle(
+            self.trigger(),
+            comments=comments, pending=[],
+            repository_context=context,
+            scoped_native_run_reader=ReadOnlyGitHub(),
+            scoped_native_run_id=RUN,
+            scoped_native_run_attempt=1,
+        )
+        self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
+        self.assertIsNone(cycle.state_write)
+        self.assertIsNone(cycle.execution_command)
+
+
 if __name__ == "__main__":
     unittest.main()
