@@ -275,6 +275,12 @@ class ProgressResumeTests(unittest.TestCase):
         self.assertEqual(fresh_request["expected_previous_revision"], current.revision)
         self.assertEqual(fresh_request["expected_revision"], current.revision + 1)
 
+    def test_refresh_refuses_foreign_checkpoint_identity(self):
+        state = setup()
+        state.research_id = "unrelated-research"
+        with self.assertRaisesRegex(ProgressResumeError, "identity changed"):
+            refresh_unit_inputs(state, live_inputs=live(state))
+
     def test_invalid_progress_cannot_overwrite_existing_state(self):
         state = setup()
         with self.assertRaisesRegex(ProgressResumeError, "cannot be overwritten"):
