@@ -712,9 +712,21 @@ def controller_persist_state(args: argparse.Namespace) -> int:
             api_url=args.api_url,
             api_version=args.api_version,
         )
+        # Only the independently verified mainline Bootstrap writer can
+        # mutate Samuel Issue #44 through this CLI.
+        from chatgpt_operation.controller.state_writer_authority import (
+            require_bootstrap_state_writer,
+        )
+        target_issue=int(args.issue_number)
+        require_bootstrap_state_writer(
+            repository=args.repository,
+            issue_number=target_issue,
+            environment=os.environ,
+            transport=transport,
+        )
         result=persist_state_write(
             transport,
-            issue_number=int(args.issue_number),
+            issue_number=target_issue,
             request=request_payload,
         ).to_dict()
     except (
