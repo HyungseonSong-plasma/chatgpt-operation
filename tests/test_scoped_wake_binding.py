@@ -246,7 +246,7 @@ class ScopedWakeRootTests(unittest.TestCase):
             executor_ref="main", executor_head_sha=sha,
         )
 
-    def run(self, *, comments=None, context=None, policy=None,
+    def run_scope_cycle(self, *, comments=None, context=None, policy=None,
             expected_work_id=None, trigger=None, reader=None):
         if comments is None or context is None:
             comments, context = setup()
@@ -263,7 +263,7 @@ class ScopedWakeRootTests(unittest.TestCase):
         )
 
     def test_trusted_run_scoped_root_is_preview_only(self):
-        cycle = self.run()
+        cycle = self.run_scope_cycle()
         self.assertEqual(cycle.selected_work["kind"], "scoped_preview")
         self.assertEqual(cycle.selected_work["work_id"], "issue:281")
         self.assertFalse(cycle.selected_work["dispatch_authorized"])
@@ -274,19 +274,19 @@ class ScopedWakeRootTests(unittest.TestCase):
         self.assertIsNone(cycle.issue_planning)
 
     def test_disabled_policy_root_blocks_without_write(self):
-        cycle = self.run(policy=scope(enabled=False))
+        cycle = self.run_scope_cycle(policy=scope(enabled=False))
         self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
         self.assertIsNone(cycle.admission_write)
         self.assertIsNone(cycle.state_write)
         self.assertIsNone(cycle.execution_command)
 
     def test_caller_selected_work_id_cannot_override_repository_policy(self):
-        cycle = self.run(expected_work_id="issue:256")
+        cycle = self.run_scope_cycle(expected_work_id="issue:256")
         self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
         self.assertIsNone(cycle.admission_write)
 
     def test_stale_trusted_sha_blocks_before_child_work(self):
-        cycle = self.run(trigger=self.trigger(sha="b" * 40))
+        cycle = self.run_scope_cycle(trigger=self.trigger(sha="b" * 40))
         self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
         self.assertIsNone(cycle.execution_command)
 
@@ -294,7 +294,7 @@ class ScopedWakeRootTests(unittest.TestCase):
         comments, context = setup(
             active="issue:255", extra_issues=(issue(256),),
         )
-        cycle = self.run(comments=comments, context=context)
+        cycle = self.run_scope_cycle(comments=comments, context=context)
         self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
         self.assertIsNone(cycle.state_write)
         self.assertIsNone(cycle.admission_write)
