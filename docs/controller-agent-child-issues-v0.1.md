@@ -84,6 +84,13 @@ Issue #44 (parent, Bootstrap-only coordination & approvals)
 - `agent_issue_append.py`: builds **Child-specific POST-only proposals**,
   exact digest replay NOOP, lost-ACK readback reconciliation and strict
   contradiction blocking. It does not send network writes.
+- `agent_issue_runtime.py`: parent-controlled **trusted read-only entrypoint**,
+  fetching each Child Issue directly, exhaustively paging its comment history
+  in two stable passes, and checking receipt `created_at == updated_at`
+  to detect later edits. It calls the unit reducer only on original records,
+  rather than accepting externally submitted complete/approved summaries.
+- `test_agent_issue_runtime.py`: full pagination, concurrent snapshot change,
+  edited receipt, forged Child identity, unverified/failed outcome blocking.
 - `test_agent_issue_partition.py`: 20 parallel agent sources with 20
   distinct Issue identities and zero shared-comment PATCHes; 3-agent
   end-to-end reduce; same-unit collision, untrusted author, cross-Issue
