@@ -238,7 +238,7 @@ class AgentChildWorkerTests(unittest.TestCase):
                 )
             wrong=copy.deepcopy(receipt())
             wrong["child_issue"]=502
-            with self.assertRaisesRegex(Exception,"digest"):
+            with self.assertRaisesRegex(Exception,"receipt ID mismatch"):
                 publish_child_manifest(
                     api,environment=env(),child_issue=501,
                     manifest={"schema_version":1,"receipt":wrong},
