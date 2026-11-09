@@ -4,8 +4,15 @@
 
 ## Ownership model
 
-Parent Issue #44 remains the only coordination and final-decision authority.
-Each Agent receives one **independent** parent-approved Child Issue with
+**Legacy Issue #44 is the CLOSED global Samuel Controller state Issue**;
+it is NOT an eligible work parent and must not receive new Child links or
+allocation comments. Instead, each separately admitted, **open** work Issue
+(with `samuel` label and `work_id=issue:<parent_number>`) is the Parent
+for its own agent tasks. The global Bootstrap remains the sole final
+integration and authoritative `ResearchState` writer; it must not be
+modified by worker dispatches.
+
+Each Agent receives one **independent** task-parent-approved Child Issue with
 immutable work ID, plan/policy SHA-256, exact source commit and bounded unit
 inventory. Agents **append** completed-unit evidence comments to their own
 Child only. Their working progress does **not** require any shared parent
@@ -25,7 +32,8 @@ writer. Its output sequence is:
 3. `LINK_CHILD`: POST `/issues/{parent_number}/sub_issues` with the
    **internal `sub_issue_id`**, re-enumerating the official native relation.
 4. `RECORD_PARENT_ASSIGNMENT`: append an immutable allocation comment
-   to the Parent Issue, without editing the `ResearchState` comment.
+   to the **open work Parent Issue**. Never touch the global #44
+   `ResearchState` comment, parent body or any existing receipt.
 5. `READY`: ownership, source, native link and parent record agree.
 
 After any lost acknowledgement or crash, the **exclusive parent Bootstrap**
@@ -83,8 +91,9 @@ from trusted GitHub Actions blob/CDN domains in a separate request
 independently verified by `agent_issue_attestation.py`.
 
 `.github/workflows/samuel-agent-child-parent-audit.yml` is separate,
-manually dispatched and explicitly `issues:read`, `actions:read`,
-`contents:read`. The Parent reviews all Child Issues and their original
+manually dispatched with an explicit open work `parent_issue` input (not
+#44), and explicitly `issues:read`, `actions:read`,
+`contents:read`. The task Parent reviews all Child Issues and their original
 comments using `read_live_parent_registry` and
 `reduce_verified_parent_children`. Its outputs are:
 `NO_ALLOCATIONS`, `WAIT_CHILDREN`, `BLOCKED` or
