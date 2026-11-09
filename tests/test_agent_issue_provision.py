@@ -137,6 +137,49 @@ def complete(github,request,*,fail_at=None):
 
 
 class AgentProvisioningTests(unittest.TestCase):
+    def test_legacy_closed_global_issue44_cannot_receive_agent_children(self):
+        with self.assertRaisesRegex(ProvisionError,"global Issue #44"):
+            create_provision(
+                repository=REPO,parent_issue=44,agent_id="agent-000",
+                work_id="issue:44",plan_sha256=sha("approved plan"),
+                policy_sha256=sha("approved policy"),source_head_sha="a"*40,
+                units=[{"id":"scan-0","input_sha256":sha("input"),
+                        "requires":[],"gates":["evidence"]}],
+            )
+        from chatgpt_operation.controller.agent_issue_provision import (
+            read_live_parent_registry,
+        )
+        with self.assertRaisesRegex(ProvisionError,"global Issue #44"):
+            read_live_parent_registry(
+                LiveGithub(),repository=REPO,parent_issue=44,
+            )
+
+    def test_work_parent_must_be_open_and_samuel_admitted(self):
+        gh=LiveGithub()
+        gh.issues[400]["state"]="closed"
+        with self.assertRaisesRegex(ProvisionError,"parent live Issue"):
+            next_step(gh,spec(0))
+        gh.issues[400]["state"]="open"
+        gh.issues[400]["labels"]=[]
+        with self.assertRaisesRegex(ProvisionError,"parent live Issue"):
+            next_step(gh,spec(0))
+
+    def test_registered_child_requires_actual_native_subissue_link(self):
+        from chatgpt_operation.controller.agent_issue_provision import (
+            read_live_parent_registry,
+        )
+        gh=LiveGithub()
+        _,assignment=complete(gh,spec(0))
+        registry=read_live_parent_registry(
+            gh,repository=REPO,parent_issue=400,
+        )
+        self.assertEqual(registry,[assignment])
+        gh.links[400]=[]
+        with self.assertRaisesRegex(ProvisionError,"lacks native"):
+            read_live_parent_registry(
+                gh,repository=REPO,parent_issue=400,
+            )
+
     def test_one_agent_provisions_child_and_native_subissue_once(self):
         gh=LiveGithub()
         stages,assignment=complete(gh,spec(1))
