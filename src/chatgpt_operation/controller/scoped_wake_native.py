@@ -207,3 +207,75 @@ def evaluate_live_scoped_wake(
         return result
     except (ValueError, KeyError, TypeError, LookupError, OSError, RuntimeError):
         return blocked("native scoped evidence unavailable or invalid")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run a no-write scope check inside the canonical native Bootstrap job.
+
+    The trusted GitHub runner controls every identity value.  There is no
+    caller-provided work ID and no fallback to a different workflow/ref.
+    This entrypoint remains unapplied to production until separate approval.
+    """
+    import argparse
+    import os
+    from chatgpt_operation.github.actions_runtime import GitHubActionsTransport
+
+    parser = argparse.ArgumentParser(
+        description="Read-only Samuel native scoped Bootstrap preflight",
+    )
+    parser.add_argument("--token-env", default="GITHUB_TOKEN")
+    args = parser.parse_args(argv)
+    env = os.environ
+    def stop(reason: str) -> int:
+        print("SCOPED_BOOTSTRAP=BLOCKED_SCOPE " + reason)
+        return 2
+
+    if (
+        env.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or env.get("GITHUB_REF") != "refs/heads/main"
+    ):
+        return stop("not canonical GitHub Actions workflow_dispatch on main")
+    repository = env.get("GITHUB_REPOSITORY", "")
+    if not isinstance(repository, str) or not re.fullmatch(
+        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository,
+    ):
+        return stop("invalid runner repository identity")
+    sha = env.get("GITHUB_SHA", "")
+    if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+        return stop("unbound exact runner HEAD")
+    try:
+        run_id = int(env.get("GITHUB_RUN_ID", ""))
+        run_attempt = int(env.get("GITHUB_RUN_ATTEMPT", ""))
+    except (ValueError, TypeError):
+        return stop("runner run identity missing")
+    if run_id <= 0 or run_attempt <= 0:
+        return stop("runner run identity invalid")
+    token = env.get(args.token_env, "")
+    if not token:
+        return stop("authenticated GitHub REST read token absent")
+    native = GitHubActionsTransport(repository, token)
+    result = evaluate_live_scoped_wake(
+        native, repository=repository, run_id=run_id,
+        run_attempt=run_attempt,
+    )
+    # Verify main has not moved relative to the caller's checked-out code.
+    if result.candidate and result.head_sha != sha:
+        return stop("scope source differs from executable checkout")
+    # Never echo secrets or write to any GitHub endpoint.
+    print("SCOPED_BOOTSTRAP=" + result.status)
+    print(json.dumps({
+        "status": result.status,
+        "work_id": result.work_id,
+        "reason": result.reason,
+        "run_id": result.run_id,
+        "source_head_sha": result.head_sha,
+        "dispatch_authorized": False,
+        "admission_write": None,
+        "state_write": None,
+        "execution_command": None,
+    }, sort_keys=True))
+    return 0 if result.candidate else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
