@@ -1443,11 +1443,21 @@ class SamuelController:
         pending: list[BootstrapWork],
         issue: dict[str, Any] | None = None,
         repository_context: dict[str, Any] | None = None,
+        progress_context: dict[str, Any] | None = None,
         foreign_snapshot: CrossRepositoryIssueSnapshot | None = None,
         foreign_context: dict[str, Any] | None = None,
         foreign_ledger: ForeignWorkState | None = None,
         foreign_policy: dict[str, Any] | None = None,
     ) -> ControllerCycle:
+        if progress_context is not None and (
+            foreign_snapshot is not None
+            or foreign_context is not None
+            or foreign_ledger is not None
+            or foreign_policy is not None
+        ):
+            raise ControllerCompositionError(
+                "progress resume cannot bypass foreign repository admission"
+            )
         if foreign_snapshot is not None:
             # A separate authenticated ingestion workflow must independently
             # reconstruct the snapshot on EACH foreign cycle. Source-native
@@ -1490,6 +1500,42 @@ class SamuelController:
             )
 
         state = load_state_comment(comments)
+        if progress_context is not None:
+            # Explicit read-only consumer invocation. The scheduled bootstrap
+            # never supplies this context, so legacy selection is unchanged.
+            if state is None or state.progress_checkpoint is None:
+                raise ControllerCompositionError(
+                    "progress resume requires durable structured state"
+                )
+            if (
+                not isinstance(progress_context, dict)
+                or set(progress_context) != {
+                    "plan_sha256", "policy_sha256", "live_inputs", "gate_states",
+                }
+            ):
+                raise ControllerCompositionError("invalid progress resume context")
+            from .progress_resume import evaluate_resume
+            try:
+                resumed = evaluate_resume(
+                    state,
+                    plan_sha256=progress_context["plan_sha256"],
+                    policy_sha256=progress_context["policy_sha256"],
+                    live_inputs=progress_context["live_inputs"],
+                    gate_states=progress_context["gate_states"],
+                )
+            except ValueError as exc:
+                raise ControllerCompositionError(
+                    "progress resume validation failed: " + str(exc)
+                ) from exc
+            return ControllerCycle(
+                trigger,
+                {
+                    "kind": "progress_resume",
+                    "work_id": state.research_id,
+                    **resumed,
+                },
+                None,
+            )
         rollover_source_state: ResearchState | None = None
         admitted, admission_comment_id = _admission_state(comments)
         admission_write = None

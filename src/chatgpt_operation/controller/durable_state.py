@@ -11,7 +11,8 @@ from typing import Any
 from .research import ResearchState, StateRetirement
 
 STATE_MARKER = "<!-- samuel-controller-state -->"
-STATE_SCHEMA_VERSION = 4
+STATE_SCHEMA_VERSION = 5
+STATE_PRE_PROGRESS_SCHEMA_VERSION = 4
 STATE_ENCODING = "zlib+base64"
 STATE_INLINE_THRESHOLD = 48_000
 STATE_SAFE_COMMENT_LIMIT = 240_000
@@ -33,8 +34,13 @@ def encode_state(state: ResearchState) -> str:
     """Encode durable state, compressing large ledgers without discarding evidence."""
     payload = asdict(state)
     payload["stage"] = state.stage.value
+    schema_version = (
+        STATE_SCHEMA_VERSION
+        if state.progress_checkpoint is not None
+        else STATE_PRE_PROGRESS_SCHEMA_VERSION
+    )
     envelope = {
-        "schema_version": STATE_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "research_id": state.research_id,
         "revision": state.revision,
         "state": payload,
@@ -49,7 +55,7 @@ def encode_state(state: ResearchState) -> str:
     compressed = zlib.compress(raw, level=9)
     encoded = base64.b64encode(compressed).decode("ascii")
     compact = _state_body({
-        "schema_version": STATE_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "research_id": state.research_id,
         "revision": state.revision,
         "encoding": STATE_ENCODING,
@@ -114,7 +120,9 @@ def decode_state(body: str) -> ResearchState:
         envelope = json.loads(body[start + 7:end].strip())
     except json.JSONDecodeError as exc:
         raise DurableStateError("controller state JSON is invalid") from exc
-    if envelope.get("schema_version") not in {1, 2, 3, STATE_SCHEMA_VERSION}:
+    if envelope.get("schema_version") not in {
+        1, 2, 3, STATE_PRE_PROGRESS_SCHEMA_VERSION, STATE_SCHEMA_VERSION,
+    }:
         raise DurableStateError("unsupported controller state schema")
     encoding=envelope.get("encoding")
     if encoding is None:
@@ -125,6 +133,11 @@ def decode_state(body: str) -> ResearchState:
         raw=_decode_compressed_state(envelope.get("state"))
     else:
         raise DurableStateError("unsupported controller state encoding")
+    if (
+        envelope["schema_version"] < STATE_SCHEMA_VERSION
+        and raw.get("progress_checkpoint") is not None
+    ):
+        raise DurableStateError("progress checkpoint requires state schema v5")
     if envelope.get("research_id") != raw.get("research_id"):
         raise DurableStateError("controller state research_id mismatch")
     if envelope.get("revision") != raw.get("revision"):
@@ -151,6 +164,13 @@ def decode_state(body: str) -> ResearchState:
             StateRetirement.from_dict(raw["retirement"])
             if raw.get("retirement") is not None
             else None
+        ),
+        progress_checkpoint=(
+            None if raw.get("progress_checkpoint") is None
+            else __import__(
+                "chatgpt_operation.controller.progress_resume",
+                fromlist=["validate_checkpoint"],
+            ).validate_checkpoint(raw["progress_checkpoint"])
         ),
     )
 

@@ -206,6 +206,8 @@ class ResearchState:
     last_reasoning_head_sha: str | None = None
     predispatch_failures: dict[str, dict[str, Any]] = field(default_factory=dict)
     retirement: StateRetirement | None = None
+    # Verified read-only unit progress; serialized in the existing durable ledger.
+    progress_checkpoint: dict[str, Any] | None = None
 
     def transition(self, target: ResearchStage, *, execution_evidence: bool = False) -> None:
         if target not in ALLOWED_TRANSITIONS[self.stage]:
@@ -262,6 +264,13 @@ class ResearchState:
                 StateRetirement.from_dict(raw["retirement"])
                 if raw.get("retirement") is not None
                 else None
+            ),
+            progress_checkpoint=(
+                None if raw.get("progress_checkpoint") is None
+                else __import__(
+                    "chatgpt_operation.controller.progress_resume",
+                    fromlist=["validate_checkpoint"],
+                ).validate_checkpoint(raw["progress_checkpoint"])
             ),
         )
 

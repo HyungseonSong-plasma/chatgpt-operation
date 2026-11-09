@@ -8,6 +8,7 @@ from pathlib import Path
 from chatgpt_operation.controller.lifecycle import LifecycleError, evaluate as evaluate_controller, self_test as controller_self_test
 from chatgpt_operation.controller.throughput import ThroughputError, evaluate as evaluate_throughput, self_test as throughput_self_test
 from chatgpt_operation.controller.state_refresh import StateRefreshError, evaluate as evaluate_state_refresh, self_test as state_refresh_self_test
+from chatgpt_operation.controller.progress_resume import ProgressResumeError, evaluate_resume
 from chatgpt_operation.controller.scientific_discriminator import ScientificDiscriminatorError, load_plan as load_discriminator_plan, summary as summarize_discriminator_plan
 from chatgpt_operation.github.actions_observation import evaluate as evaluate_actions_observation
 from chatgpt_operation.github.actions_execution import ActionsExecutionError, evaluate as evaluate_actions_execution, self_test as actions_execution_self_test
@@ -594,12 +595,19 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             reasoning_enabled=reasoning_enabled,
             reasoning_trusted_author=trusted_author or None,
         )
+        progress_context=None
+        progress_context_path=getattr(args,"progress_context",None)
+        if progress_context_path:
+            progress_context=json.loads(
+                Path(progress_context_path).read_text(encoding="utf-8")
+            )
         cycle=controller.run_cycle(
             trigger,
             comments=comments,
             pending=[],
             issue=issue,
             repository_context=repository_context,
+            progress_context=progress_context,
         )
         result=cycle.to_dict()
     except (
@@ -866,6 +874,40 @@ def controller_state_refresh(args: argparse.Namespace) -> int:
     return 0
 
 
+def controller_resume_progress(args: argparse.Namespace) -> int:
+    """Evaluate an existing Issue-backed progress checkpoint without writes."""
+    try:
+        comments=json.loads(Path(args.comments).read_text(encoding="utf-8"))
+        if not isinstance(comments,list):
+            raise ValueError("controller comments must be an array")
+        state=load_state_comment(comments)
+        if state is None:
+            raise ProgressResumeError("durable controller state is required")
+        snapshot=json.loads(Path(args.input).read_text(encoding="utf-8"))
+        if not isinstance(snapshot,dict) or set(snapshot)!={
+            "plan_sha256","policy_sha256","live_inputs","gate_states"
+        }:
+            raise ProgressResumeError("invalid resume input")
+        result=evaluate_resume(
+            state,
+            plan_sha256=snapshot["plan_sha256"],
+            policy_sha256=snapshot["policy_sha256"],
+            live_inputs=snapshot["live_inputs"],
+            gate_states=snapshot["gate_states"],
+        )
+    except (OSError,json.JSONDecodeError,ValueError,ProgressResumeError) as exc:
+        print(f"CONTROLLER_PROGRESS_RESUME=HARD_STOP {exc}",file=sys.stderr)
+        return 2
+    print("CONTROLLER_PROGRESS_RESUME="+result["status"])
+    print(json.dumps(result,sort_keys=True))
+    try:
+        persist(args.result,result)
+    except OSError as exc:
+        print(f"CONTROLLER_PROGRESS_RESUME=HARD_STOP output persistence: {exc}",file=sys.stderr)
+        return 3
+    return 0
+
+
 def controller_state_refresh_test(args: argparse.Namespace) -> int:
     try:
         return state_refresh_self_test()
@@ -1030,6 +1072,7 @@ def parser() -> argparse.ArgumentParser:
     crc.add_argument("--event-action",default="")
     crc.add_argument("--issue-json",default="null")
     crc.add_argument("--repository-context")
+    crc.add_argument("--progress-context")
     crc.add_argument("--head-sha",default="")
     crc.add_argument("--ref",default="")
     crc.add_argument("--executor-ref",default="")
@@ -1092,6 +1135,11 @@ def parser() -> argparse.ArgumentParser:
     csr=ctls.add_parser("state-refresh"); csr.add_argument("--input",required=True); csr.add_argument("--result")
     csr.set_defaults(func=controller_state_refresh)
     csrt=ctls.add_parser("state-refresh-self-test"); csrt.set_defaults(func=controller_state_refresh_test)
+    crp=ctls.add_parser("resume-progress")
+    crp.add_argument("--comments",required=True)
+    crp.add_argument("--input",required=True)
+    crp.add_argument("--result")
+    crp.set_defaults(func=controller_resume_progress)
     cdp=ctls.add_parser("validate-discriminator-plan"); cdp.add_argument("--input",required=True); cdp.add_argument("--result")
     cdp.set_defaults(func=controller_validate_discriminator_plan)
     return p
