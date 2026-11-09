@@ -595,12 +595,19 @@ def controller_run_cycle(args: argparse.Namespace) -> int:
             reasoning_enabled=reasoning_enabled,
             reasoning_trusted_author=trusted_author or None,
         )
+        progress_context=None
+        progress_context_path=getattr(args,"progress_context",None)
+        if progress_context_path:
+            progress_context=json.loads(
+                Path(progress_context_path).read_text(encoding="utf-8")
+            )
         cycle=controller.run_cycle(
             trigger,
             comments=comments,
             pending=[],
             issue=issue,
             repository_context=repository_context,
+            progress_context=progress_context,
         )
         result=cycle.to_dict()
     except (
@@ -1065,6 +1072,7 @@ def parser() -> argparse.ArgumentParser:
     crc.add_argument("--event-action",default="")
     crc.add_argument("--issue-json",default="null")
     crc.add_argument("--repository-context")
+    crc.add_argument("--progress-context")
     crc.add_argument("--head-sha",default="")
     crc.add_argument("--ref",default="")
     crc.add_argument("--executor-ref",default="")
