@@ -1,7 +1,7 @@
 import unittest
 
 from chatgpt_operation.github.native_executor import NativeGitHubAction
-from chatgpt_operation.github.native_runtime import GitHubNativeTransport
+from chatgpt_operation.github.native_runtime import GitHubNativeTransport, NativeGitHubRuntimeError
 
 
 class FakeTransport(GitHubNativeTransport):
@@ -18,6 +18,32 @@ class FakeTransport(GitHubNativeTransport):
         if not self.responses:
             raise AssertionError("unexpected transport call")
         return self.responses.pop(0)
+
+
+class SingleWriterIssue44NativeDenialTests(unittest.TestCase):
+    def test_issue44_comment_and_close_are_denied_before_any_rest_call(self):
+        for action in (NativeGitHubAction.COMMENT_ISSUE, NativeGitHubAction.CLOSE_ISSUE):
+            for operation in ("read_state", "mutate"):
+                with self.subTest(action=action.value, operation=operation):
+                    transport=FakeTransport([])
+                    with self.assertRaisesRegex(
+                        NativeGitHubRuntimeError, "reserved for the single durable state writer",
+                    ):
+                        getattr(transport, operation)(
+                            action,
+                            {"repository": transport.repository, "number": 44,
+                             "body": "untrusted"},
+                        )
+                    self.assertEqual(transport.calls, [])
+
+    def test_unrelated_issue_is_not_blocked(self):
+        transport=FakeTransport([{"state": "open"}])
+        result=transport.read_state(
+            NativeGitHubAction.CLOSE_ISSUE,
+            {"repository": transport.repository, "number": 267},
+        )
+        self.assertEqual(result["issue_state"], "open")
+        self.assertEqual(len(transport.calls), 1)
 
 
 class NativeGitHubRuntimeMergeTests(unittest.TestCase):
