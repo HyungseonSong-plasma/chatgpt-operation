@@ -112,11 +112,26 @@ def pages(root: str, *, maximum: int = 20) -> list[dict]:
 
 
 def all_issues():
-    first = pages("/issues?state=all&per_page=100")
-    second = pages("/issues?state=all&per_page=100")
-    if first != second:
-        raise RuntimeError("GitHub Issue inventory changed during readback")
-    return second
+    # Native listing is briefly eventually consistent following a real
+    # CREATE; unrelated Issue activity also changes timestamps. Compare
+    # only the complete, security-relevant sandbox projection, retrying
+    # boundedly WITHOUT performing a second Issue POST.
+    for _ in range(10):
+        first = pages("/issues?state=all&per_page=100")
+        second = pages("/issues?state=all&per_page=100")
+        target = lambda rows: [
+            {key: item.get(key) for key in (
+                "id", "number", "state", "title", "body", "labels", "url",
+            )}
+            for item in rows
+            if isinstance(item.get("body"), str)
+            and item["body"].startswith("<!-- samuel-live-282-child-v01:")
+        ]
+        a, b = target(first), target(second)
+        if a == b:
+            return second
+        time.sleep(1)
+    raise RuntimeError("GitHub sandbox Issue inventory did not converge")
 
 
 def comments():
