@@ -108,3 +108,5 @@ jobs:
               f"replay_skips={len(replay)} parent_state_patch=0"
           )
           PY
+
+# Intentional second isolated push: native-link duplicate/replay readback test.
