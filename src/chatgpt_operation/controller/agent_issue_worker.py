@@ -95,6 +95,8 @@ def produce_child_manifest(
     environment: Mapping[str, str], child_issue: int,
     unit_id: str, source_root: Path,
 ) -> dict[str, Any]:
+    if type(child_issue) is not int or child_issue <= 0 or child_issue == PARENT_ISSUE:
+        raise AgentWorkerError("invalid requested Child Issue number")
     run_id,sha=verified_worker_identity(reader,environment)
     assignment,_ = _assignment_for_child(reader,child_issue=child_issue)
     receipt=build_readonly_document_receipt(
@@ -109,6 +111,8 @@ def publish_child_manifest(
     environment: Mapping[str, str], child_issue: int,
     manifest: dict[str, Any],
 ) -> dict[str, Any]:
+    if type(child_issue) is not int or child_issue <= 0 or child_issue == PARENT_ISSUE:
+        raise AgentWorkerError("invalid requested Child Issue number")
     run_id,sha=verified_worker_identity(reader,environment)
     assignment,registry=_assignment_for_child(reader,child_issue=child_issue)
     if (
