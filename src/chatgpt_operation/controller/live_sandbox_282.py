@@ -67,13 +67,32 @@ def linked() -> list[dict]:
     if not isinstance(value, list):
         raise RuntimeError("sandbox native Sub-issue listing malformed")
     allowed = {x[0] for x in CHILDREN.values()}
-    numbers = {283, 284}
-    if (
-        len(value) != len({x.get("id") for x in value})
-        or any(not isinstance(x, dict) or x.get("id") not in allowed
-               or x.get("number") not in numbers for x in value)
-    ):
-        raise RuntimeError("sandbox Sub-issue inventory contains foreign links")
+    if len(value) != len({x.get("id") for x in value}) or len(value) > 22:
+        raise RuntimeError("sandbox Sub-issue inventory is ambiguous or overflowing")
+    for linked in value:
+        if not isinstance(linked, dict):
+            raise RuntimeError("sandbox native link is malformed")
+        if linked.get("id") in allowed:
+            if linked.get("number") not in CHILDREN:
+                raise RuntimeError("sandbox known native link identity was replaced")
+            continue
+        # The follow-up 20-Child qualification may extend this SAME
+        # isolated Parent with exact, non-admitted native Child identities.
+        number = linked.get("number")
+        if type(number) is not int or number <= 284:
+            raise RuntimeError("foreign native link under sandbox Parent")
+        full = api(f"/issues/{number}")
+        if full.get("id") != linked.get("id"):
+            raise RuntimeError("extended Child native identity mismatch")
+        body = full.get("body")
+        if (
+            full.get("state") != "open" or full.get("labels")
+            or not isinstance(body, str)
+            or not body.startswith("<!-- samuel-live-282-child-v01:agent-")
+            or not isinstance(full.get("title"), str)
+            or not full["title"].startswith("[qualification sandbox #282] Agent unit ")
+        ):
+            raise RuntimeError("foreign or admitted Child in native sandbox links")
     return value
 
 
@@ -109,8 +128,8 @@ def main() -> int:
         if not confirmed:
             raise RuntimeError("unknown ACK; refusing duplicate native link POST")
     final = linked()
-    if {row["id"] for row in final} != {v[0] for v in CHILDREN.values()}:
-        raise RuntimeError("native Sub-issue forward relation differs")
+    if not {v[0] for v in CHILDREN.values()}.issubset({row["id"] for row in final}):
+        raise RuntimeError("original native Sub-issue forward relation missing")
     for number in CHILDREN:
         parent = api(f"/issues/{number}/parent")
         if not isinstance(parent, dict) or parent.get("id") != PARENT[1]:
