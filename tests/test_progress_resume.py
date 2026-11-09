@@ -11,7 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chatgpt_operation.controller.durable_state import decode_state, encode_state
+from chatgpt_operation.controller.durable_state import (
+    decode_state, encode_state, state_write_request,
+    validate_state_write_precondition,
+)
+from chatgpt_operation.cli import main as cli_main
 from chatgpt_operation.controller.progress_resume import (
     ProgressResumeError,
     attach_checkpoint,
@@ -208,6 +212,54 @@ class ProgressResumeTests(unittest.TestCase):
             reconcile_progress_conflict(base, changed_policy, proposed)[0],
             "BLOCK_SCOPE_CHANGED",
         )
+
+    def test_existing_issue_ledger_can_be_consumed_by_read_only_cli(self):
+        state = finish(setup(), "scan/a.md", {"inbound_links": 3})
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            comments_file = folder / "comments.json"
+            input_file = folder / "input.json"
+            output_file = folder / "out.json"
+            comments_file.write_text(
+                json.dumps([{"id": 44, "body": encode_state(state)}]),
+                encoding="utf-8",
+            )
+            input_file.write_text(
+                json.dumps({
+                    "plan_sha256": sha("d"),
+                    "policy_sha256": sha("e"),
+                    "live_inputs": live(state),
+                    "gate_states": {"snapshot": "PASS"},
+                }),
+                encoding="utf-8",
+            )
+            exit_code = cli_main([
+                "controller", "resume-progress",
+                "--comments", str(comments_file),
+                "--input", str(input_file),
+                "--result", str(output_file),
+            ])
+            self.assertEqual(exit_code, 0)
+            output = json.loads(output_file.read_text(encoding="utf-8"))
+            self.assertEqual(output["status"], "READY")
+            self.assertEqual(output["completed"], [0])
+            self.assertEqual(output["ready"], [1, 2])
+
+    def test_conflict_requires_authoritative_read_then_explicit_rebase(self):
+        base = setup()
+        current = finish(base, "scan/a.md", {"a": 1})
+        proposed = finish(base, "scan/b.md", {"b": 2})
+        base_comments = [{"id": 44, "body": encode_state(base)}]
+        current_comments = [{"id": 44, "body": encode_state(current)}]
+        stale_request = state_write_request(base_comments, proposed)
+        with self.assertRaisesRegex(ValueError, "stale durable state precondition"):
+            validate_state_write_precondition(current_comments, stale_request)
+        disposition, rebased = reconcile_progress_conflict(base, current, proposed)
+        self.assertEqual(disposition, "MERGE_DISJOINT_PROPOSAL")
+        fresh_request = state_write_request(current_comments, rebased)
+        validate_state_write_precondition(current_comments, fresh_request)
+        self.assertEqual(fresh_request["expected_previous_revision"], current.revision)
+        self.assertEqual(fresh_request["expected_revision"], current.revision + 1)
 
     def test_invalid_progress_cannot_overwrite_existing_state(self):
         state = setup()
