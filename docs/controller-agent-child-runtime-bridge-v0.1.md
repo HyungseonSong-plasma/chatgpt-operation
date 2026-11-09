@@ -171,24 +171,24 @@ No existing global ResearchState or Issue Admission ledger was changed.
 ## Repository-owned scoped wake binding (next Draft gate; no production activation)
 
 The repository-owned candidate scope is checked in at
-\`automation/samuel/agent-child-scoped-preview-281.json\` with
-\`work_id=issue:281\`, \`mode=preview_only\`, and **\`enabled=false\`**.
+`automation/samuel/agent-child-scoped-preview-281.json` with
+`work_id=issue:281`, `mode=preview_only`, and **`enabled=false`**.
 It is neither a new scheduler nor an authorization to admit #281.
 
-\`scoped_wake_binding.py\` accepts **no externally selected work ID**.
+`scoped_wake_binding.py` accepts **no externally selected work ID**.
 It reads the candidate only from the checked-out repository-owned scope and
 requires a native authenticated GitHub Actions run readback matching the
-canonical \`samuel-bootstrap.yml\` path, \`workflow_dispatch\` event, actual
-repository, \`main\` ref, exact observed HEAD, in-flight run identity, and
+canonical `samuel-bootstrap.yml` path, `workflow_dispatch` event, actual
+repository, `main` ref, exact observed HEAD, in-flight run identity, and
 run attempt. Invalid or stale run evidence, a disabled policy, competing
-open \`samuel\` work, and existing global ResearchState ownership return
-\`BLOCKED_SCOPE\`.
+open `samuel` work, and existing global ResearchState ownership return
+`BLOCKED_SCOPE`.
 
-The optional \`SamuelController.run_cycle(scoped_repository_policy=...)\`
-**always** returns either \`scoped_preview\` or \`blocked_scope\` with
-\`dispatch_authorized=false\` and **no** Admission write, ResearchState
+The optional `SamuelController.run_cycle(scoped_repository_policy=...)`
+**always** returns either `scoped_preview` or `blocked_scope` with
+`dispatch_authorized=false` and **no** Admission write, ResearchState
 write, Issue planning, or execution command. The current production
-\`samuel-bootstrap.yml\` does **not** load this preview configuration,
+`samuel-bootstrap.yml` does **not** load this preview configuration,
 supply a verified native run reader or enable scoped execution. Those
 connections require a separately governed workflow/activation change.
 The external scheduler's contract remains canonical wake-only; it never
