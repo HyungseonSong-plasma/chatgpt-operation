@@ -40,8 +40,8 @@ def evidence_zip(receipt, extra=None):
 
 def fixtures():
     assignment=make_assignment(
-        repository=REPO,parent_issue=44,child_issue=123,
-        agent_id="agent-a",work_id="issue:44",
+        repository=REPO,parent_issue=400,child_issue=123,
+        agent_id="agent-a",work_id="issue:400",
         plan_sha256=sha(b"plan"),policy_sha256=sha(b"policy"),
         source_head_sha=HEAD,
         units=[{"id":"docs/example.md","input_sha256":sha(b"doc"),
