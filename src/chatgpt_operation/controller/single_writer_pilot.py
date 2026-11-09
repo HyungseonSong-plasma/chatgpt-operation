@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 from .durable_state import load_state_comment, state_write_request
@@ -230,6 +229,9 @@ def plan_progress_write(
     for field in ("work_id", "unit_id", "input_sha256", "outcome", "detail_sha256"):
         if trusted.get(field) != raw[field]:
             raise SingleWriterError("source evidence does not attest requested result")
+    # Source provenance alone does not prove the current consumer policy.
+    # The writer must source live_gate_states from its OWN trusted policy
+    # evaluator, not from the worker or the attached artifact.
     # Do not accept worker-submitted gates, policy or evidence conclusions.
     try:
         proposal = record_verified_unit(
