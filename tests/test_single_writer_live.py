@@ -266,6 +266,17 @@ class SingleWriterLiveTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveEvidenceError, "duplicate ID"):
             read_stable_issue_comments(duplicate, issue_number=44)
 
+    def test_unbounded_comment_history_is_not_partially_processed(self):
+        history = [
+            {"id": index + 1, "body": "historical comment",
+             "user": {"login": "github-actions[bot]"}}
+            for index in range(2001)
+        ]
+        with self.assertRaisesRegex(LiveEvidenceError, "exceeds safety bound"):
+            read_stable_issue_comments(
+                GithubTransport(comments=history), issue_number=44,
+            )
+
     def test_full_inbox_to_trusted_zip_to_read_only_write_plan(self):
         intent, run, artifacts, archive, _ = fixture()
         cp = create_checkpoint(
