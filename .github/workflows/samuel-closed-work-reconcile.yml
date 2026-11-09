@@ -1,0 +1,42 @@
+name: Samuel Closed Work Reconciliation #255/#256 (Owner Controlled)
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: samuel-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: ${{ github.repository == 'HyungseonSong-plasma/chatgpt-operation' && github.ref == 'refs/heads/main' && github.event.issue.number == 255 && github.event.comment.user.login == 'HyungseonSong-plasma' && startsWith(github.event.comment.body, '<!-- samuel-closed-work-reconcile-release-v1 -->') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact main provenance with no persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prove exact main and local reconciliation tests
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = "refs/heads/main"
+          python3 -m unittest discover -s tests -p 'test_closed_work*.py' -q
+      - name: Owner-attested global StateKernel and terminal Admission reconciliation
+        shell: bash
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.closed_work_reconcile_native
