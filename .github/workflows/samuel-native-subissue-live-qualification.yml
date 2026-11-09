@@ -1,0 +1,110 @@
+name: Samuel Native Sub-issue LIVE Qualification (Isolated)
+
+on:
+  push:
+    branches:
+      - samuel/live-native-subissue-qualification-v01
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: samuel-native-subissue-sandbox-278
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: ${{ github.repository == 'HyungseonSong-plasma/chatgpt-operation' && github.ref == 'refs/heads/samuel/live-native-subissue-qualification-v01' && github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify exact isolated identities then call official Sub-issue REST API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import subprocess
+          import time
+
+          REPO = "HyungseonSong-plasma/chatgpt-operation"
+          PARENT = 278
+          CHILDREN = {279: 6286587236, 280: 6286589380}
+          EXPECTED_TITLES = {
+              278: "[qualification sandbox] native GitHub Sub-issue Parent (no Samuel admission)",
+              279: "[qualification sandbox] native Child Alpha for isolated Parent #278",
+              280: "[qualification sandbox] native Child Beta for isolated Parent #278",
+          }
+
+          def api(path, *, method=None, fields=None):
+              command = ["gh", "api", "-H", "Accept: application/vnd.github+json",
+                         "-H", "X-GitHub-Api-Version: 2026-03-10"]
+              if method:
+                  command.extend(["--method", method])
+              for key, value in (fields or {}).items():
+                  command.extend(["-F", f"{key}={value}"])
+              command.append(f"repos/{REPO}{path}")
+              answer = subprocess.check_output(command, text=True)
+              return json.loads(answer)
+
+          for number, title in EXPECTED_TITLES.items():
+              issue = api(f"/issues/{number}")
+              assert issue["number"] == number
+              assert issue["title"] == title
+              assert issue["state"] == "open"
+              assert not issue.get("labels"), "sandbox must not carry 'samuel' admission"
+              assert "pull_request" not in issue
+              if number in CHILDREN:
+                  assert issue["id"] == CHILDREN[number], "Child internal ID changed"
+
+          def listing():
+              rows = api(f"/issues/{PARENT}/sub_issues?per_page=100&page=1")
+              assert isinstance(rows, list)
+              assert len(rows) == len({item["id"] for item in rows}), "duplicate subissue"
+              assert all(item["id"] in CHILDREN.values() for item in rows), (
+                  "unexpected relationship on isolated Parent"
+              )
+              return rows
+
+          created = []
+          for number, internal_id in CHILDREN.items():
+              current = listing()
+              if any(item["id"] == internal_id for item in current):
+                  continue
+              # This is the actual LIVE GitHub mutation under test.
+              # Deliberately discard the POST response to simulate lost ACK
+              # at the caller layer; re-read the server's original source.
+              api(f"/issues/{PARENT}/sub_issues", method="POST",
+                  fields={"sub_issue_id": internal_id})
+              created.append(number)
+              confirmed = False
+              for _ in range(8):
+                  if any(item["id"] == internal_id for item in listing()):
+                      confirmed = True
+                      break
+                  time.sleep(1)
+              assert confirmed, "POST result still UNKNOWN; no blind retry"
+
+          final = listing()
+          assert {i["number"] for i in final} == set(CHILDREN)
+          assert {i["id"] for i in final} == set(CHILDREN.values())
+          for number, internal_id in CHILDREN.items():
+              parent = api(f"/issues/{number}/parent")
+              assert parent["number"] == PARENT
+              assert parent["id"] == 6286580617
+              assert internal_id in {i["id"] for i in final}
+          # Recovery/replay: only read the live links and plan no new POST.
+          replay = []
+          for number, internal_id in CHILDREN.items():
+              if any(i["id"] == internal_id for i in listing()):
+                  replay.append(number)
+          assert set(replay) == set(CHILDREN)
+          print(
+              f"NATIVE_SUBISSUE_LIVE=PASS parent={PARENT} children={sorted(CHILDREN)} "
+              f"created_this_run={len(created)} reverse_parents=2 "
+              f"replay_skips={len(replay)} parent_state_patch=0"
+          )
+          PY
