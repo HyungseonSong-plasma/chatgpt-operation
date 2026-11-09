@@ -46,6 +46,15 @@ issue labels, schedules, secrets or repository security settings.
    `mode=preview_only`, **`enabled=false`**. This cannot start work,
    even if externally triggered. CI simulation with `enabled=true` tests
    the candidate algorithm only; it is not production deployment.
+6. `agent_issue_durable_executor.py`: one-step Child executor prototype
+   persisting immutable Parent operation intents before CREATE, FINALIZE,
+   native LINK, and parent RECORD. Stable read-after confirmation is
+   required for advancement; ambiguous/unknown ACKs **block** without a
+   second uncertain create. It is not callable from the deployed Bootstrap
+   and lacks a production-bound exclusive writer lease. Offline tests
+   include 20 serial Child allocations, 20 replays, lost ACK before/after
+   remote creation and a simulated hard exit. Not a real SIGKILL or 20
+   concurrent GitHub Actions acceptance test.
 
 All Draft-only testing and readback are *separate* from proof of actual
 20-Child, lost-ACK, process SIGKILL, and security isolation in GitHub Actions.
@@ -58,7 +67,7 @@ All Draft-only testing and readback are *separate* from proof of actual
 | B. #256 diagnostic disposition | Human-accepted diagnostic classification / terminal Issue decision, no forged A/B provider success; current `samuel` Admission resolved via normal lifecycle | **BLOCKED** — open and admitted |
 | C. Secure production bootstrap entrypoint | Separate, privileged, reviewable change to `.github/workflows/samuel-bootstrap.yml`, **before heartbeat or any other write**, with authenticated in-run exact-HEAD scope check and no external work selection, including replay/recursive dispatch paths | **BLOCKED** — workflow mutation denied by the ordinary repository-mutation policy; separate approval required |
 | D. #281 Admission | Exact live work Parent and `samuel` label only **after** A/B/C are satisfied; stable ledger write through canonical admission owner | **BLOCKED** — no label and not admitted |
-| E. Child writer | Bootstrap-exclusive verified provisioning intent, create ACK ambiguity handling, native link and provenance; 20 live Child qualification, crash and concurrency tests | **NOT PROVEN** in production |
+| E. Child writer | Intent-first API executor is Draft-implemented and mock-tested (20 Child replay, uncertain ACK blocking). Bind it to authenticated exclusive Bootstrap authority, qualify actual native linkage, real process SIGKILL, live 20-agent concurrency and provenance | **DRAFT COMPLETE / LIVE NOT PROVEN** |
 | F. Promotion | Exact integrated HEAD tests, applicable protected branch rules, explicit merging and production activation approval | **BLOCKED** |
 
 **Independent technical review:** explicitly waived for the bounded Draft
