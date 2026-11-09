@@ -12,7 +12,9 @@ import re
 from typing import Any, Callable, Mapping, Protocol
 from zipfile import BadZipFile, ZipFile
 
-from .single_writer_pilot import SingleWriterError, validate_intent
+from .single_writer_pilot import (
+    SingleWriterError, plan_progress_write, read_inbox, validate_intent,
+)
 
 _MAX_ARCHIVE = 600_000
 _MAX_MANIFEST = 200_000
@@ -232,3 +234,46 @@ def verify_github_progress_source(
         "outcome": proposal["outcome"],
         "detail_sha256": proposal["detail_sha256"],
     }
+
+def qualify_next_inbox_request(
+    transport: GithubRead,
+    *,
+    issue_number: int,
+    read_artifact_zip: Callable[[int], bytes],
+    trusted_comment_authors: frozenset[str],
+    trusted_actor: str,
+    expected_repository: str,
+    trusted_workflows: frozenset[str],
+    approved_main_sha: str,
+    live_gate_states: Mapping[str, str],
+) -> dict[str, Any]:
+    """Find the first independently verified request, with no Issue mutations.
+
+    The caller is an exclusive writer; the returned write request is only
+    a proposal and MUST pass persist_state_write() precondition + readback.
+    """
+    comments = read_stable_issue_comments(transport, issue_number=issue_number)
+    inbox = read_inbox(comments, trusted_authors=trusted_comment_authors)
+    if not inbox:
+        return {"status": "IDLE", "request_id": None, "state_write": None}
+    for intent in inbox:
+        verified = lambda _source: verify_github_progress_source(
+            intent,
+            transport=transport,
+            read_artifact_zip=read_artifact_zip,
+            expected_repository=expected_repository,
+            trusted_workflows=trusted_workflows,
+            trusted_actor=trusted_actor,
+            approved_main_sha=approved_main_sha,
+        )
+        proposal = plan_progress_write(
+            comments, intent,
+            verify_source=verified,
+            allowed_repository=expected_repository,
+            allowed_workflows=trusted_workflows,
+            live_gate_states=live_gate_states,
+        )
+        if proposal["status"] == "ALREADY_APPLIED":
+            continue
+        return proposal
+    return {"status": "COMPLETE", "request_id": None, "state_write": None}
