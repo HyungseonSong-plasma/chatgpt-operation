@@ -121,8 +121,11 @@ def make_assignment(
 
 def validate_parent_registry(assignments: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """Parent-owned assignments, independently obtained from trusted authority."""
-    if not isinstance(assignments, (tuple, list)) or len(assignments) > _MAX_AGENTS:
-        raise AgentIssueError("bounded authoritative parent registry required")
+    if (
+        not isinstance(assignments, (tuple, list))
+        or not 0 < len(assignments) <= _MAX_AGENTS
+    ):
+        raise AgentIssueError("bounded nonempty authoritative parent registry required")
     checked = [validate_assignment(item) for item in assignments]
     if len({x["assignment_id"] for x in checked}) != len(checked):
         raise AgentIssueError("duplicate parent assignment")
