@@ -14,6 +14,9 @@ permissions:
 concurrency:
   group: samuel-bootstrap
   cancel-in-progress: false
+  # Avoid replacing older pending writer runs. Producers must still retry
+  # until authoritative intake acknowledgement; the queue is bounded.
+  queue: max
 
 jobs:
   wake:
