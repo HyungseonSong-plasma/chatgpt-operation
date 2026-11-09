@@ -145,7 +145,7 @@ class WorkflowPrivilegeInventoryTests(unittest.TestCase):
         observed = set()
         for path in sorted(Path(".github/workflows").glob("*.yml")):
             content = path.read_text(encoding="utf-8")
-            if "issues: write" in content.splitlines():
+            if any(line.strip() == "issues: write" for line in content.splitlines()):
                 observed.add(path.name)
             if path.name != "samuel-bootstrap.yml":
                 self.assertNotIn("controller persist-state", content)
