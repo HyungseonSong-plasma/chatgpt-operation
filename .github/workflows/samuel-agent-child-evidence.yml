@@ -1,0 +1,70 @@
+name: Samuel Agent Child Evidence
+run-name: samuel-agent-child-evidence:child-${{ inputs.child_issue }}-run-${{ github.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      child_issue:
+        description: Exact parent-allocated Child Issue number (not parent #44)
+        required: true
+        type: number
+      unit_id:
+        description: Approved Child unit (read-only docs/*.md)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  # Child-specific serialization. Independent agents are intentionally
+  # parallel; one Child never has overlapping physical worker attempts.
+  group: samuel-agent-child-${{ inputs.child_issue }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  proof:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'HyungseonSong-plasma' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact approved source with no persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm exact repository commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify parent allocation and produce read-only Child evidence
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_CHILD_ISSUE: ${{ inputs.child_issue }}
+          SAMUEL_UNIT_ID: ${{ inputs.unit_id }}
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.agent_issue_worker produce \
+            --child "$SAMUEL_CHILD_ISSUE" \
+            --unit "$SAMUEL_UNIT_ID" \
+            --output agent-receipt.json
+      - name: Upload immutable, run-bound Child evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-agent-child-evidence-${{ github.run_id }}
+          path: agent-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Append receipt to ONLY the allocated Child Issue
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_CHILD_ISSUE: ${{ inputs.child_issue }}
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.agent_issue_worker publish \
+            --child "$SAMUEL_CHILD_ISSUE" --output agent-receipt.json

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository": "HyungseonSong-plasma/chatgpt-operation",
+  "workflow": "samuel-bootstrap.yml",
+  "ref": "main",
+  "work_id": "issue:281",
+  "mode": "preview_only",
+  "enabled": false
+}

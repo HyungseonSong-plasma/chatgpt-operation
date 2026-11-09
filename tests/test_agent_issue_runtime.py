@@ -32,8 +32,8 @@ def setup_agents(n=3, units_each=2):
             for j in range(units_each)
         ]
         assignments.append(make_assignment(
-            repository=REPO, parent_issue=44, child_issue=1000+i,
-            agent_id=f"agent-{i:02}", work_id="issue:44",
+            repository=REPO, parent_issue=400, child_issue=1000+i,
+            agent_id=f"agent-{i:02}", work_id="issue:400",
             plan_sha256=sha("approved-plan"), policy_sha256=sha("approved-policy"),
             source_head_sha="a"*40, units=units,
         ))

@@ -8,9 +8,13 @@ not rollout prerequisites** of this partition scheme.
 
 ## Ownership model
 
-- **Parent controller (Issue #44):** one authoritative Samuel Bootstrap owns
-  approved task allocation, policy, accepted cross-agent results and final
-  human/merge gate. Only parent can advance parent `ResearchState`.
+- **Global Controller (closed Issue #44):** Samuel Bootstrap remains sole
+  owner of global `ResearchState`, workflow coordination and final approval.
+  The global Issue must NOT be reused as a new Agent work Parent.
+- **Task Parent (separate admitted, open `samuel` Issue):** owns one
+  approved work ID (`issue:<parent_number>`), Agent assignments and a
+  GitHub-native Sub-issue relationship for every Child. Only Bootstrap
+  creates links and appends task-parent allocation receipts.
 - **One Child Issue per active agent assignment:** parent creates or approves
   each Child, pins the exact agent ID, work ID, plan/policy SHA-256, source
   HEAD and ordered work units. Owner assignment is verified against a
@@ -25,22 +29,23 @@ not rollout prerequisites** of this partition scheme.
   and returns `READY_FOR_PARENT_REVIEW`, `WAIT_CHILDREN` or `BLOCKED`.
   **No automatic parent revision, dispatch, PR merge or human approval.**
 
-Do not copy the parent's entire mutable `ResearchState` to each Child.
+Do not copy the global `ResearchState` into the work Parent or Child.
 Only copy the **scoped immutable assignment** and its source/policy identity.
-For UI discoverability, a native GitHub Sub-issue relationship may be added
-by the trusted parent separately; a textual link is not sufficient for
-authorization. The current qualification checks independently verified
-assignment + Child Issue number/URL/body and leaves native sub-issue linking
-and Parent registry persistence **unwired**.
+The native GitHub Sub-issue relationship is an **authority requirement**,
+not decorative UI. The stacked runtime bridge in Draft PR #277 now plans
+Child creation, finalization, native linking and append-only parent
+registration with crash/restart reconciliation, but has **not enabled
+production creation, linking or dispatch**.
 
 An example, not a currently existing issue mapping:
 
 ```text
-Issue #44 (parent, Bootstrap-only coordination & approvals)
+Issue #44 (closed global Controller state — unchanged)
+Open work Parent #300 (samuel-labelled, Bootstrap-approved)
   Child #301 (Agent A)   -> append-only receipts A/1, A/2...
   Child #302 (Agent B)   -> append-only receipts B/1, B/2...
   Child #303 (Agent C)   -> append-only receipts C/1, C/2...
-  Parent verifier        -> read-only referenced evidence + final review
+  Task Parent verifier  -> read-only evidence + final human review
 ```
 
 ## Important invariants
