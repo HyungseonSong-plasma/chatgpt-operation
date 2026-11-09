@@ -167,9 +167,43 @@ the existing #255 and #256 ownership gates through their own authorities,
 and activating the new path each require separate review/approval.
 No existing global ResearchState or Issue Admission ledger was changed.
 
+
+## Repository-owned scoped wake binding (next Draft gate; no production activation)
+
+The repository-owned candidate scope is checked in at
+\`automation/samuel/agent-child-scoped-preview-281.json\` with
+\`work_id=issue:281\`, \`mode=preview_only\`, and **\`enabled=false\`**.
+It is neither a new scheduler nor an authorization to admit #281.
+
+\`scoped_wake_binding.py\` accepts **no externally selected work ID**.
+It reads the candidate only from the checked-out repository-owned scope and
+requires a native authenticated GitHub Actions run readback matching the
+canonical \`samuel-bootstrap.yml\` path, \`workflow_dispatch\` event, actual
+repository, \`main\` ref, exact observed HEAD, in-flight run identity, and
+run attempt. Invalid or stale run evidence, a disabled policy, competing
+open \`samuel\` work, and existing global ResearchState ownership return
+\`BLOCKED_SCOPE\`.
+
+The optional \`SamuelController.run_cycle(scoped_repository_policy=...)\`
+**always** returns either \`scoped_preview\` or \`blocked_scope\` with
+\`dispatch_authorized=false\` and **no** Admission write, ResearchState
+write, Issue planning, or execution command. The current production
+\`samuel-bootstrap.yml\` does **not** load this preview configuration,
+supply a verified native run reader or enable scoped execution. Those
+connections require a separately governed workflow/activation change.
+The external scheduler's contract remains canonical wake-only; it never
+selects #281 itself.
+
+Existing Issue #255's escalated ResearchState and Issue #256's admitted
+queue entry are preserved. They must be resolved through their own
+authorities before #281 can be exclusively admitted and worked. Neither
+the independent-review waiver nor passing unit tests permits bypassing
+these existing gates. Recheck the branch head and global state before
+any future execution or merge authorization.
+
 ## Promotion checklist
 
-1. Exact-head CI, independent technical review and model security review.
+1. Exact-head CI. The user explicitly waived the **independent technical review** gate for this bounded Draft continuation on 2026-11-09; do not imply that a review was performed. This does not waive model/security approval, required protected-branch controls, PR merge authorization or production activation.
 2. Bootstrap-exclusive, durable intent/ack executor for the proposed
    CREATE/FINALIZE/LINK/REGISTER steps, with full GitHub API readback.
 3. Isolated live API test: real native Sub-issue links, 20 producers,
