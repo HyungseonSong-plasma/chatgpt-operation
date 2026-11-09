@@ -301,7 +301,7 @@ class SingleWriterPilotTests(unittest.TestCase):
             read_inbox([
                 {"id": 6, "user": {"login": "external"}, "body": body},
             ], trusted_authors=frozenset({"github-actions[bot]"}))
-        with self.assertRaisesRegex(SingleWriterError, "inbox marker"):
+        with self.assertRaisesRegex(SingleWriterError, "inbox comment marker"):
             decode_inbox_comment(body.replace("state-write-intent-v1:", "state-write-intent-v2:"))
         changed = copy.deepcopy(intent)
         changed["source"]["run_id"] += 1
