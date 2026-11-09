@@ -175,5 +175,42 @@ class ScopedWorkGateTests(unittest.TestCase):
         self.assertIsNone(cycle.admission_write)
 
 
+    def test_safe_candidate_root_is_preview_only_and_cannot_dispatch(self):
+        comments, context = fixture()
+        controller = SamuelController(decisions=DecisionRegistry())
+        trigger = ControllerTrigger(
+            TriggerKind.WORKFLOW_DISPATCH,
+            action="", head_sha=SHA, ref="refs/heads/main",
+            executor_ref="main", executor_head_sha=SHA,
+        )
+        cycle = controller.run_cycle(
+            trigger, comments=comments, pending=[],
+            repository_context=context, requested_work_id="issue:281",
+        )
+        self.assertEqual(cycle.selected_work["kind"], "scoped_preview")
+        self.assertFalse(cycle.selected_work["dispatch_authorized"])
+        self.assertIsNone(cycle.issue_planning)
+        self.assertIsNone(cycle.admission_write)
+        self.assertIsNone(cycle.state_write)
+        self.assertIsNone(cycle.execution_command)
+
+    def test_invalid_scope_binding_is_blocked_before_root_side_effects(self):
+        comments, context = fixture()
+        controller = SamuelController(decisions=DecisionRegistry())
+        trigger = ControllerTrigger(
+            TriggerKind.WORKFLOW_DISPATCH,
+            action="", head_sha=SHA, ref="refs/heads/main",
+            executor_ref="main", executor_head_sha=SHA,
+        )
+        cycle = controller.run_cycle(
+            trigger, comments=comments, pending=[],
+            repository_context=context, requested_work_id="issue:0",
+        )
+        self.assertEqual(cycle.selected_work["kind"], "blocked_scope")
+        self.assertIsNone(cycle.admission_write)
+        self.assertIsNone(cycle.state_write)
+        self.assertIsNone(cycle.execution_command)
+
+
 if __name__ == "__main__":
     unittest.main()
