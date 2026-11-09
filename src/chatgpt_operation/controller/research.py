@@ -153,7 +153,7 @@ class StateRetirement:
             raise ResearchStateError("retirement schema_version must be 1")
         if self.status != "retired":
             raise ResearchStateError("retirement status must be retired")
-        if self.reason != "closed_quiescent_unexecuted_workload":
+        if self.reason not in {"closed_quiescent_unexecuted_workload", "externally_reconciled_no_mutation"}:
             raise ResearchStateError("unsupported retirement reason")
         if (
             not isinstance(self.issue_number, int)

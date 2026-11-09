@@ -201,11 +201,89 @@ def is_quiescent_unexecuted_state(state: ResearchState) -> bool:
     return _quiescent_execution_surfaces(state) and state.retirement is None
 
 
+def _external_noop_retirement_attested(state: ResearchState) -> bool:
+    """Preserve historical escalation verbatim, but recognize a closed, proven NOOP.
+
+    This is NOT a successful reasoning or GitHub mutation receipt. The proof
+    was produced by a trusted native GitHub reader before the StateKernel's
+    optimistic state write. The validation here keeps that proof bound to the
+    originally escalated failure, owner comment and exact missing ref.
+    """
+    import hashlib
+    import re
+
+    retirement = state.retirement
+    if (
+        retirement is None
+        or retirement.reason != "externally_reconciled_no_mutation"
+        or state.research_id != f"issue:{retirement.issue_number}"
+        or retirement.retired_from_revision + 1 != state.revision
+        or state.action_queue or state.execution_results
+        or _has_unresolved_recovery(state)
+        or len(state.predispatch_failures) != 1
+    ):
+        return False
+    fingerprint, failure = next(iter(state.predispatch_failures.items()))
+    if (
+        not isinstance(failure, dict)
+        or failure.get("fingerprint") != fingerprint
+        or failure.get("work_id") != state.research_id
+        or failure.get("status") != "escalated"
+    ):
+        return False
+    digest = hashlib.sha256(json.dumps(
+        failure, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    evidence = [
+        x for x in state.inherited_evidence
+        if isinstance(x, dict)
+        and x.get("kind") == "external_noop_retirement_v1"
+    ]
+    if len(evidence) != 1:
+        return False
+    proof = evidence[0]
+    required = {
+        "kind", "schema_version", "repository", "work_id",
+        "issue_number", "target_branch", "expected_original_sha",
+        "source_main_sha", "historical_failure_sha256",
+        "postcondition", "provider_executed", "ref_absent",
+        "branch_absent", "matching_refs_empty", "owner_comment_id",
+        "resolution_comment_id", "issue256_comment_id",
+        "issue256_disposition",
+    }
+    return (
+        set(proof) == required
+        and proof.get("schema_version") == 1
+        and proof.get("repository") == "HyungseonSong-plasma/chatgpt-operation"
+        and proof.get("work_id") == state.research_id
+        and proof.get("issue_number") == retirement.issue_number
+        and proof.get("target_branch") == "agent/branch-ruleset-verify-20261106"
+        and proof.get("expected_original_sha")
+            == "b4afd1d69ed32523b369461bc51162482c4a9fb9"
+        and isinstance(proof.get("source_main_sha"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", proof["source_main_sha"]) is not None
+        and proof.get("historical_failure_sha256") == digest
+        and proof.get("postcondition") == "NO_MUTATION_NEEDED"
+        and proof.get("provider_executed") is False
+        and proof.get("ref_absent") is True
+        and proof.get("branch_absent") is True
+        and proof.get("matching_refs_empty") is True
+        and type(proof.get("owner_comment_id")) is int
+        and proof["owner_comment_id"] > 0
+        and proof.get("resolution_comment_id") == 6735864890
+        and proof.get("issue256_comment_id") == 6745233284
+        and proof.get("issue256_disposition") == "classified_http_401_no_model_success"
+    )
+
+
 def has_durable_retirement(state: ResearchState) -> bool:
     retirement = state.retirement
+    if retirement is None:
+        return False
+    if retirement.reason == "externally_reconciled_no_mutation":
+        return _external_noop_retirement_attested(state)
     return (
-        retirement is not None
-        and _quiescent_execution_surfaces(state)
+        _quiescent_execution_surfaces(state)
         and retirement.retired_from_revision + 1 == state.revision
     )
 
@@ -235,15 +313,15 @@ def retire_quiescent_state(
 
 
 def can_rollover_state(state: ResearchState) -> bool:
-    """Return whether terminal or explicitly retired work may yield the state slot."""
+    """Only evidence-attested retirement can release an escalated global owner."""
+    if state.retirement is not None:
+        return has_durable_retirement(state)
     if any(
         isinstance(item, dict)
         and item.get("status") in {"retryable", "escalated", "blocked"}
         for item in state.predispatch_failures.values()
     ):
         return False
-    if state.retirement is not None:
-        return has_durable_retirement(state)
     if not state.action_queue:
         return False
     if any(
