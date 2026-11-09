@@ -34,8 +34,8 @@ def hash_(x):
 
 def assignment():
     return make_assignment(
-        repository=REPO,parent_issue=44,child_issue=501,
-        agent_id="agent-001",work_id="issue:44",
+        repository=REPO,parent_issue=400,child_issue=501,
+        agent_id="agent-001",work_id="issue:400",
         plan_sha256=hash_(b"plan"),policy_sha256=hash_(b"policy"),
         source_head_sha=SHA,
         units=[{"id":"docs/a.md","input_sha256":hash_(DOC),
