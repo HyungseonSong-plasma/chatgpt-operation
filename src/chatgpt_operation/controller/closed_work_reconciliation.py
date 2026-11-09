@@ -125,8 +125,8 @@ def plan_external_noop_reconciliation(
         raise ExternalReconciliationError("diagnostic classification cannot be proven")
     if (
         not isinstance(ledger, dict)
-        or ledger.get("issue:255", {}).get("status") != "reasoning_required"
-        or ledger.get("issue:256", {}).get("status") != "admitted"
+        or ledger.get("issue:255", {}).get("status") not in {"reasoning_required", "complete"}
+        or ledger.get("issue:256", {}).get("status") not in {"admitted", "complete"}
         or "issue:281" in ledger
     ):
         raise ExternalReconciliationError("Admission ledger does not match pinned state")
