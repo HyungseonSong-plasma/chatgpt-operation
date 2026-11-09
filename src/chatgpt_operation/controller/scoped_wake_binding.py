@@ -17,9 +17,9 @@ from typing import Any, Mapping, Protocol
 from .scoped_work_gate import assess_scoped_work_snapshot
 
 _CANONICAL_PATH = ".github/workflows/samuel-bootstrap.yml"
-_REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\Z")
-_SHA = re.compile(r"[0-9a-f]{40}\\Z")
-_WORK = re.compile(r"issue:[1-9][0-9]*\\Z")
+_REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+_SHA = re.compile(r"[0-9a-f]{40}\Z")
+_WORK = re.compile(r"issue:[1-9][0-9]*\Z")
 _FIELDS = frozenset({
     "schema_version", "repository", "workflow", "ref",
     "work_id", "mode", "enabled",
