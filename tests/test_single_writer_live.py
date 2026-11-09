@@ -123,7 +123,7 @@ class GithubTransport:
         if path == "/issues/44/comments":
             page = int(query["page"])
             data = self.comments[:]
-            if self.unstable and len(self.calls) > 2:
+            if self.unstable and len(self.calls) > 1:
                 data.append({
                     "id": 9999999,
                     "body": "changed while listing",
