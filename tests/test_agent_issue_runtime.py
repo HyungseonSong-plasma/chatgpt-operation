@@ -8,9 +8,70 @@ from chatgpt_operation.controller.agent_issue_runtime import (
     read_stable_child_comments, reduce_verified_parent_children,
 )
 from chatgpt_operation.controller.agent_issue_partition import AgentIssueError
-from test_agent_issue_partition import (
-    AUTHOR, attest, comment, issue, receipt, setup_agents,
+from chatgpt_operation.controller.agent_issue_partition import (
+    child_issue_body, make_assignment, make_receipt, receipt_comment_body,
 )
+
+import hashlib
+
+REPO = "HyungseonSong-plasma/chatgpt-operation"
+AUTHOR = "github-actions[bot]"
+
+
+def sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def setup_agents(n=3, units_each=2):
+    assignments = []
+    for i in range(n):
+        units = [
+            {"id": f"scan-{j}", "input_sha256": sha(f"input/{i}/{j}"),
+             "requires": [] if j == 0 else [j-1],
+             "gates": ["independent-evidence"]}
+            for j in range(units_each)
+        ]
+        assignments.append(make_assignment(
+            repository=REPO, parent_issue=44, child_issue=1000+i,
+            agent_id=f"agent-{i:02}", work_id="issue:44",
+            plan_sha256=sha("approved-plan"), policy_sha256=sha("approved-policy"),
+            source_head_sha="a"*40, units=units,
+        ))
+    return assignments
+
+
+def issue(a):
+    return {
+        "number": a["child_issue"], "state": "open",
+        "url": f"https://api.github.com/repos/{REPO}/issues/{a['child_issue']}",
+        "body": child_issue_body(a), "labels": [],
+    }
+
+
+def receipt(a, index=0, outcome="PASS"):
+    unit=a["units"][index]
+    return make_receipt(
+        a, unit_id=unit["id"], input_sha256=unit["input_sha256"],
+        outcome=outcome, detail={"evidence":[index,a["agent_id"]]},
+        source_run_id=5000+a["child_issue"]*10+index,
+    )
+
+
+def comment(r, cid):
+    return {
+        "id": cid, "body": receipt_comment_body(r),
+        "user":{"login":AUTHOR},
+    }
+
+
+def attest(r):
+    return {
+        "receipt_id":r["receipt_id"], "source_run_id":r["source_run_id"],
+        "source_head_sha":r["source_head_sha"],
+        "detail_sha256":r["detail_sha256"],
+        "outcome":r["outcome"], "verified":True,
+    }
+
 
 
 class GithubRead:
