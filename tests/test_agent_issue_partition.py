@@ -37,8 +37,8 @@ def setup_agents(n=3, units_each=2):
             for j in range(units_each)
         ]
         assignments.append(make_assignment(
-            repository=REPO, parent_issue=44, child_issue=1000+i,
-            agent_id=f"agent-{i:02}", work_id="issue:44",
+            repository=REPO, parent_issue=400, child_issue=1000+i,
+            agent_id=f"agent-{i:02}", work_id="issue:400",
             plan_sha256=sha("approved-plan"), policy_sha256=sha("approved-policy"),
             source_head_sha="a"*40, units=units,
         ))
@@ -103,15 +103,15 @@ class AgentIssuePartitionTests(unittest.TestCase):
             validate_child_ownership(issue(a),a,parent_registry=agents)
         with self.assertRaisesRegex(AgentIssueError,"same Child"):
             validate_parent_registry(agents+[make_assignment(
-                repository=REPO,parent_issue=44,child_issue=agents[0]["child_issue"],
-                agent_id="intruder",work_id="issue:44",
+                repository=REPO,parent_issue=400,child_issue=agents[0]["child_issue"],
+                agent_id="intruder",work_id="issue:400",
                 plan_sha256=sha("approved-plan"),policy_sha256=sha("approved-policy"),
                 source_head_sha="a"*40,units=agents[0]["units"],
             )])
         with self.assertRaisesRegex(AgentIssueError,"duplicate active agent"):
             validate_parent_registry(agents+[make_assignment(
-                repository=REPO,parent_issue=44,child_issue=999,
-                agent_id=agents[0]["agent_id"],work_id="issue:44",
+                repository=REPO,parent_issue=400,child_issue=999,
+                agent_id=agents[0]["agent_id"],work_id="issue:400",
                 plan_sha256=sha("approved-plan"),policy_sha256=sha("approved-policy"),
                 source_head_sha="a"*40,units=agents[0]["units"],
             )])
