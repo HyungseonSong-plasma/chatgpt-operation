@@ -339,24 +339,71 @@ def ensure_record(agent: int, child: dict):
 
 
 def audit_all():
+    # One stable, complete snapshot is sufficient for this read-only
+    # cross-agent audit and prevents 20x repeated GET pagination. Validate
+    # EVERY durable intent/receipt from the same observed server epoch.
+    inventory = all_issues()
+    recorded = comments()
+    native = native_links()
     data = []
     for i in range(COUNT):
-        ch = match_child(i)
-        if not ch:
+        expected_body = child_body(i)
+        marker_value = marker("child", i)
+        hits = [
+            row for row in inventory
+            if isinstance(row.get("body"), str)
+            and row["body"].startswith(marker_value)
+            and row.get("pull_request") is None
+        ]
+        if len(hits) > 1:
+            raise RuntimeError("duplicate physical Child for a logical agent")
+        if not hits:
             continue
-        for stage in ("create-intent", "link-intent", "allocation"):
-            if not existing_comment(stage, i):
-                raise RuntimeError("observed Child missing a durable stage record")
+        ch = hits[0]
+        if (
+            ch.get("body") != expected_body
+            or ch.get("title") != child_title(i)
+            or ch.get("state") != "open"
+            or ch.get("labels")
+            or type(ch.get("number")) is not int
+            or type(ch.get("id")) is not int
+        ):
+            raise RuntimeError("Child identity tampered in audit snapshot")
+        known = {
+            "create-intent": note(
+                "create-intent", i,
+                issue_body_sha256=hashlib.sha256(
+                    expected_body.encode("utf-8")
+                ).hexdigest(),
+            ),
+            "link-intent": note("link-intent", i, internal_issue_id=ch["id"]),
+            "allocation": note(
+                "allocation", i, child_issue=ch["number"],
+                child_internal_id=ch["id"],
+            ),
+        }
+        for stage, expected in known.items():
+            rows = [
+                c for c in recorded
+                if isinstance(c.get("body"), str)
+                and c["body"].startswith(marker(stage, i))
+            ]
+            if (
+                len(rows) != 1 or rows[0]["body"] != expected
+                or rows[0].get("user", {}).get("login") != AUTHOR
+                or rows[0].get("created_at") != rows[0].get("updated_at")
+            ):
+                raise RuntimeError("Child audit lacks immutable exact stage receipt")
+        if ch["id"] not in {x["id"] for x in native}:
+            raise RuntimeError("native Child link absent in final audit")
         require_linked(ch)
         data.append((i, ch["number"], ch["id"]))
-    links = native_links()
     permitted = LINKS_EXISTING | {item[2] for item in data}
-    if {row["id"] for row in links} != permitted:
-        raise RuntimeError("Parent contains unexpected or missing Sub-issue links")
+    if {row["id"] for row in native} != permitted:
+        raise RuntimeError("Parent contains unexpected or missing native links")
     if len(data) != len({x[1] for x in data}):
         raise RuntimeError("duplicate physical Child numbers")
     return data
-
 
 def main():
     require_event()
