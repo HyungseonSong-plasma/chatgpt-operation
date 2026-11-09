@@ -1,0 +1,43 @@
+name: Samuel Child LIVE Qualification — isolated #282
+
+on:
+  push:
+    branches:
+      - samuel/live-child-qualification-282-v01
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: samuel-child-live-qualification-282
+  cancel-in-progress: false
+
+jobs:
+  native-subissues:
+    if: ${{ github.repository == 'HyungseonSong-plasma/chatgpt-operation' && github.ref == 'refs/heads/samuel/live-child-qualification-282-v01' && github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact qualification source, no persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact GitHub event source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REPOSITORY" = "HyungseonSong-plasma/chatgpt-operation"
+          test "$GITHUB_REF" = "refs/heads/samuel/live-child-qualification-282-v01"
+          test "$GITHUB_EVENT_NAME" = "push"
+          python3 -m compileall -q src/chatgpt_operation/controller/live_sandbox_282.py
+      - name: Qualify two isolated native Sub-issue links with live REST readback
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.live_sandbox_282
