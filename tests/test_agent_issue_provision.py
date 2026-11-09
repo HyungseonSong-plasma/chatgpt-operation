@@ -24,8 +24,8 @@ def sha(text):
 
 def spec(i):
     return create_provision(
-        repository=REPO, parent_issue=44, agent_id=f"agent-{i:03}",
-        work_id="issue:44", plan_sha256=sha("approved plan"),
+        repository=REPO, parent_issue=400, agent_id=f"agent-{i:03}",
+        work_id="issue:400", plan_sha256=sha("approved plan"),
         policy_sha256=sha("approved policy"), source_head_sha="a"*40,
         units=[{"id":"scan-0", "input_sha256":sha(f"unit-{i}"),
                 "requires":[], "gates":["evidence"]}],
@@ -35,16 +35,16 @@ def spec(i):
 class LiveGithub:
     def __init__(self):
         self.issues = {
-            44: {"number":44,"id":4444,"url":ROOT+"44","state":"open",
-                 "body":"Original canonical parent — unchanged", "labels":[]},
+            400: {"number":400,"id":4400,"url":ROOT+"400","state":"open",
+                 "body":"Original canonical parent — unchanged", "labels":["samuel"]},
         }
         self.comments = {
-            44: [{"id":88,"body":"<!-- samuel-controller-state --> original",
+            400: [{"id":88,"body":"<!-- samuel-controller-state --> original",
                   "created_at":"2026-11-09T00:00:00Z",
                   "updated_at":"2026-11-09T00:00:00Z",
                   "user":{"login":AUTHOR}}],
         }
-        self.links = {44:[]}
+        self.links = {400:[]}
         self.events = []
         self.next_issue = 500
         self.next_comment = 100
@@ -89,16 +89,16 @@ class LiveGithub:
             self.issues[n]["body"]=payload["body"]
             status=200
             result=self.issues[n]
-        elif method=="POST" and path=="/issues/44/sub_issues":
+        elif method=="POST" and path=="/issues/400/sub_issues":
             target=next(
                 n for n,item in self.issues.items()
                 if item["id"]==payload["sub_issue_id"]
             )
-            if target not in self.links[44]:
-                self.links[44].append(target)
+            if target not in self.links[400]:
+                self.links[400].append(target)
             status=201
             result=self.issues[target]
-        elif method=="POST" and path=="/issues/44/comments":
+        elif method=="POST" and path=="/issues/400/comments":
             self.next_comment+=1
             result={
                 "id":self.next_comment, "body":payload["body"],
@@ -106,7 +106,7 @@ class LiveGithub:
                 "created_at":"2026-11-09T00:00:00Z",
                 "updated_at":"2026-11-09T00:00:00Z",
             }
-            self.comments[44].append(result)
+            self.comments[400].append(result)
             status=201
         else:
             raise AssertionError("unapproved REST mutation "+method+" "+path)
@@ -167,7 +167,7 @@ class AgentProvisioningTests(unittest.TestCase):
         self.assertEqual(len({x["agent_id"] for x in registered}),20)
         self.assertEqual(len(gh.links[44]),20)
         self.assertEqual(len(gh.comments[44]),21)  # state + 20 immutable allocations
-        self.assertFalse(any(e==("PATCH","/issues/44") for e in gh.events))
+        self.assertFalse(any(e==("PATCH","/issues/400") for e in gh.events))
         self.assertEqual(
             len([e for e in gh.events if e==("POST","/issues")]),20,
         )
@@ -190,8 +190,8 @@ class AgentProvisioningTests(unittest.TestCase):
     def test_lost_ack_at_each_intermediate_boundary_is_recoverable(self):
         for method,path in (
             ("PATCH","/issues/500"),
-            ("POST","/issues/44/sub_issues"),
-            ("POST","/issues/44/comments"),
+            ("POST","/issues/400/sub_issues"),
+            ("POST","/issues/400/comments"),
         ):
             with self.subTest(method=method,path=path):
                 gh=LiveGithub()
@@ -251,7 +251,7 @@ class AgentProvisioningTests(unittest.TestCase):
         complete(gh,spec(0))
         state_before=gh.comments[44][0]["body"]
         self.assertEqual(state_before,"<!-- samuel-controller-state --> original")
-        self.assertNotIn(("PATCH","/issues/44/comments/88"),gh.events)
+        self.assertNotIn(("PATCH","/issues/400/comments/88"),gh.events)
         gh.comments[44][1]["updated_at"]="2026-11-09T00:00:01Z"
         with self.assertRaisesRegex(ProvisionError,"not immutable"):
             next_step(gh,spec(0))
@@ -265,8 +265,8 @@ class AgentProvisioningTests(unittest.TestCase):
         # silently taken as a previous assignment.
         from chatgpt_operation.controller.agent_issue_provision import create_provision
         changed=create_provision(
-            repository=REPO,parent_issue=44,agent_id="agent-000",
-            work_id="issue:44",plan_sha256=sha("approved plan"),
+            repository=REPO,parent_issue=400,agent_id="agent-000",
+            work_id="issue:400",plan_sha256=sha("approved plan"),
             policy_sha256=sha("approved policy"),source_head_sha="a"*40,
             units=[{"id":"scan-0","input_sha256":sha("different"),
                     "requires":[],"gates":["evidence"]}],
