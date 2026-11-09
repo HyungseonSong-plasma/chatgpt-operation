@@ -114,11 +114,17 @@ class ParentReadOnlyAuditTests(unittest.TestCase):
         ),patch(
             "chatgpt_operation.controller.agent_issue_parent_audit.reduce_verified_parent_children",
         ) as reducer:
-            result=audit_all_agent_children(transport=fake,token="read-only-token")
+            result=audit_all_agent_children(transport=fake,token="read-only-token",parent_issue=400)
         self.assertEqual(result["status"],"NO_ALLOCATIONS")
         self.assertFalse(result["merge_authorized"])
         self.assertIsNone(result["parent_mutation"])
         reducer.assert_not_called()
+
+    def test_legacy_global_issue44_is_not_a_work_parent(self):
+        with self.assertRaisesRegex(Exception,"not Issue #44"):
+            audit_all_agent_children(
+                transport=object(),token="read-only-token",parent_issue=44,
+            )
 
     def test_parent_only_uses_live_read_verifier_and_does_not_merge(self):
         fake=object()
@@ -140,7 +146,7 @@ class ParentReadOnlyAuditTests(unittest.TestCase):
             "chatgpt_operation.controller.agent_issue_parent_audit.reduce_verified_parent_children",
             side_effect=probe_parent,
         ):
-            result=audit_all_agent_children(transport=fake,token="readtoken")
+            result=audit_all_agent_children(transport=fake,token="readtoken",parent_issue=400)
         self.assertEqual(result["status"],"READY_FOR_PARENT_REVIEW")
         self.assertFalse(result["merge_authorized"])
         self.assertIsNone(result["parent_mutation"])
