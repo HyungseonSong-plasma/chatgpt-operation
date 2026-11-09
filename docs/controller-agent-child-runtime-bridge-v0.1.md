@@ -117,13 +117,55 @@ remain **separate blocked production gates**.
 - A child may edit its own body once while provisioning; thereafter its
   immutable receipt comments must have matching creation/update times.
   The parent is not modified during the worker run.
-- Current GitHub connector cannot issue native Sub-issue attach POST
-  directly; runtime live acceptance **has not been executed**. Tests use
-  a realistic GitHub REST simulator. The prior real test #274–#276
-  established only inert, disjoint comment POST preservation.
+- The GitHub connector does not expose direct native Sub-issue attach
+  POST, but an isolated GitHub Actions qualification **has** exercised the
+  native GitHub REST API: sandbox Parent
+  [#278](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/278)
+  linked actual Children
+  [#279](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/279)
+  and [#280](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/280).
+  [Live run 42622488643](https://github.com/HyungseonSong-plasma/chatgpt-operation/actions/runs/42622488643)
+  and [replay run 42622654426](https://github.com/HyungseonSong-plasma/chatgpt-operation/actions/runs/42622654426)
+  passed. The replay did not create additional links. This only qualifies
+  two isolated native links and an idempotent replay; it **does not**
+  qualify 20 live agents, lost-create-ACK/SIGKILL recovery, or production
+  admission. The earlier #274–#276 test was limited to isolated comment
+  POST preservation.
 - Unapproved concurrency between agents touching the same branch,
   file, PR or external resource must still fail closed. This scheme
   isolates **per-Agent progress**, not arbitrary code writes.
+
+
+## Scoped work-selection preview for Issue #281 (Draft, not wired)
+
+The dedicated technical task Parent is
+[Issue #281](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/281).
+It was created **without** the `samuel` label and is not yet an admitted
+work item. Existing global Controller state stays on **closed Issue #255**
+with an escalated predispatch failure; open Issue #256 remains
+`samuel`-labelled and durably `admitted`.
+
+`scoped_work_gate.py` performs a **read-only, complete-inventory, exact-HEAD**
+preflight against the server-derived open Issue snapshot, the single
+Admission ledger, and the existing global ResearchState. It blocks a
+missing/unlabelled or forged Parent, conflicting open `samuel` Issues,
+competing nonterminal Admission entries, mismatched active State owner,
+malformed or incomplete snapshots, and ambiguous ledger comments.
+`SamuelController.run_cycle(requested_work_id=...)` exercises the guard
+**before** any admission/recovery/dispatch planning and returns either
+`blocked_scope` or `scoped_preview`. Both return no Admission write,
+ResearchState write, execution command, or Issue planning proposal.
+
+**This is explicitly non-operational**. A `scoped_preview` result
+is a snapshot candidate, not dispatch authorization. Production
+`samuel-bootstrap.yml` currently has no authenticated work-ID
+`workflow_dispatch` input; no runtime path sets `requested_work_id`.
+An unscoped Bootstrap still uses legacy work selection and must **not**
+be woken by the dedicated #281 scheduler. Extending the real Bootstrap
+contract, proving freshness against schedule/dispatch races, clearing
+the existing #255 and #256 ownership gates through their own authorities,
+and activating the new path each require separate review/approval.
+No existing global ResearchState or Issue Admission ledger was changed.
 
 ## Promotion checklist
 
