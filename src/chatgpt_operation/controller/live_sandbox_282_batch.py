@@ -273,8 +273,15 @@ def ensure_created(agent: int):
         api("/issues", method="POST", payload={
             "title": child_title(agent), "body": child_body(agent), "labels": [],
         })
-    time.sleep(0.4)
-    found = match_child(agent)
+    # The GitHub list endpoint is eventually consistent immediately after
+    # creating an Issue. Bound the read-after-write observation window;
+    # NEVER issue a second CREATE while the ACK/visibility is uncertain.
+    found = None
+    for _ in range(12):
+        time.sleep(1)
+        found = match_child(agent)
+        if found is not None:
+            break
     if found is None:
         raise RuntimeError("CREATE status unknown; no blind retry permitted")
     return found, True
