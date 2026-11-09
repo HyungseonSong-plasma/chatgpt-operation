@@ -201,6 +201,42 @@ the independent-review waiver nor passing unit tests permits bypassing
 these existing gates. Recheck the branch head and global state before
 any future execution or merge authorization.
 
+## Draft native GitHub readback and conservative Child executor
+
+`scoped_wake_native.py` now supports a **GET-only native GitHub REST
+preflight**, with an authenticated transport, exact source HEAD pinned
+policy content, two-pass full open-Issue and global state comment
+inventories, in-flight canonical Bootstrap-run identity, and reread at
+the end. The optional
+`python -m chatgpt_operation.controller.scoped_wake_native` entrypoint
+accepts native GitHub runner identity and a token, but **no externally
+chosen work ID**. Missing, changing or forged evidence is rejected.
+The checked-in #281 policy remains disabled, so the entrypoint is
+*not* an executable production work admission.
+
+`agent_issue_durable_executor.py` now provides a **staged, unwired**
+intent-first writer for exactly four proposed Child operations. It
+appends a canonical immutable operation intent to the *task Parent*,
+replans from fresh GitHub reads, executes one planned API mutation
+and verifies a different next stage before reporting progress.
+If the same-stage intent remains on restart without observed
+postcondition, it **blocks** rather than repeating the operation;
+this deliberately sacrifices liveness under an ambiguous ACK to
+avoid duplicate Child creation or links. The global #44 state
+is never PATCHed by this component. Any caller would still require
+an independent authenticated, serialized Bootstrap writer gate;
+the module does not create that authority and is NOT wired into
+production.
+
+The simulated offline suite includes 20 serially provisioned Children,
+20 replays with no duplicate issue or link, lost CREATE ACK before
+and after remote creation, lost intent ACK, simulated abrupt exit
+immediately after intent persistence, parent mutation prohibition,
+conflicting plans and immutable-comment tampering. **Simulated abrupt
+exit is NOT a real operating-system SIGKILL qualification.**
+This evidence is insufficient to claim real 20-agent concurrency,
+cross-run exclusivity or native GitHub ACK visibility guarantees.
+
 ## Promotion checklist
 
 1. Exact-head CI. The user explicitly waived the **independent technical review** gate for this bounded Draft continuation on 2026-11-09; do not imply that a review was performed. This does not waive model/security approval, required protected-branch controls, PR merge authorization or production activation.
