@@ -10,18 +10,74 @@ from unittest.mock import patch
 
 from chatgpt_operation.controller import scoped_wake_native as native
 
-from test_scoped_wake_native import HEAD, REPO, NativeFake, scope
+from chatgpt_operation.controller.issue_ingestion import encode_admission_ledger
+import base64
+import copy
+
+HEAD = "a" * 40
+REPO = "HyungseonSong-plasma/chatgpt-operation"
+POLICY_PATH = "automation/samuel/agent-child-scoped-preview-281.json"
 
 
-class FakeTransport(NativeFake):
+class FakeTransport:
+    """Independent API-port fixture for both unit and function test runners."""
+
     instances = []
 
     def __init__(self, repository, token):
         if token != "dummy-test-token":
             raise AssertionError("fake credential mismatch")
         self.repository = repository
-        super().__init__(config=scope())
+        self.calls = []
         self.instances.append(self)
+
+    def get(self, path, *, query=None):
+        self.calls.append((path, query))
+        if path == "/actions/runs/8787":
+            return {
+                "id": 8787, "run_attempt": 1, "event": "workflow_dispatch",
+                "path": ".github/workflows/samuel-bootstrap.yml",
+                "head_branch": "main", "head_sha": HEAD,
+                "status": "in_progress", "conclusion": None,
+                "repository": {"full_name": REPO},
+            }
+        if path == "/branches/main":
+            return {"commit": {"sha": HEAD}}
+        if path == "/contents/" + POLICY_PATH:
+            if query != {"ref": HEAD}:
+                raise AssertionError("scope file not exact HEAD")
+            policy = {
+                "schema_version": 1, "repository": REPO,
+                "workflow": "samuel-bootstrap.yml", "ref": "main",
+                "work_id": "issue:281", "mode": "preview_only",
+                "enabled": True,
+            }
+            return {
+                "type": "file", "path": POLICY_PATH,
+                "encoding": "base64",
+                "content": base64.b64encode(
+                    json.dumps(policy).encode("utf-8")
+                ).decode("ascii"),
+            }
+        if path == "/issues":
+            return [{
+                "id": 5281, "number": 281, "state": "open",
+                "title": "Samuel task 281", "body": "Approved implementation 281",
+                "labels": [{"name": "samuel"}],
+                "html_url": f"https://github.com/{REPO}/issues/281",
+            }]
+        if path == "/issues/44/comments":
+            admitted = {
+                "work_id": "issue:281", "issue_number": 281,
+                "status": "admitted", "title": "Samuel task 281",
+                "body": "Approved implementation 281",
+                "html_url": f"https://github.com/{REPO}/issues/281",
+            }
+            return [{
+                "id": 110,
+                "body": encode_admission_ledger({"issue:281": admitted}),
+            }]
+        raise AssertionError("unexpected native GET " + path)
 
 
 class ScopedNativeEntrypointTests(TestCase):
