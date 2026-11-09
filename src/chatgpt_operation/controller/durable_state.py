@@ -152,6 +152,13 @@ def decode_state(body: str) -> ResearchState:
             if raw.get("retirement") is not None
             else None
         ),
+        progress_checkpoint=(
+            None if raw.get("progress_checkpoint") is None
+            else __import__(
+                "chatgpt_operation.controller.progress_resume",
+                fromlist=["validate_checkpoint"],
+            ).validate_checkpoint(raw["progress_checkpoint"])
+        ),
     )
 
 
