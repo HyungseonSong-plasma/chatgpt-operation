@@ -21,17 +21,23 @@ from .agent_issue_runtime import reduce_verified_parent_children
 
 REPOSITORY="HyungseonSong-plasma/chatgpt-operation"
 TRUSTED_ACTOR="HyungseonSong-plasma"
-PARENT_ISSUE=44
+LEGACY_CONTROLLER_ISSUE=44
 
 
 def audit_all_agent_children(
     *, transport: GitHubActionsTransport,
     token: str,
+    parent_issue: int,
 ) -> dict[str, Any]:
     if not token:
         raise AgentIssueError("authenticated GitHub read token required")
+    if (
+        type(parent_issue) is not int or parent_issue<=0
+        or parent_issue==LEGACY_CONTROLLER_ISSUE
+    ):
+        raise AgentIssueError("approved active work Parent is required; not Issue #44")
     registry=read_live_parent_registry(
-        transport,repository=REPOSITORY,parent_issue=PARENT_ISSUE,
+        transport,repository=REPOSITORY,parent_issue=parent_issue,
     )
     if not registry:
         return {
@@ -63,6 +69,7 @@ def audit_all_agent_children(
 def main() -> int:
     parser=argparse.ArgumentParser()
     parser.add_argument("--output",default="samuel-child-parent-audit.json")
+    parser.add_argument("--parent",required=True,type=int)
     args=parser.parse_args()
     if not (
         os.environ.get("GITHUB_ACTIONS")=="true"
@@ -75,6 +82,7 @@ def main() -> int:
     token=os.environ.get("GITHUB_TOKEN","")
     result=audit_all_agent_children(
         transport=GitHubActionsTransport(REPOSITORY,token),token=token,
+        parent_issue=args.parent,
     )
     Path(args.output).write_text(
         json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8",
