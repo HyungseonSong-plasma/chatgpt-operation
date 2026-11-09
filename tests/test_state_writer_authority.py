@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from pathlib import Path
 
 from chatgpt_operation.controller.state_writer_authority import (
     REPOSITORY, StateWriterAuthorityError, require_bootstrap_state_writer,
@@ -131,6 +132,39 @@ class AuthorityTests(unittest.TestCase):
             environment={}, transport=reader,
         )
         self.assertEqual(reader.calls, [])
+
+
+class WorkflowPrivilegeInventoryTests(unittest.TestCase):
+    def test_existing_issues_write_workflows_are_explicitly_allowlisted(self):
+        expected = {
+            "samuel-bootstrap.yml",
+            "samuel-native-github.yml",
+            "samuel-codeqa-foreign-cycle.yml",
+            "samuel-chatgpt-proposal-ingress.yml",
+        }
+        observed = set()
+        for path in sorted(Path(".github/workflows").glob("*.yml")):
+            content = path.read_text(encoding="utf-8")
+            if "issues: write" in content.splitlines():
+                observed.add(path.name)
+            if path.name != "samuel-bootstrap.yml":
+                self.assertNotIn("controller persist-state", content)
+        self.assertEqual(observed, expected)
+
+    def test_raw_rest_issue_writers_use_scope_guard_or_bootstrap(self):
+        foreign = Path(".github/scripts/samuel_codeqa_foreign_cycle.py").read_text(
+            encoding="utf-8"
+        )
+        ingress = Path(".github/scripts/samuel_chatgpt_proposal_ingress.py").read_text(
+            encoding="utf-8"
+        )
+        shared = Path(".github/scripts/codeqa_governed_write.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("from codeqa_governed_write import API", foreign)
+        self.assertIn("from codeqa_governed_write import API", ingress)
+        self.assertIn("require_source_review_ledger_write(", shared)
+        self.assertIn("needs_source_comment_ownership_lookup(", shared)
 
 
 class ScopedSourceIssueWriteTests(unittest.TestCase):
