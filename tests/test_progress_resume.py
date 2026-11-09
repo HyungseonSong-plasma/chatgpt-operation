@@ -118,6 +118,20 @@ class ProgressResumeTests(unittest.TestCase):
                 decoded.progress_checkpoint,
             )
 
+    def test_progress_bumps_durable_envelope_version_only_when_present(self):
+        legacy = ResearchState("legacy-work", "existing state", revision=2)
+        self.assertIn('"schema_version":4', encode_state(legacy))
+        self.assertIsNone(decode_state(encode_state(legacy)).progress_checkpoint)
+
+        checkpointed = setup()
+        body = encode_state(checkpointed)
+        self.assertIn('"schema_version":5', body)
+        self.assertIsNotNone(decode_state(body).progress_checkpoint)
+        # An old decoder will reject v5 instead of silently dropping progress.
+        downgraded = body.replace('"schema_version":5', '"schema_version":4', 1)
+        with self.assertRaisesRegex(ValueError, "requires state schema v5"):
+            decode_state(downgraded)
+
     def test_missing_or_failed_gate_blocks_completion(self):
         state = setup()
         self.assertEqual(resume(state, gates={})["ready"], [1])
