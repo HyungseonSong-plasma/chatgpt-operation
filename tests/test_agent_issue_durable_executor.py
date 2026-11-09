@@ -10,7 +10,7 @@ import hashlib
 import unittest
 
 from chatgpt_operation.controller.agent_issue_provision import (
-    create_provision, initial_child_body,
+    ProvisionError, create_provision,
 )
 from chatgpt_operation.controller.agent_issue_durable_executor import (
     INTENT_MARKER, DurableChildError, advance_durable_child,
@@ -278,7 +278,7 @@ class DurableChildExecutorTests(unittest.TestCase):
     def test_missing_samuel_label_denies_any_write(self):
         gh = FakeGitHub()
         gh.issues[400]["labels"] = []
-        with self.assertRaisesRegex(DurableChildError, "parent live Issue"):
+        with self.assertRaisesRegex(ProvisionError, "parent live Issue"):
             advance(gh, spec())
         self.assertFalse(any(m != "GET" for m, _ in gh.calls))
 
