@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .durable_state import (
+    decode_state,
     load_state_comment,
     validate_state_write_precondition,
 )
@@ -109,6 +110,14 @@ def persist_state_write(
         or persisted.revision != request["expected_revision"]
     ):
         raise StatePersistenceError("durable state readback mismatch")
+    # A concurrent writer may PATCH an entirely different payload at the
+    # *same* revision. Revision and work identity alone are insufficient:
+    # real GitHub API qualification showed that both PATCH requests can
+    # return success even though one verified receipt disappears.
+    # Exact postwrite equality catches an overwrite visible by this read.
+    # This is NOT atomic CAS or a substitute for serializing all writers.
+    if persisted != decode_state(body):
+        raise StatePersistenceError("durable state readback content mismatch")
 
     return StatePersistenceResult(
         research_id=persisted.research_id,
