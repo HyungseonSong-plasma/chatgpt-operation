@@ -27,6 +27,7 @@ _FIELDS = frozenset({
 _MAX_ISSUES = 1000
 _MAX_SUBISSUES = 100
 _MAX_PARENT_COMMENTS = 500
+_LEGACY_GLOBAL_STATE_ISSUE = 44
 
 
 class ProvisionError(AgentIssueError):
@@ -63,6 +64,10 @@ def validate_provision(spec: Any) -> dict[str, Any]:
     _name(spec["agent_id"], "agent_id")
     _name(spec["work_id"], "work_id")
     _positive(spec["parent_issue"], "parent_issue")
+    if spec["parent_issue"] == _LEGACY_GLOBAL_STATE_ISSUE:
+        raise ProvisionError("global Issue #44 is not a task parent")
+    if spec["work_id"] != "issue:" + str(spec["parent_issue"]):
+        raise ProvisionError("parent task and work ID must match")
     if not isinstance(spec["repository"], str) or not re.fullmatch(
         r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", spec["repository"]
     ):
@@ -234,6 +239,11 @@ def plan_next_child_provision(
         or parent_issue.get("state") != "open"
         or parent_issue.get("url") != "https://api.github.com/repos/"
             + s["repository"] + "/issues/" + str(s["parent_issue"])
+        or not any(
+            label == "samuel"
+            or isinstance(label, dict) and label.get("name") == "samuel"
+            for label in parent_issue.get("labels", [])
+        )
     ):
         raise ProvisionError("parent live Issue identity mismatch")
     if not trusted_author:
@@ -356,6 +366,8 @@ def read_live_parent_registry(
     an empty registry as permission to dispatch any agent.
     """
     _positive(parent_issue, "parent_issue")
+    if parent_issue == _LEGACY_GLOBAL_STATE_ISSUE:
+        raise ProvisionError("global Issue #44 cannot be used as an agent work parent")
     if not isinstance(repository, str) or not re.fullmatch(
         r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
     ):
@@ -364,8 +376,14 @@ def read_live_parent_registry(
     if not (
         isinstance(parent, Mapping)
         and parent.get("number") == parent_issue
+        and parent.get("state") == "open"
         and parent.get("url") == "https://api.github.com/repos/"
             + repository + "/issues/" + str(parent_issue)
+        and any(
+            label == "samuel"
+            or isinstance(label,dict) and label.get("name") == "samuel"
+            for label in parent.get("labels",[])
+        )
     ):
         raise ProvisionError("unverified canonical parent Issue")
     comments = _snapshot(
