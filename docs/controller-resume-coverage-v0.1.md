@@ -1,0 +1,131 @@
+# Samuel Controller resume coverage — v0.1 bounded implementation
+
+**Status:** proposed and test-gated; no new cookie store, no new write authority.
+**Source owner:** Samuel. **Pilot consumer:** codeQA Issue #288 read-only
+documentation reference-impact analysis. Existing cross-repository native
+mutation policy [#264](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/264)
+remains a separate gate.
+
+## A. Compact, lossless progress *within* ResearchState
+
+The existing `ResearchState` durable Issue #44 ledger already retains
+`research_id`, stage, action queue, execution receipts and operation IDs.
+Its encoder serializes JSON and switches to **zlib+base64** above an inline
+threshold, rather than dropping details. v0.1 adds the optional
+`progress_checkpoint` field to that same ledger.
+
+A checkpoint has `work_id`, plan and policy SHA-256 identities, an ordered
+`units` inventory and a compact `receipts` map keyed by **zero-based index**.
+Each unit ID is stored once. Every completed unit records its input SHA-256,
+`PASS` or `NOOP`, and its **entire canonical-JSON-compatible detail** plus
+the detail SHA-256. The receipt is never reduced to a counter or summary.
+The completion bitmap and next unit are derived from these records and do
+not need separately mutable fields.
+
+This is lossless for the **stored details**, not for information the producer
+never captured. A SHA-256 digest detects accidental or unilateral corruption
+but does **not** authenticate an untrusted producer or prove factual truth.
+Original source, snapshot, authorization and evidence provenance must be
+validated independently.
+
+Current limits are intentional: at most 4,096 units, at most 200,000
+canonical UTF-8 JSON bytes per inline detail, and the existing ledger's
+compressed comment/decode bounds. A larger result **fails closed**; it is not
+truncated. Immutable, independently verified Git blob references might
+support larger complete details later, but they are not a v0.1 capability.
+
+Existing ledgers without `progress_checkpoint` decode unchanged. Updating a
+checkpoint increments the existing `ResearchState.revision`; there is no
+separate mutable cookie or source of truth.
+
+## B. Deterministic resume decisions
+
+The read-only command is:
+
+```sh
+PYTHONPATH=src python3 -m chatgpt_operation.cli controller resume-progress \
+  --comments issue-44-comments.json \
+  --input controller-progress-input.json \
+  --result controller-progress-decision.json
+```
+
+Input is an object containing `plan_sha256`, `policy_sha256`,
+`live_inputs` (complete unit ID to current input SHA-256), and
+`gate_states` (required gate ID to `PASS`/other). These inputs must be
+collected by the caller from the authoritative, current sources; a saved
+claim is not sufficient.
+
+Decisions:
+
+| Result | Meaning | Caller action |
+| --- | --- | --- |
+| `READY` | Evidence-backed completed units omitted, dependent ready units selected | Continue the approved read-only unit |
+| `COMPLETE` | All units have intact successful receipts for current inputs | Report scoped completion, not semantic approval |
+| `WAIT_GATES` | One or more eligible units lack a current `PASS` gate | Hold those units; independent ready units may still run |
+| `REFRESH_REQUIRED` | One or more input identities changed | Recompute current inputs; invalidate affected units and transitive dependents |
+| `PLAN_CHANGED` / `POLICY_CHANGED` | Governing identities differ | Stop and require an approved new plan/policy |
+| `HARD_STOP` | Missing/invalid ledger, malformed inventory, tampered evidence | Do not resume from suspect state |
+
+The evaluator returns exact numeric `completed`, `ready` and `stale`
+indices. It never launches workflows or writes GitHub state. To persist an
+accepted unit, the controller calls `record_verified_unit()` with current
+input digest and gate evidence. The method is idempotent for identical proof,
+rejects competing proof for the same unit, and increments the ledger revision
+for a new completion. `refresh_unit_inputs()` removes only changed units and
+dependent receipts, preserving unaffected progress. This local mechanism
+is **not yet wired into the existing scheduled bootstrap controller's task
+selection**; explicit caller/consumer integration and a live replay are
+additional acceptance gates.
+
+**Separation of authority:** An `action_queue` dispatch must continue through
+Samuel's existing `dispatch_intent → dispatch receipt → observation → terminal
+artifact` lifecycle. Never treat a dispatched GitHub write as an ordinary
+read-only progress receipt, and never replay a denied connector mutation via
+another provider.
+
+## C. Conflict recovery and the actual persistence limit
+
+The existing `persist_state_write()` performs a fresh authoritative issue
+comment read, a revision precondition check, one write, and readback. This
+detects **sequential stale writes**, but GitHub Issue comment `PATCH` does
+**not** provide atomic compare-and-swap for concurrent writers.
+
+After a stale precondition, the caller may compute a **read-only**
+`reconcile_progress_conflict(base, current, proposed)`:
+
+- `NOOP` / `ALREADY_APPLIED`: the proposed verified data introduces no
+  new receipt or is already recorded.
+- `MERGE_DISJOINT_PROPOSAL`: revisions advanced, source plan/policy and the
+  full ordered unit inventory match, all pre-existing proofs are unchanged,
+  proposed additions do not conflict with current additions, and **every
+  other ResearchState field is identical**. A candidate new revision is
+  produced but **not persisted**.
+- `BLOCK_*`: identity, policy, input scope, revision, previously completed
+  evidence, live action/execution state or competing receipt differs.
+  No automatic merge or overwrite is permitted.
+
+Even a disjoint proposal needs **one serialized authoritative writer**,
+another fresh prewrite read and normal post-write readback. GitHub Actions
+`concurrency` scopes only writers sharing that group; external schedulers
+or connectors may not share it. Until exclusivity is established, simultaneous
+writers must not auto-reconcile. If multi-writer operation becomes mandatory,
+adopt an actually atomic store/ref-update primitive before permitting
+automatic conflict recovery. Readback after a race is not a substitute for CAS.
+
+## Verification scope and missing proof
+
+Local unit tests cover restart from verified steps, lossless compressed
+round-trip, saved-state tampering, gate/policy changes, targeted invalidation,
+idempotent replay, stale persistence precondition, disjoint proposal, and
+conflicting/live-action refusal. Existing native executor crash/retry tests
+remain independent.
+
+Still **not proven** by v0.1:
+1. end-to-end scheduled Controller adoption of this evaluator;
+2. real two-writer CAS semantics for Issue comments;
+3. very large evidence preservation outside bounded comment storage;
+4. cross-repository execution authority or external provider safety;
+5. factual/semantic validity of read-only analysis findings.
+
+No production scheduler, mutation gateway, or target repository policy is
+modified by this proposed contract.
