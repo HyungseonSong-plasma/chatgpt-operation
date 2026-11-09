@@ -1,0 +1,72 @@
+name: Samuel Progress Evidence (Read-Only Pilot)
+run-name: samuel-progress-evidence:source-${{ github.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      work_id:
+        description: Approved existing ResearchState work ID (data, not authority)
+        type: string
+        required: true
+      unit_id:
+        description: One repository-tracked docs/ Markdown file
+        type: string
+        required: true
+      input_sha256:
+        description: Approved raw file content SHA-256
+        type: string
+        required: true
+      plan_sha256:
+        description: Current reviewed work plan SHA-256
+        type: string
+        required: true
+      policy_sha256:
+        description: Current reviewed safety policy SHA-256
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: samuel-progress-evidence-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    if: ${{ github.ref == 'refs/heads/main' && github.actor == 'HyungseonSong-plasma' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact reviewed commit without write credentials
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -c http.extraheader="AUTHORIZATION: basic $auth" fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Build deterministic, read-only Markdown evidence
+        env:
+          PYTHONPATH: src
+          SAMUEL_WORK_ID: ${{ inputs.work_id }}
+          SAMUEL_UNIT_ID: ${{ inputs.unit_id }}
+          SAMUEL_INPUT_SHA256: ${{ inputs.input_sha256 }}
+          SAMUEL_PLAN_SHA256: ${{ inputs.plan_sha256 }}
+          SAMUEL_POLICY_SHA256: ${{ inputs.policy_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.single_writer_source --output progress-evidence.json
+          test -s progress-evidence.json
+      - name: Upload immutable run evidence (no Issue writes)
+        uses: actions/upload-artifact@v4
+        with:
+          name: samuel-progress-evidence-${{ github.run_id }}
+          path: progress-evidence.json
+          if-no-files-found: error
+          retention-days: 30
