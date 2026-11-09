@@ -10,10 +10,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from chatgpt_operation.controller.single_writer_live import (
     LiveEvidenceError, read_stable_issue_comments,
-    verify_github_progress_source,
+    verify_github_progress_source, qualify_next_inbox_request,
 )
 from chatgpt_operation.controller.single_writer_pilot import (
-    create_intent, plan_progress_write,
+    create_intent, plan_progress_write, encode_inbox_comment,
 )
 from chatgpt_operation.controller.durable_state import encode_state
 from chatgpt_operation.controller.progress_resume import (
@@ -265,6 +265,58 @@ class SingleWriterLiveTests(unittest.TestCase):
         duplicate.comments[1]["id"] = 1
         with self.assertRaisesRegex(LiveEvidenceError, "duplicate ID"):
             read_stable_issue_comments(duplicate, issue_number=44)
+
+    def test_full_inbox_to_trusted_zip_to_read_only_write_plan(self):
+        intent, run, artifacts, archive, _ = fixture()
+        cp = create_checkpoint(
+            work_id=intent["work_id"],
+            plan_sha256=intent["plan_sha256"],
+            policy_sha256=intent["policy_sha256"],
+            units=[{"id": intent["unit_id"], "input_sha256": intent["input_sha256"],
+                    "requires": [], "gates": ["source_current"]}],
+        )
+        state = attach_checkpoint(
+            ResearchState(intent["work_id"], "fully attested pilot"), cp
+        )
+        intent = create_intent(
+            work_id=state.research_id, base_revision=state.revision,
+            plan_sha256=intent["plan_sha256"],
+            policy_sha256=intent["policy_sha256"],
+            unit_id=intent["unit_id"], input_sha256=intent["input_sha256"],
+            outcome="PASS", detail=intent["detail"], source=intent["source"],
+        )
+        transport = GithubTransport(run, artifacts, [
+            {"id": 44, "body": encode_state(state), "user": {"login": "github-actions[bot]"}},
+            {"id": 101, "body": encode_inbox_comment(intent),
+             "user": {"login": "github-actions[bot]"}},
+        ])
+        result = qualify_next_inbox_request(
+            transport, issue_number=44,
+            read_artifact_zip=lambda artifact_id: archive,
+            trusted_comment_authors=frozenset({"github-actions[bot]"}),
+            trusted_actor="HyungseonSong-plasma",
+            expected_repository=REPO,
+            trusted_workflows=frozenset({WORKFLOW}),
+            approved_main_sha=HEAD,
+            live_gate_states={"source_current": "PASS"},
+        )
+        self.assertEqual(result["status"], "WRITE_PROPOSAL")
+        self.assertEqual(result["request_id"], intent["request_id"])
+        self.assertEqual(result["state_write"]["expected_revision"], state.revision + 1)
+        self.assertNotIn("PATCH", [p for p, _ in transport.calls])
+        run["conclusion"] = "failure"
+        transport.run = run
+        with self.assertRaisesRegex(LiveEvidenceError, "origin or terminal"):
+            qualify_next_inbox_request(
+                transport, issue_number=44,
+                read_artifact_zip=lambda artifact_id: archive,
+                trusted_comment_authors=frozenset({"github-actions[bot]"}),
+                trusted_actor="HyungseonSong-plasma",
+                expected_repository=REPO,
+                trusted_workflows=frozenset({WORKFLOW}),
+                approved_main_sha=HEAD,
+                live_gate_states={"source_current": "PASS"},
+            )
 
     def test_verified_source_integrates_with_existing_state_write_planner(self):
         intent, _, _, _, _ = fixture()
