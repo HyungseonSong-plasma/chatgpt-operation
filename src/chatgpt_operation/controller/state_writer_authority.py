@@ -67,13 +67,15 @@ def require_bootstrap_state_writer(
     except Exception as exc:
         raise StateWriterAuthorityError("authenticated Bootstrap run lookup failed") from exc
     repo = run.get("repository") if isinstance(run, dict) else None
+    path = run.get("path") if isinstance(run, dict) else None
     if not (
         isinstance(run, dict)
         and type(run.get("id")) is int and run["id"] == int(run_id)
         and type(run.get("run_attempt")) is int
         and run["run_attempt"] == int(attempt)
         and isinstance(repo, dict) and repo.get("full_name") == REPOSITORY
-        and run.get("path", "").split("@", 1)[0] == WORKFLOW_PATH
+        and isinstance(path, str)
+        and path.split("@", 1)[0] == WORKFLOW_PATH
         and run.get("event") == environment["GITHUB_EVENT_NAME"]
         and run.get("head_sha") == sha
         and run.get("head_branch") == "main"
