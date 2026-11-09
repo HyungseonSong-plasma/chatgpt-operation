@@ -130,7 +130,10 @@ def verify_authenticated_child_receipt(
     if api_digest is not None and api_digest != "sha256:" + digest:
         raise AgentEvidenceError("GitHub artifact digest mismatch")
     manifest = _from_zip(raw)
-    observed = validate_receipt(manifest["receipt"])
+    try:
+        observed = validate_receipt(manifest["receipt"])
+    except AgentIssueError as exc:
+        raise AgentEvidenceError("source ZIP contains invalid receipt") from exc
     if observed != r:
         raise AgentEvidenceError("artifact evidence differs from Child receipt")
     return {
