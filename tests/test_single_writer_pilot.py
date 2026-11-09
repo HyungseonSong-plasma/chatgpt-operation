@@ -328,6 +328,7 @@ class SingleWriterPilotTests(unittest.TestCase):
         workflow = Path(".github/workflows/samuel-bootstrap.yml").read_text(encoding="utf-8")
         self.assertIn("group: samuel-bootstrap", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
+        self.assertIn("queue: max", workflow)
 
 
 if __name__ == "__main__":
