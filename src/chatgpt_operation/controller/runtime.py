@@ -46,6 +46,7 @@ from .issue_ingestion import (
 )
 from .issue_planning import plan_admitted_issue
 from .scoped_work_gate import assess_scoped_work_snapshot
+from .scoped_wake_binding import evaluate_repository_owned_wake
 from .cross_repository_issue_admission import CrossRepositoryIssueSnapshot
 from .cross_repository_workflow import (
     ForeignWorkState, reconcile_admission, plan_next_cycle,
@@ -1450,7 +1451,74 @@ class SamuelController:
         foreign_ledger: ForeignWorkState | None = None,
         foreign_policy: dict[str, Any] | None = None,
         requested_work_id: str | None = None,
+        scoped_repository_policy: dict[str, Any] | None = None,
+        scoped_native_run_reader: Any | None = None,
+        scoped_native_run_id: int | None = None,
+        scoped_native_run_attempt: int | None = None,
     ) -> ControllerCycle:
+        # Candidate source is repository-controlled configuration, NOT an
+        # untrusted scheduler-provided work ID.  This draft-only path is
+        # deliberately read-only even if the candidate checks all pass.
+        if scoped_repository_policy is not None:
+            work = str(scoped_repository_policy.get("work_id", "")) if isinstance(
+                scoped_repository_policy, dict
+            ) else ""
+            unsafe = (
+                requested_work_id is not None
+                or trigger.kind is not TriggerKind.WORKFLOW_DISPATCH
+                or trigger.ref != "refs/heads/main"
+                or trigger.executor_ref != "main"
+                or not isinstance(repository_context, dict)
+                or trigger.head_sha != repository_context.get("observed_head_sha")
+                or trigger.executor_head_sha != trigger.head_sha
+                or bool(pending)
+                or issue is not None
+                or progress_context is not None
+                or foreign_snapshot is not None
+                or foreign_context is not None
+                or foreign_ledger is not None
+                or foreign_policy is not None
+                or scoped_native_run_reader is None
+            )
+            if unsafe:
+                return ControllerCycle(
+                    trigger,
+                    {"kind": "blocked_scope", "work_id": work,
+                     "reason": "trusted scoped wake must match canonical "
+                               "Bootstrap main SHA and have no foreign work",
+                     "dispatch_authorized": False},
+                    None, None, None, None,
+                )
+            binding = evaluate_repository_owned_wake(
+                scope=scoped_repository_policy,
+                run_reader=scoped_native_run_reader,
+                run_id=scoped_native_run_id,
+                run_attempt=scoped_native_run_attempt,
+                comments=comments,
+                repository_context=repository_context,
+            )
+            return ControllerCycle(
+                trigger,
+                {"kind": "scoped_preview" if binding.candidate else "blocked_scope",
+                 "work_id": binding.work_id, "reason": binding.reason,
+                 "dispatch_authorized": False,
+                 "verified_run_id": binding.run_id,
+                 "verified_head_sha": binding.head_sha},
+                None, None, None, None,
+            )
+        if (
+            scoped_native_run_reader is not None
+            or scoped_native_run_id is not None
+            or scoped_native_run_attempt is not None
+        ):
+            return ControllerCycle(
+                trigger,
+                {"kind": "blocked_scope", "work_id": "",
+                 "reason": "orphaned scoped wake evidence without repository policy",
+                 "dispatch_authorized": False},
+                None, None, None, None,
+            )
+
         # Draft-only scoped preview.  This is deliberately evaluated BEFORE
         # admission reconciliation, lifecycle transitions, typed execution
         # preparation, and any proposed durable write.  A candidate is NOT a
