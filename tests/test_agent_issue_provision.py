@@ -118,7 +118,7 @@ class LiveGithub:
 
 def next_step(github,request):
     return plan_next_child_provision(
-        github,request,parent_issue=copy.deepcopy(github.issues[44]),
+        github,request,parent_issue=copy.deepcopy(github.issues[400]),
         trusted_author=AUTHOR,
     )
 
@@ -145,9 +145,9 @@ class AgentProvisioningTests(unittest.TestCase):
             "RECORD_PARENT_ASSIGNMENT","READY",
         ])
         self.assertEqual(assignment["child_issue"],500)
-        self.assertEqual(gh.links[44],[500])
-        self.assertEqual(len(gh.comments[44]),2)
-        self.assertEqual(gh.issues[44]["body"],"Original canonical parent — unchanged")
+        self.assertEqual(gh.links[400],[500])
+        self.assertEqual(len(gh.comments[400]),2)
+        self.assertEqual(gh.issues[400]["body"],"Original canonical parent — unchanged")
         self.assertEqual(complete(gh,spec(1))[0],["READY"])
         self.assertEqual(len([e for e in gh.events if e==("POST","/issues")]),1)
         validate_child_ownership(
@@ -165,8 +165,8 @@ class AgentProvisioningTests(unittest.TestCase):
             self.assertEqual(steps[-1],"READY")
         self.assertEqual(len({x["child_issue"] for x in registered}),20)
         self.assertEqual(len({x["agent_id"] for x in registered}),20)
-        self.assertEqual(len(gh.links[44]),20)
-        self.assertEqual(len(gh.comments[44]),21)  # state + 20 immutable allocations
+        self.assertEqual(len(gh.links[400]),20)
+        self.assertEqual(len(gh.comments[400]),21)  # state + 20 immutable allocations
         self.assertFalse(any(e==("PATCH","/issues/400") for e in gh.events))
         self.assertEqual(
             len([e for e in gh.events if e==("POST","/issues")]),20,
@@ -184,7 +184,7 @@ class AgentProvisioningTests(unittest.TestCase):
         steps,assignment=complete(gh,spec(0))
         self.assertNotIn("CREATE_CHILD",steps)
         self.assertEqual(assignment["child_issue"],500)
-        self.assertEqual(len(gh.links[44]),1)
+        self.assertEqual(len(gh.links[400]),1)
         self.assertEqual(len([x for x in gh.events if x==("POST","/issues")]),1)
 
     def test_lost_ack_at_each_intermediate_boundary_is_recoverable(self):
@@ -200,8 +200,8 @@ class AgentProvisioningTests(unittest.TestCase):
                     complete(gh,spec(0))
                 stages,assignment=complete(gh,spec(0))
                 self.assertEqual(stages[-1],"READY")
-                self.assertEqual(len(gh.comments[44]),2)
-                self.assertEqual(len(gh.links[44]),1)
+                self.assertEqual(len(gh.comments[400]),2)
+                self.assertEqual(len(gh.links[400]),1)
                 self.assertEqual(assignment["child_issue"],500)
 
     def test_bootstrap_restart_before_each_stage_resumes_only_that_stage(self):
@@ -216,7 +216,7 @@ class AgentProvisioningTests(unittest.TestCase):
                 steps,_=complete(gh,spec(0))
                 self.assertEqual(steps[0],blocked)
                 self.assertEqual(steps[-1],"READY")
-                self.assertEqual(len(gh.comments[44]),2)
+                self.assertEqual(len(gh.comments[400]),2)
 
     def test_duplicate_provision_intent_in_two_issues_fails_closed(self):
         gh=LiveGithub()
@@ -237,7 +237,7 @@ class AgentProvisioningTests(unittest.TestCase):
 
     def test_parent_identity_and_child_admission_tampering_are_blocked(self):
         gh=LiveGithub()
-        parent=copy.deepcopy(gh.issues[44])
+        parent=copy.deepcopy(gh.issues[400])
         parent["number"]=999
         with self.assertRaisesRegex(ProvisionError,"parent live Issue"):
             plan_next_child_provision(gh,spec(0),parent_issue=parent)
@@ -249,10 +249,10 @@ class AgentProvisioningTests(unittest.TestCase):
     def test_parent_authority_comment_is_immutable_append_not_state_patch(self):
         gh=LiveGithub()
         complete(gh,spec(0))
-        state_before=gh.comments[44][0]["body"]
+        state_before=gh.comments[400][0]["body"]
         self.assertEqual(state_before,"<!-- samuel-controller-state --> original")
         self.assertNotIn(("PATCH","/issues/400/comments/88"),gh.events)
-        gh.comments[44][1]["updated_at"]="2026-11-09T00:00:01Z"
+        gh.comments[400][1]["updated_at"]="2026-11-09T00:00:01Z"
         with self.assertRaisesRegex(ProvisionError,"not immutable"):
             next_step(gh,spec(0))
 
