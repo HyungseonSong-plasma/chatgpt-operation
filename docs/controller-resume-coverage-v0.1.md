@@ -71,7 +71,16 @@ Decisions:
 | `HARD_STOP` | Missing/invalid ledger, malformed inventory, tampered evidence | Do not resume from suspect state |
 
 The evaluator returns exact numeric `completed`, `ready` and `stale`
-indices. It never launches workflows or writes GitHub state. To persist an
+indices. It never launches workflows or writes GitHub state.
+
+The **production `controller run-cycle` composition root** can also be invoked
+with `--progress-context <file>` on an explicit isolated read-only caller
+cycle. When a valid `progress_checkpoint` exists, the root emits
+`selected_work.kind=progress_resume` and an exact mechanical decision, with
+no `state_write` or `execution_command`. The standard scheduled
+`samuel-bootstrap.yml` does **not** provide this option; no scheduler or
+automatic dispatch behavior is changed. Foreign-repository admission cannot
+be combined with this optional route. To persist an
 accepted unit, the controller calls `record_verified_unit()` with current
 input digest and gate evidence. The method is idempotent for identical proof,
 rejects competing proof for the same unit, and increments the ledger revision
@@ -124,8 +133,25 @@ idempotent replay, stale persistence precondition, disjoint proposal, and
 conflicting/live-action refusal. Existing native executor crash/retry tests
 remain independent.
 
+**Isolated real-process integration:** `tests/test_controller_crash_restart_integration.py`
+uses 40 actual tracked Samuel Python source files as deterministic read-only
+work units. The first actual `controller run-cycle --progress-context`
+process saves 30 complete proofs using the same Issue-comment envelope and
+revision precondition logic used by production, then is terminated with
+OS `SIGKILL` while working on unit 31 before its receipt is stored.
+A **new interpreter process** reconstructs the checkpoint from disk and
+continues only units 31–40. The test checks zero duplicate completed units,
+all retained receipt bytes/digests, unchanged replay, and one-file identity
+invalidation without discarding independent work.
+
+This is a **real Controller composition-root/CLI subprocess test** and a
+**simulated GitHub Issue-comment transport**, not a kill of the live scheduled
+Controller or a GitHub API persistence chaos test. Promotion to live use needs
+the independently authorized consumer scheduler and actual GitHub transport
+validation.
+
 Still **not proven** by v0.1:
-1. end-to-end scheduled Controller adoption of this evaluator;
+1. end-to-end scheduled Controller adoption of this evaluator on live GitHub state;
 2. real two-writer CAS semantics for Issue comments;
 3. very large evidence preservation outside bounded comment storage;
 4. cross-repository execution authority or external provider safety;
