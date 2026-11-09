@@ -26,10 +26,15 @@ class ProgressResumeError(ValueError):
 
 def _canonical(value: Any) -> bytes:
     try:
-        return json.dumps(
+        encoded = json.dumps(
             value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
             allow_nan=False,
         ).encode("utf-8")
+        # Reject Python tuples/non-string mapping keys rather than silently
+        # converting them: this checkpoint promises *lossless* JSON details.
+        if json.loads(encoded.decode("utf-8")) != value:
+            raise ProgressResumeError("progress detail changes under JSON round-trip")
+        return encoded
     except (TypeError, ValueError, UnicodeError) as exc:
         raise ProgressResumeError("progress detail is not canonical JSON") from exc
 
@@ -157,6 +162,8 @@ def record_verified_unit(
     checkpoint = validate_checkpoint(state.progress_checkpoint)
     if checkpoint["work_id"] != state.research_id:
         raise ProgressResumeError("progress state identity changed")
+    if not isinstance(gate_states, Mapping):
+        raise ProgressResumeError("gate states must be a mapping")
     matches = [i for i, unit in enumerate(checkpoint["units"]) if unit["id"] == unit_id]
     if len(matches) != 1:
         raise ProgressResumeError("unknown progress unit")
@@ -204,6 +211,8 @@ def evaluate_resume(
     if checkpoint["policy_sha256"] != _sha(policy_sha256, "policy_sha256"):
         return {"status": "POLICY_CHANGED", "ready": [], "completed": [], "stale": []}
 
+    if not isinstance(live_inputs, Mapping) or not isinstance(gate_states, Mapping):
+        raise ProgressResumeError("live inputs and gate states must be mappings")
     units = checkpoint["units"]
     names = {u["id"] for u in units}
     if set(live_inputs) != names:
@@ -245,6 +254,8 @@ def refresh_unit_inputs(
 ) -> ResearchState:
     """Invalidate only changed inputs and their transitive dependents."""
     checkpoint = validate_checkpoint(state.progress_checkpoint)
+    if not isinstance(live_inputs, Mapping):
+        raise ProgressResumeError("live inputs must be a mapping")
     units = checkpoint["units"]
     if set(live_inputs) != {u["id"] for u in units}:
         raise ProgressResumeError("live input inventory mismatch")
