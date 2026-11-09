@@ -1,7 +1,8 @@
 """Agent-owned Child Issue partitions: immutable receipts, read-only parent reduce.
 
-The parent Issue #44 owns allocation and final decisions. Agents append ONLY
-to their allocated Child Issues. No child edits the parent's ResearchState.
+Each OPEN admitted work Parent Issue owns its Agent assignments; the
+legacy CLOSED global Issue #44 retains only Controller state. Agents append
+ONLY to their allocated Child Issues. No Child edits the global ResearchState.
 These objects are proposals/observations; none of their bytes alone grant
 execution, merge, or state-write authority.
 """
