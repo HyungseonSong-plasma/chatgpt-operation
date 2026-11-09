@@ -150,9 +150,59 @@ Controller or a GitHub API persistence chaos test. Promotion to live use needs
 the independently authorized consumer scheduler and actual GitHub transport
 validation.
 
+## Live GitHub Issue transport and concurrency qualification (2026-11-09)
+
+**Isolated fixture:** [Samuel Issue #267](https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/267);
+no `samuel` label, no admitted workload, no writes to the operational
+Issue #44. The live GitHub connector performed the real GitHub Issue-comment
+POST, PATCH and GET operations on one schema-v5 `ResearchState` envelope.
+This is a **transport-level live-API qualification**; the GitHub connector is
+not the Python `persist_state_write()` transport. That Python boundary is
+tested with injected transport faults in `tests/test_state_persistence.py`.
+
+**Observed, with a single authoritative comment:**
+
+1. After creating the Issue comment, the client **deliberately discarded
+   the successful POST response** (simulating a lost acknowledgment).
+   Re-reading `/issues/267/comments` recovered exactly one comment and
+   revision 1. No second POST was sent.
+2. After PATCH to revision 2 with verified `scan-a` detail, its successful
+   response was likewise discarded. Independent GET recovered the same
+   comment ID, full detail and expected digest at revision 2.
+3. A second writer planned against revision 2 while the first wrote
+   `scan-b` at revision 3. Authoritative prewrite GET found revision 3;
+   the stale `scan-c` proposal was **not PATCHed**. After checking the
+   unchanged scope, it was rebased and serially written as revision 4,
+   preserving A/B/C evidence. The prewrite check is client-side and requires
+   a trusted serialized writer; GitHub does not enforce it.
+4. **Deliberate two-writer race on the isolated fixture:** both writers
+   PATCHed the **same comment** based on revision 4, each proposing revision
+   5, with independent `scan-d` and `scan-e` receipts. **Both API
+   requests were accepted.** A subsequent independent GET returned only
+   A/B/C/E at revision 5: **D was lost**. This proves neither revision
+   equality nor two successful HTTP results imply atomic compare-and-swap.
+5. The missing D receipt was explicitly re-evaluated, merged against the
+   authoritative revision 5 and **serially PATCHed** as revision 6.
+   Independent GET verified exactly one comment and all five A–E receipts.
+   This is an **operator-controlled recovery**, not safe automatic merge
+   under simultaneous writers.
+
+The actual API test specifically confirms the requirement for
+**single-writer serialization**. A digest-based / revision-based
+application CAS without a server-side atomic condition cannot eliminate
+the lost-update race. The existing postwrite readback might also see a
+concurrent writer's **different payload at the same revision** and
+incorrectly report success. The implementation is therefore hardened to
+compare the **entire reconstructed ResearchState** against the submitted
+payload. Injected-transport tests cover both same-revision content
+mismatch and accepted POST/PATCH with lost acknowledgments.
+This mitigation catches a race visible before readback but cannot prevent
+a later concurrent overwrite; no production multi-writer assurance is
+claimed.
+
 Still **not proven** by v0.1:
 1. end-to-end scheduled Controller adoption of this evaluator on live GitHub state;
-2. real two-writer CAS semantics for Issue comments;
+2. safe concurrent GitHub Issue-comment writes: live API testing **demonstrates lost updates**; server-side CAS or reliably exclusive serialization is still required;
 3. very large evidence preservation outside bounded comment storage;
 4. cross-repository execution authority or external provider safety;
 5. factual/semantic validity of read-only analysis findings.
