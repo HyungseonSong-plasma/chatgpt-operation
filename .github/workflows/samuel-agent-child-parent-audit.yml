@@ -2,6 +2,11 @@ name: Samuel Agent Child Parent Audit (Read Only)
 
 on:
   workflow_dispatch:
+    inputs:
+      parent_issue:
+        description: Open admitted work Parent Issue (never controller #44)
+        required: true
+        type: number
 
 permissions:
   contents: read
@@ -30,9 +35,11 @@ jobs:
         env:
           PYTHONPATH: src
           GITHUB_TOKEN: ${{ github.token }}
+          SAMUEL_WORK_PARENT: ${{ inputs.parent_issue }}
         run: |
           set -euo pipefail
           python3 -m chatgpt_operation.controller.agent_issue_parent_audit \
+            --parent "$SAMUEL_WORK_PARENT" \
             --output samuel-child-parent-audit.json
       - name: Upload review-only parent audit
         uses: actions/upload-artifact@v4
