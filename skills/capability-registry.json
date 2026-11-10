@@ -121,7 +121,7 @@
         }
       ],
       "exhaustion_policy": "all_registered_providers_must_fail"
-    }
+    },
     "GITHUB_BRANCH_FAST_FORWARD": {
       "providers": [
         {
