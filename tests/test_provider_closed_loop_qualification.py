@@ -1,6 +1,7 @@
 """Production-equivalent qualification for semantic planning through terminal idle."""
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from chatgpt_operation.controller.action_plan import ActionPlan, ExecutorKind
@@ -302,7 +303,7 @@ class ProviderClosedLoopQualificationTests(unittest.TestCase):
             "correlation_id":action_id,
             "workflow_run_id":run_id,
         }
-        gateway=ExecutionGateway(object())
+        gateway=ExecutionGateway(SimpleNamespace(repository="HyungseonSong-plasma/chatgpt-operation"))
         if plan.executor is ExecutorKind.REPOSITORY_MUTATION:
             dispatch_patch=patch(
                 "chatgpt_operation.controller.execution_gateway.dispatch_workflow",
