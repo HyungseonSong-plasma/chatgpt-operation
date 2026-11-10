@@ -194,3 +194,6 @@ and the journal does not currently have independent tip anchoring or globally
 serialized writes. Controller workflow dispatch and direct connector entrypoints
 still require audited deployment; do not claim complete enforcement.
 
+## PR branch fast-forward (review-gated; pending protected registry adoption)
+
+Trigger `GITHUB_BRANCH_FAST_FORWARD` is owned by this skill. The only proposed provider is `github-connector`. It is limited to existing non-default Draft PR branches, first-parent non-force fast-forward to an exact-head two-parent merge commit that preserves the original PR Git tree. See `skills/repository-mutation/branch-fast-forward-v0.1.md`. An owner policy, immutable central consumer pin, trusted blocker history and read-before/write/read-after are mandatory; absent authority means STOP.
