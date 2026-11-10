@@ -36,7 +36,8 @@
         "GITHUB_MUTATION_CAPABILITY_VERDICT",
         "GITHUB_FILE_CREATE",
         "GITHUB_FILE_UPDATE",
-        "GITHUB_BRANCH_CREATE"
+        "GITHUB_BRANCH_CREATE",
+        "GITHUB_BRANCH_FAST_FORWARD"
       ],
       "activation": "trigger",
       "contracts": [
@@ -46,7 +47,8 @@
         "GITHUB_BRANCH_DELETE",
         "GITHUB_FILE_CREATE",
         "GITHUB_FILE_UPDATE",
-        "GITHUB_BRANCH_CREATE"
+        "GITHUB_BRANCH_CREATE",
+        "GITHUB_BRANCH_FAST_FORWARD"
       ]
     },
     {
