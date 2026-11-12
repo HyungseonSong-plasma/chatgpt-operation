@@ -48,6 +48,24 @@ class GeminiActivationProposalTests(unittest.TestCase):
                 "installed workflow differs from reviewed canonical blueprint",
             )
 
+    def test_registry_install_blueprint_preserves_existing_capabilities(self):
+        proposal = json.loads(
+            (ROOT / "capability-registry.proposed.json").read_text()
+        )
+        self.assertEqual(proposal["schema_version"], 1)
+        entry = proposal["capabilities"]["EXTERNAL_LLM_REVIEW"]
+        self.assertEqual(entry, self.plan["proposed_registry_entry"]["value"])
+        original = json.loads(Path("skills/capability-registry.json").read_text())
+        before = original["capabilities"]
+        for name, definition in before.items():
+            if name != "EXTERNAL_LLM_REVIEW":
+                self.assertIn(name, proposal["capabilities"])
+                self.assertEqual(proposal["capabilities"][name], definition)
+        self.assertEqual(
+            set(proposal["capabilities"]) - {"EXTERNAL_LLM_REVIEW"},
+            set(before) - {"EXTERNAL_LLM_REVIEW"},
+        )
+
     def test_issue_route_authorizes_owner_only_and_denies_reruns(self):
         t = self.plan["trigger"]
         self.assertEqual(t["method"], "github_issue_label")
