@@ -37,7 +37,7 @@ class GeminiActivationProposalTests(unittest.TestCase):
             "types: [labeled]", "github.event.label.name",
             "github.actor == 'HyungseonSong-plasma'",
             "github.event.issue.user.login == 'HyungseonSong-plasma'",
-            "github.run_attempt == 1", "samuel-gemini-review-approved",
+            "github.run_attempt == 1", "samuel/gemini-review-approved",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.workflow)
