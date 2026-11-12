@@ -72,6 +72,8 @@ in the CLI execution sandbox.
 5. Live Gemini smoke evidence, independent domain review, and separate merge
    authorization.
 
-Until those gates are satisfied, this pilot is not invoked by codeQA-init,
-the central skill catalog, or Samuel Controller and cannot be called from a
-ChatGPT conversation through an active registered capability.
+The central Skill Catalog indexes EXTERNAL_LLM_REVIEW as a trigger-only
+metadata entry, but no executable provider is registered in the privileged
+Capability Registry and no Controller/Actions execution route is installed.
+Until those separate gates pass, codeQA-init does not activate this skill and
+ChatGPT cannot dispatch Gemini reviews through a live Samuel capability.
