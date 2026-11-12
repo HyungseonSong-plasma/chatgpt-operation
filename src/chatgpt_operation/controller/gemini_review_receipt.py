@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 
 from .gemini_review_adapter import ReviewError, canonical_bytes, validate_packet
@@ -48,6 +49,18 @@ def bind_review_receipt(prepared: object, result: object) -> dict:
         if result.get("merge_authorized") is not False or result.get("mutation_authorized") is not False:
             raise ReviewError("unknown result must deny mutation authority")
         verdict = "UNKNOWN"
+        code = result.get("failure_code")
+        if code is not None and (
+            not isinstance(code, str) or
+            re.fullmatch(
+                r"(?:API_HTTP_[1-5][0-9]{2}|API_KEY_MISSING|API_TRANSPORT_ERROR|"
+                r"CANDIDATES_INVALID|GENERATION_INCOMPLETE|MODEL_CONTENT_INVALID|"
+                r"MODEL_JSON_INVALID|REVIEW_SCHEMA_INVALID|INPUT_OR_REVIEW_INVALID|"
+                r"REQUEST_INVALID|UNKNOWN_FAILURE)",
+                code,
+            ) is None
+        ):
+            raise ReviewError("invalid sanitized provider failure code")
     return {
         "schema_version": 1,
         "status": "REVIEW_RECEIPT_BOUND" if outcome == "REVIEW_RETURNED" else "UNKNOWN",
@@ -62,6 +75,8 @@ def bind_review_receipt(prepared: object, result: object) -> dict:
         "issue_number": prepared["issue_number"],
         "model_result": result if outcome == "REVIEW_RETURNED" else {
             "status": "UNKNOWN", "failure": result.get("failure"),
+            **({"failure_code": result["failure_code"]}
+               if "failure_code" in result else {}),
         },
         "merge_authorized": False,
         "mutation_authorized": False,
