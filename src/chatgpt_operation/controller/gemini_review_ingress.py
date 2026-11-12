@@ -97,6 +97,24 @@ def issue_identity(event: object, *, source_repository: str = SOURCE_REPOSITORY)
     }
 
 
+def require_single_owner_approval(events: object) -> None:
+    """An issue may authorize one chargeable attempt, never re-label retries.
+
+    GitHub events collection is intentionally limited to one 100-item page;
+    larger or not-yet-visible histories fail closed rather than silently replay.
+    """
+    if not isinstance(events, list) or len(events) >= 100:
+        raise ReviewError("review approval history incomplete or malformed")
+    hits = [
+        item for item in events
+        if isinstance(item, dict)
+        and item.get("event") == "labeled"
+        and _member(item, "label", "name") == TRIGGER_LABEL
+    ]
+    if len(hits) != 1 or _member(hits[0], "actor", "login") != "HyungseonSong-plasma":
+        raise ReviewError("Gemini review requires one owner approval event only")
+
+
 def prepare_verified_review(
     event: object, metadata: object, diff: str, files: object,
     *, source_repository: str = SOURCE_REPOSITORY,
@@ -168,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pr-meta")
     p.add_argument("--pr-diff")
     p.add_argument("--pr-files")
+    p.add_argument("--issue-events")
     args = p.parse_args(argv)
     try:
         event = _read_json(args.event, max_bytes=400_000)
@@ -175,8 +194,9 @@ def main(argv: list[str] | None = None) -> int:
             info = issue_identity(event)
             result = {k: v for k, v in info.items() if k != "packet"}
         else:
-            if not all((args.pr_meta, args.pr_diff, args.pr_files)):
+            if not all((args.pr_meta, args.pr_diff, args.pr_files, args.issue_events)):
                 raise ReviewError("trusted PR metadata, diff and files are mandatory")
+            require_single_owner_approval(_read_json(args.issue_events))
             pr = _read_json(args.pr_meta)
             diff_bytes = Path(args.pr_diff).read_bytes()
             if len(diff_bytes) > MAX_DIFF_BYTES:
