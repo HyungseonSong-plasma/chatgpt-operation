@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "capabilities": {
+    "GITHUB_PR_MERGE": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        },
+        {
+          "name": "repository-native",
+          "kind": "workflow",
+          "priority": 20,
+          "workflow": ".github/workflows/samuel-controller.yml",
+          "executor_workflow": ".github/workflows/samuel-native-github.yml",
+          "contract": "github-native-dispatch",
+          "required_permissions": {
+            "actions": "write",
+            "pull-requests": "write"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_BRANCH_DELETE": {
+      "providers": [
+        {
+          "name": "repository-native",
+          "kind": "skill",
+          "priority": 10,
+          "contract": "github-branch-delete"
+        },
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 20
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_WORKFLOW_DISPATCH": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        },
+        {
+          "name": "repository-actions",
+          "kind": "skill",
+          "priority": 20,
+          "contract": "github-native-dispatch"
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_FILE_CREATE": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        },
+        {
+          "name": "repository-native",
+          "kind": "workflow",
+          "priority": 20,
+          "workflow": ".github/workflows/samuel-repository-mutation.yml",
+          "required_permissions": {
+            "contents": "write"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_FILE_UPDATE": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        },
+        {
+          "name": "repository-native",
+          "kind": "workflow",
+          "priority": 20,
+          "workflow": ".github/workflows/samuel-repository-mutation.yml",
+          "required_permissions": {
+            "contents": "write"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_BRANCH_CREATE": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        },
+        {
+          "name": "repository-native",
+          "kind": "workflow",
+          "priority": 20,
+          "workflow": ".github/workflows/samuel-repository-mutation.yml",
+          "required_permissions": {
+            "contents": "write"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_PR_CREATE": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_BRANCH_FAST_FORWARD": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "EXTERNAL_LLM_REVIEW": {
+      "providers": [
+        {
+          "name": "github-issue-label-gateway",
+          "kind": "workflow",
+          "priority": 10,
+          "workflow": ".github/workflows/samuel-gemini-review.yml",
+          "required_permissions": {
+            "contents": "read",
+            "issues": "read",
+            "pull-requests": "read"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    }
+  }
+}

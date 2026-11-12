@@ -1,6 +1,8 @@
 # PROPOSAL ONLY — NOT ACTIVE. This file is intentionally outside .github/workflows.
 # Privileged adoption must review and install at .github/workflows/samuel-gemini-review.yml.
 # No secrets may be set in this Draft PR or in an Issue body.
+# Pinned GitHub Actions SHAs resolved against upstream v4 tags 2026-11-12.
+# Stage 4 activation requires separate human-owned protected path PR.
 name: Samuel Gemini Review
 
 run-name: samuel-gemini-issue-${{ github.event.issue.number }}
@@ -32,7 +34,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout trusted Samuel workflow source (not target PR)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -104,7 +106,7 @@ jobs:
           PY
 
       - name: Upload only validated request for credential-isolated worker
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: samuel-gemini-request-${{ github.event.issue.number }}
           path: |
@@ -122,13 +124,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted Samuel implementation without persistent token
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Download validated packet (no GitHub credentials passed to Gemini)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: samuel-gemini-request-${{ github.event.issue.number }}
           path: gemini-input
@@ -143,7 +145,7 @@ jobs:
           set -euo pipefail
           python3 -m chatgpt_operation.controller.gemini_review_adapter \
             --backend api \
-            --model gemini-2.5-flash \
+            --model gemini-3.8-flash \
             --input gemini-input/packet.json \
             --output gemini-review-result.json \
             --timeout 90
@@ -163,7 +165,7 @@ jobs:
 
       - name: Retain inspectable receipt for ChatGPT with short retention
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: samuel-gemini-result-${{ github.event.issue.number }}
           path: |
