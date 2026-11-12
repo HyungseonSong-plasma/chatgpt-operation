@@ -183,6 +183,15 @@
       "capabilities": [
         "GITHUB_WORKFLOW_DISPATCH"
       ]
+    },
+    {
+      "name": "external-llm-review",
+      "path": "skills/external-llm-review/README.md",
+      "contract_path": "skills/external-llm-review/contract-v0.1.json",
+      "load_on": [
+        "EXTERNAL_LLM_REVIEW"
+      ],
+      "activation": "trigger"
     }
   ]
 }
