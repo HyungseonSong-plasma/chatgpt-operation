@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 import unittest
 
@@ -22,9 +23,30 @@ class GeminiActivationProposalTests(unittest.TestCase):
         self.assertEqual(self.plan["status"], "PROPOSED_ONLY_NOT_EXECUTABLE")
         self.assertFalse(self.plan["policy_gate"]["auto_override"])
         self.assertTrue(self.plan["policy_gate"]["owner_approved_privileged_installation_required"])
-        self.assertNotIn("EXTERNAL_LLM_REVIEW", json.loads(
+        capability = json.loads(
             Path("skills/capability-registry.json").read_text()
-        )["capabilities"])
+        )["capabilities"].get("EXTERNAL_LLM_REVIEW")
+        installed = Path(".github/workflows/samuel-gemini-review.yml")
+        if not installed.is_file():
+            self.assertIsNone(capability, "registry enabled without installed workflow")
+        else:
+            self.assertIsInstance(capability, dict, "installed workflow is not registered")
+            providers = capability["providers"]
+            self.assertEqual(len(providers), 1)
+            self.assertEqual(providers[0]["name"], "github-issue-label-gateway")
+            self.assertEqual(providers[0]["kind"], "workflow")
+            self.assertEqual(providers[0]["workflow"], str(installed))
+            self.assertIn("github.run_attempt == 1", installed.read_text())
+            self.assertIn("SAMUEL_GEMINI_API_KEY", installed.read_text())
+            # Protected adoption must use the reviewed, pinned workflow body.
+            blueprint = self.workflow.split("name: Samuel Gemini Review", 1)[1]
+            adopted = installed.read_text()
+            self.assertTrue(adopted.startswith("name: Samuel Gemini Review"))
+            self.assertEqual(
+                adopted.split("name: Samuel Gemini Review", 1)[1].strip(),
+                blueprint.strip(),
+                "installed workflow differs from reviewed canonical blueprint",
+            )
 
     def test_issue_route_authorizes_owner_only_and_denies_reruns(self):
         t = self.plan["trigger"]
@@ -53,9 +75,19 @@ class GeminiActivationProposalTests(unittest.TestCase):
         self.assertIn("gemini_review_ingress", prepare)
         self.assertIn("gemini_review_receipt", review)
         self.assertIn("persist-credentials: false", review)
-        self.assertIn("gemini-2.5-flash", review)
+        self.assertIn("gemini-3.8-flash", review)
         self.assertIn("retention-days: 7", self.workflow)
         self.assertIn("--timeout 90", review)
+
+
+    def test_all_proposed_actions_are_immutable_commit_pins(self):
+        refs = re.findall(r"^\s+uses:\s+(actions/[a-z-]+@[^\s#]+)\s*$",
+                          self.workflow, re.MULTILINE)
+        self.assertGreaterEqual(len(refs), 5)
+        for ref in refs:
+            with self.subTest(ref=ref):
+                self.assertRegex(ref, r"^actions/[a-z-]+@[a-f0-9]{40}$")
+        self.assertNotIn("@v4", self.workflow)
 
     def test_model_has_no_github_or_merge_authority(self):
         self.assertFalse(self.plan["authority"]["gemini_can_access_github"])
