@@ -6,6 +6,7 @@ External model text remains untrusted even after binding.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -17,7 +18,7 @@ def bind_review_receipt(prepared: object, result: object) -> dict:
     if not isinstance(prepared, dict) or prepared.get("status") != "VERIFIED_REVIEW_REQUEST":
         raise ReviewError("unverified Gemini request receipt")
     packet = validate_packet(prepared.get("packet"))
-    if prepared.get("request_sha256") != __import__("hashlib").sha256(canonical_bytes(packet)).hexdigest():
+    if prepared.get("request_sha256") != hashlib.sha256(canonical_bytes(packet)).hexdigest():
         raise ReviewError("request receipt digest mismatch")
     if not isinstance(result, dict) or result.get("status") not in {"UNKNOWN", "REVIEW_RETURNED"}:
         raise ReviewError("missing or invalid Gemini execution result")
