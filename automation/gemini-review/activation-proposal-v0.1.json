@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "status": "PROPOSED_ONLY_NOT_EXECUTABLE",
+  "issue": 307,
+  "draft_pr": 308,
+  "implementation_branch": "samuel/gemini-review-adapter-v01-307",
+  "trigger": {
+    "method": "github_issue_label",
+    "host_repository": "HyungseonSong-plasma/chatgpt-operation",
+    "event": "issues.labeled",
+    "label": "samuel/gemini-review-approved",
+    "authorized_sender": "HyungseonSong-plasma",
+    "authorized_issue_creator": "HyungseonSong-plasma",
+    "source_repository_allowlist": [
+      "HyungseonSong-plasma/codeQA"
+    ],
+    "body_format": "JSON",
+    "max_body_bytes": 52000,
+    "single_owner_label_event": true,
+    "run_attempt_must_equal": 1
+  },
+  "proposed_workflow": {
+    "source": "automation/gemini-review/samuel-gemini-review.proposed.yml",
+    "install_target": ".github/workflows/samuel-gemini-review.yml",
+    "dispatch_requirement": "workflow must exist on default branch before first label",
+    "provider_execution": "Gemini API only; optional CLI remains disabled",
+    "separated_jobs": [
+      "prepare trusted GitHub evidence; NO Gemini key",
+      "review validated payload; NO GitHub API token"
+    ],
+    "artifact_retention_days": 7,
+    "per_attempt_max_output_tokens": 2048,
+    "timeout_seconds": 90,
+    "run_concurrency": "one run at a time per Issue",
+    "pin_actions_to_immutable_shas_before_production": true,
+    "api_secret": "SAMUEL_GEMINI_API_KEY",
+    "api_secret_location": "chatgpt-operation Actions repository secret, never PR/issue/chat text"
+  },
+  "proposed_registry_entry": {
+    "capability": "EXTERNAL_LLM_REVIEW",
+    "value": {
+      "providers": [
+        {
+          "name": "github-issue-label-gateway",
+          "kind": "workflow",
+          "priority": 10,
+          "workflow": ".github/workflows/samuel-gemini-review.yml",
+          "required_permissions": {
+            "contents": "read",
+            "issues": "read",
+            "pull-requests": "read"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    }
+  },
+  "policy_gate": {
+    "mutation_policy": "automation/samuel/repository-mutation-policy.json",
+    "blocked_paths": [
+      "skills/capability-registry.json",
+      ".github/workflows/**"
+    ],
+    "auto_override": false,
+    "owner_approved_privileged_installation_required": true
+  },
+  "unresolved": [
+    "actual secret provisioning",
+    "approval label creation",
+    "workflow/registry installation through privileged governance",
+    "immutable pinning of Actions implementations",
+    "quota/billing limit beyond per-call output/one-time label gate",
+    "real Google API smoke test",
+    "GitHub artifact readback and human adjudication",
+    "consumer explicit pin adoption if enabled in codeQA"
+  ],
+  "authority": {
+    "review_may_approve_merge": false,
+    "gemini_can_access_github": false,
+    "review_result_is_semantic_pass": false
+  }
+}
