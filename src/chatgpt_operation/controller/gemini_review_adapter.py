@@ -93,7 +93,7 @@ def review_prompt(packet: dict) -> str:
 def validate_reply(raw: object, packet: dict) -> dict:
     if not isinstance(raw, dict) or set(raw) != {"verdict", "summary", "findings"}:
         raise ReviewError("invalid Gemini review response fields")
-    if raw["verdict"] not in STATUSES:
+    if not isinstance(raw["verdict"], str) or raw["verdict"] not in STATUSES:
         raise ReviewError("invalid review verdict")
     summary = raw["summary"]
     if not isinstance(summary, str) or not 5 <= len(summary) <= 2000:
@@ -106,7 +106,8 @@ def validate_reply(raw: object, packet: dict) -> dict:
             "severity", "path", "line", "evidence", "explanation",
         }:
             raise ReviewError("invalid finding fields")
-        if entry["severity"] not in SEVERITIES or entry["path"] not in packet["changed_paths"]:
+        if (not isinstance(entry["severity"], str) or entry["severity"] not in SEVERITIES
+                or not isinstance(entry["path"], str) or entry["path"] not in packet["changed_paths"]):
             raise ReviewError("unknown finding severity or path")
         if type(entry["line"]) is not int or not 1 <= entry["line"] <= 1_000_000:
             raise ReviewError("invalid finding line")
@@ -174,8 +175,10 @@ def api_review(prompt: str, *, model: str, timeout: int, opener=None) -> tuple[d
     candidate = candidates[0]
     if not isinstance(candidate, dict) or candidate.get("finishReason") != "STOP":
         raise ReviewError("Gemini response did not finish normally")
-    parts = candidate.get("content", {}).get("parts")
-    if not isinstance(parts, list) or len(parts) != 1 or not isinstance(parts[0].get("text"), str):
+    content = candidate.get("content")
+    parts = content.get("parts") if isinstance(content, dict) else None
+    if (not isinstance(parts, list) or len(parts) != 1
+            or not isinstance(parts[0], dict) or not isinstance(parts[0].get("text"), str)):
         raise ReviewError("Gemini returned no single text response")
     usage = payload.get("usageMetadata", {})
     if not isinstance(usage, dict):
