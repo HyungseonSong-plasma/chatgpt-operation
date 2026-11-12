@@ -1,8 +1,3 @@
-# PROPOSAL ONLY — NOT ACTIVE. This file is intentionally outside .github/workflows.
-# Privileged adoption must review and install at .github/workflows/samuel-gemini-review.yml.
-# No secrets may be set in this Draft PR or in an Issue body.
-# Pinned GitHub Actions SHAs resolved against upstream v4 tags 2026-11-12.
-# Stage 4 activation requires separate human-owned protected path PR.
 name: Samuel Gemini Review
 
 run-name: samuel-gemini-issue-${{ github.event.issue.number }}
