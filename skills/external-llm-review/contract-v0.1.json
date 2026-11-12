@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "contract_id": "samuel.external-llm-review.v0.1",
+  "trigger": "EXTERNAL_LLM_REVIEW",
+  "registration": "NOT_REGISTERED",
+  "execution_mode": "READ_ONLY",
+  "provider": "gemini",
+  "backends": [
+    "api",
+    "cli"
+  ],
+  "request_required": [
+    "schema_version",
+    "repository",
+    "base_sha",
+    "head_sha",
+    "diff",
+    "diff_sha256",
+    "changed_paths",
+    "criteria"
+  ],
+  "response_required": [
+    "verdict",
+    "summary",
+    "findings"
+  ],
+  "verdict_enum": [
+    "PASS",
+    "REQUEST_CHANGES",
+    "UNKNOWN"
+  ],
+  "finding_required": [
+    "severity",
+    "path",
+    "line",
+    "evidence",
+    "explanation"
+  ],
+  "limits": {
+    "max_diff_bytes": 192000,
+    "max_reply_bytes": 64000,
+    "max_changed_paths": 50,
+    "max_criteria": 12,
+    "max_findings": 12,
+    "max_output_tokens": 2048,
+    "timeout_min_seconds": 1,
+    "timeout_max_seconds": 180
+  },
+  "authority": {
+    "github_access": false,
+    "github_mutation": false,
+    "merge": false,
+    "semantic_acceptance": "REVIEW_REQUIRED",
+    "caller_must_attest_source": true,
+    "cli_requires_independent_sandbox": true
+  },
+  "activation_gates": [
+    "privileged_capability_registry_adoption",
+    "privileged_workflow_route",
+    "trusted_secret_provisioning",
+    "exact_sha_receipt",
+    "live_provider_smoke_test",
+    "consumer_pin_upgrade"
+  ]
+}
