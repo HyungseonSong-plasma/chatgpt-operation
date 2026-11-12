@@ -95,6 +95,11 @@ class GeminiReviewTests(unittest.TestCase):
         ))
         body = json.loads(observed["request"].data)
         self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
+        self.assertEqual(body["generationConfig"]["maxOutputTokens"], 2048)
+        self.assertNotIn("temperature", body["generationConfig"])
+        self.assertNotIn("candidateCount", body["generationConfig"])
+        self.assertNotIn("topP", body["generationConfig"])
+        self.assertNotIn("topK", body["generationConfig"])
         self.assertNotIn("GITHUB_TOKEN", str(body))
         self.assertNotIn("confidential", str(result))
 
