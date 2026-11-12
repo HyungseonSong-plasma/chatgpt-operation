@@ -131,6 +131,22 @@
         }
       ],
       "exhaustion_policy": "all_registered_providers_must_fail"
-     }
+    },
+    "EXTERNAL_LLM_REVIEW": {
+      "providers": [
+        {
+          "name": "github-issue-label-gateway",
+          "kind": "workflow",
+          "priority": 10,
+          "workflow": ".github/workflows/samuel-gemini-review.yml",
+          "required_permissions": {
+            "contents": "read",
+            "issues": "read",
+            "pull-requests": "read"
+          }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    }
   }
 }
