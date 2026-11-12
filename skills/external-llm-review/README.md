@@ -60,6 +60,75 @@ verifiable attestation and must not be set without independent host-level
 filesystem/credential/network confinement. Do not mount the source repository
 in the CLI execution sandbox.
 
+## ChatGPT-accessible ingress proposal (not installed)
+
+The linked ChatGPT GitHub connector can create an Issue, add a label, observe
+Actions runs and retrieve result artifacts; it currently exposes no direct
+workflow_dispatch operation. The proposed route therefore uses **one
+owner-created Issue plus one owner-applied label**. The host is
+HyungseonSong-plasma/chatgpt-operation; v0.1 allows only public codeQA PRs.
+
+The entire Issue body must be JSON with schema:
+
+    {
+      "schema_version": 1,
+      "request_type": "SAMUEL_GEMINI_REVIEW",
+      "pr_number": 300,
+      "packet": {
+        "schema_version": 1,
+        "repository": "HyungseonSong-plasma/codeQA",
+        "base_sha": "<40 lowercase hex>",
+        "head_sha": "<40 lowercase hex>",
+        "diff": "<exact raw GitHub PR diff>",
+        "diff_sha256": "<64 lowercase hex of UTF-8 diff>",
+        "changed_paths": ["docs/README.md"],
+        "criteria": ["Review ..."]
+      }
+    }
+
+The Issue title must start with [Gemini Review]. Apply the
+samuel/gemini-review-approved label **once**, only after confirming the packet.
+The body and resulting Issue are public: do not include credentials, private
+code or privileged review data. The checked-in proposed workflow is
+automation/gemini-review/samuel-gemini-review.proposed.yml; it is not an
+executable GitHub Actions workflow until separately installed.
+
+The ingress verifier requires owner sender and issue creator, an open issue,
+the exact approved label, a single owner label event, an allowlisted repo, an
+open PR targeting main, matching current head/base Git SHAs, the exact
+unified GitHub diff bytes and the complete current changed-file inventory.
+A new PR push or nonidentical diff blocks the request.
+
+The workflow proposal splits preparation (GitHub read token, no Gemini key)
+from execution (Gemini key, no GitHub token, trusted Samuel checkout only).
+The model receipt must bind the prepared request digest and exact PR identity.
+Neither the model nor an artifact is a GitHub review approval. ChatGPT should
+use the result artifact only to report findings and ask a separate merge
+decision. UNKNOWN is an operational verdict, not a request to retry payment.
+
+A request is bounded by 52 KB of public issue-body data, at most 50 files,
+one initial owner label event, GitHub run_attempt 1, 90-second timeout,
+2048 generated tokens and seven-day artifact retention. **This is not a
+financial spending ceiling**; set the Google project's rate/quota/billing
+controls before activation. Gemini CLI stays disabled in hosted Actions;
+it requires separate executable sandbox attestation.
+
+## Exact privileged activation plan
+
+automation/gemini-review/activation-proposal-v0.1.json records the desired
+EXTERNAL_LLM_REVIEW provider. Activation additionally requires creating the
+approval label, provisioning SAMUEL_GEMINI_API_KEY in GitHub Actions Secrets
+without publishing its value, installing and pinning the workflow under
+.github/workflows/, and registering the provider in
+skills/capability-registry.json **through the authorized protected-file
+governance path**. The normal mutation policy denies both destinations;
+this PR does not modify either and cannot activate the route.
+
+The new reusable skill can later be adopted by codeQA through a separate exact
+central revision pin update. Running a one-off external review of a public
+codeQA PR through Samuel's own Issue queue does not, by itself, upgrade codeQA
+or change its domain acceptance policy.
+
 ## Activation / unresolved gates
 
 1. Draft PR: validate mock API/CLI transports and adversarial failures in CI.
