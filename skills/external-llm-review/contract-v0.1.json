@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_id": "samuel.external-llm-review.v0.1",
   "trigger": "EXTERNAL_LLM_REVIEW",
-  "registration": "NOT_REGISTERED",
+  "registration": "CATALOG_INDEXED_CAPABILITY_NOT_REGISTERED",
   "execution_mode": "READ_ONLY",
   "provider": "gemini",
   "backends": [
