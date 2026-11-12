@@ -1,0 +1,180 @@
+name: Samuel Gemini Review
+
+run-name: samuel-gemini-issue-${{ github.event.issue.number }}
+
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+concurrency:
+  group: samuel-gemini-review-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'samuel/gemini-review-approved' &&
+      github.actor == 'HyungseonSong-plasma' &&
+      github.event.issue.user.login == 'HyungseonSong-plasma' &&
+      github.event.issue.state == 'open' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout trusted Samuel workflow source (not target PR)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Read and validate owner-approved source identity
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          mkdir -p gemini-input
+          python3 -m chatgpt_operation.controller.gemini_review_ingress \
+            --event "$GITHUB_EVENT_PATH" \
+            --identify-only \
+            --output gemini-input/identity.json
+
+      - name: Fetch current trusted GitHub PR evidence and first approval history
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          SOURCE_REPO="$(python3 -c 'import json;print(json.load(open("gemini-input/identity.json"))["source_repository"])')"
+          SOURCE_PR="$(python3 -c 'import json;print(json.load(open("gemini-input/identity.json"))["source_pr_number"])')"
+          ISSUE_NUM="$(python3 -c 'import json;print(json.load(open("gemini-input/identity.json"))["issue_number"])')"
+          test "$SOURCE_REPO" = "HyungseonSong-plasma/codeQA"
+          case "$SOURCE_PR" in ''|*[!0-9]*) exit 2 ;; esac
+          case "$ISSUE_NUM" in ''|*[!0-9]*) exit 2 ;; esac
+          gh api "repos/$SOURCE_REPO/pulls/$SOURCE_PR" > gemini-input/pr.json
+          gh api -H "Accept: application/vnd.github.diff" \
+            "repos/$SOURCE_REPO/pulls/$SOURCE_PR" > gemini-input/pr.diff
+          gh api "repos/$SOURCE_REPO/pulls/$SOURCE_PR/files?per_page=100" \
+            > gemini-input/pr-files.json
+          # The label event can take a moment to appear in the Issues API.
+          for attempt in 1 2 3 4 5 6; do
+            gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUM/events?per_page=100" \
+              > gemini-input/issue-events.json
+            if python3 - <<'PY'
+          import json
+          from chatgpt_operation.controller.gemini_review_ingress import require_single_owner_approval
+          require_single_owner_approval(json.load(open("gemini-input/issue-events.json")))
+          PY
+            then
+              break
+            fi
+            if [ "$attempt" -eq 6 ]; then
+              echo "owner label history did not converge; fail closed" >&2
+              exit 2
+            fi
+            sleep 5
+          done
+
+      - name: Validate exact PR SHA, diff, paths, and single approval event
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.gemini_review_ingress \
+            --event "$GITHUB_EVENT_PATH" \
+            --pr-meta gemini-input/pr.json \
+            --pr-diff gemini-input/pr.diff \
+            --pr-files gemini-input/pr-files.json \
+            --issue-events gemini-input/issue-events.json \
+            --output gemini-input/prepared.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open("gemini-input/prepared.json"))
+          with open("gemini-input/packet.json","w",encoding="utf-8") as f:
+              json.dump(p["packet"],f,sort_keys=True,ensure_ascii=False)
+          PY
+
+      - name: Upload only validated request for credential-isolated worker
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: samuel-gemini-request-${{ github.event.issue.number }}
+          path: |
+            gemini-input/prepared.json
+            gemini-input/packet.json
+          retention-days: 7
+          if-no-files-found: error
+
+  review:
+    needs: prepare
+    if: ${{ needs.prepare.result == 'success' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted Samuel implementation without persistent token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download validated packet (no GitHub credentials passed to Gemini)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: samuel-gemini-request-${{ github.event.issue.number }}
+          path: gemini-input
+
+      - name: Run one bounded Gemini API review
+        id: provider
+        continue-on-error: true
+        env:
+          PYTHONPATH: src
+          GEMINI_API_KEY: ${{ secrets.SAMUEL_GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.gemini_review_adapter \
+            --backend api \
+            --model gemini-3.7-flash \
+            --input gemini-input/packet.json \
+            --output gemini-review-result.json \
+            --timeout 90
+
+      - name: Bind model output to exact verified request
+        id: receipt
+        if: always()
+        continue-on-error: true
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python3 -m chatgpt_operation.controller.gemini_review_receipt \
+            --request gemini-input/prepared.json \
+            --result gemini-review-result.json \
+            --output gemini-review-receipt.json
+
+      - name: Retain inspectable receipt for ChatGPT with short retention
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: samuel-gemini-result-${{ github.event.issue.number }}
+          path: |
+            gemini-review-result.json
+            gemini-review-receipt.json
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Preserve fail-closed GitHub run conclusion
+        if: always()
+        env:
+          PROVIDER_OUTCOME: ${{ steps.provider.outcome }}
+          RECEIPT_OUTCOME: ${{ steps.receipt.outcome }}
+        run: |
+          set -euo pipefail
+          test "$PROVIDER_OUTCOME" = "success"
+          test "$RECEIPT_OUTCOME" = "success"
