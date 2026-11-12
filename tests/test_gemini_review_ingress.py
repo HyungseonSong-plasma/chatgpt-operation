@@ -10,7 +10,7 @@ import unittest
 
 from chatgpt_operation.controller.gemini_review_ingress import (
     HOST_REPOSITORY, SOURCE_REPOSITORY, TRIGGER_LABEL,
-    ReviewError, issue_identity, prepare_verified_review, main,
+    ReviewError, issue_identity, prepare_verified_review, main, require_single_owner_approval,
 )
 from chatgpt_operation.controller.gemini_review_adapter import canonical_bytes
 
@@ -145,6 +145,20 @@ class GeminiIngressTests(unittest.TestCase):
         self.assertEqual(prepare_verified_review(e, p, d, f)["status"],
                          "VERIFIED_REVIEW_REQUEST")
 
+    def test_relabel_is_denied_and_incomplete_history_fails_closed(self):
+        good = [{
+            "event": "labeled", "label": {"name": TRIGGER_LABEL},
+            "actor": {"login": "HyungseonSong-plasma"},
+        }]
+        require_single_owner_approval(good)
+        for observed in (
+            [], good * 2, [{"event": "labeled", "label": {"name": TRIGGER_LABEL},
+                            "actor": {"login": "attacker"}}],
+            [{}] * 100, "no events",
+        ):
+            with self.subTest(observed=observed), self.assertRaises(ReviewError):
+                require_single_owner_approval(observed)
+
     def test_cli_identity_and_attested_packet(self):
         e, p, d, f = fixtures()
         with tempfile.TemporaryDirectory() as tmp:
@@ -161,12 +175,17 @@ class GeminiIngressTests(unittest.TestCase):
             (root / "meta.json").write_text(json.dumps(p))
             (root / "diff.patch").write_text(d)
             (root / "files.json").write_text(json.dumps(f))
+            (root / "events.json").write_text(json.dumps([{
+                "event": "labeled", "label": {"name": TRIGGER_LABEL},
+                "actor": {"login": "HyungseonSong-plasma"},
+            }]))
             output_path = root / "prepared.json"
             self.assertEqual(main([
                 "--event", str(event_path), "--output", str(output_path),
                 "--pr-meta", str(root / "meta.json"),
                 "--pr-diff", str(root / "diff.patch"),
                 "--pr-files", str(root / "files.json"),
+                "--issue-events", str(root / "events.json"),
             ]), 0)
             result = json.loads(output_path.read_text())
             self.assertEqual(result["source_pr_number"], 300)
