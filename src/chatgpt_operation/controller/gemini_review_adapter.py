@@ -151,8 +151,8 @@ def api_review(prompt: str, *, model: str, timeout: int, opener=None) -> tuple[d
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "temperature": 0,
-            "candidateCount": 1,
+            # Gemini 3.8 Flash rejects legacy temperature/candidateCount knobs.
+            # Require exactly one finished candidate in response validation.
             "maxOutputTokens": 2048,
         },
     }
