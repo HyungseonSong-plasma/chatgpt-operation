@@ -31,6 +31,39 @@ class ReviewError(ValueError):
     """A provider error, malformed payload, or missing precondition."""
 
 
+# This deliberately exposes only preapproved codes, never Google response
+# bodies, arbitrary exception text, prompt bytes, or API credentials.
+_SAFE_FAILURE_REASONS = {
+    "GEMINI_API_KEY missing": "API_KEY_MISSING",
+    "Gemini candidate count is not one": "CANDIDATES_INVALID",
+    "Gemini response did not finish normally": "GENERATION_INCOMPLETE",
+    "Gemini returned no single text response": "MODEL_CONTENT_INVALID",
+    "model response is not JSON": "MODEL_JSON_INVALID",
+    "model response is not a JSON object": "MODEL_JSON_INVALID",
+    "invalid Gemini review response fields": "REVIEW_SCHEMA_INVALID",
+    "invalid review verdict": "REVIEW_SCHEMA_INVALID",
+    "invalid review summary": "REVIEW_SCHEMA_INVALID",
+    "invalid review findings": "REVIEW_SCHEMA_INVALID",
+    "reviewed packet missing": "REQUEST_INVALID",
+}
+
+
+def safe_failure_code(exc: BaseException) -> str:
+    """Classify a failed call without leaking raw vendor error information."""
+    if isinstance(exc, ReviewError):
+        message = str(exc)
+        match = re.fullmatch(r"Gemini API HTTP status ([1-5][0-9]{2})", message)
+        if match:
+            return "API_HTTP_" + match.group(1)
+        if message.startswith("Gemini API transport failure: "):
+            return "API_TRANSPORT_ERROR"
+        if message in _SAFE_FAILURE_REASONS:
+            return _SAFE_FAILURE_REASONS[message]
+        if message.startswith("invalid ") or "diff" in message or "packet" in message:
+            return "INPUT_OR_REVIEW_INVALID"
+    return "UNKNOWN_FAILURE"
+
+
 def canonical_bytes(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
@@ -277,10 +310,11 @@ def main(argv: list[str] | None = None) -> int:
         result = {
             "schema_version": 1, "status": "UNKNOWN",
             "failure": type(exc).__name__,
+            "failure_code": safe_failure_code(exc),
             "mutation_authorized": False, "merge_authorized": False,
         }
         Path(args.output).write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
-        print("GEMINI_REVIEW=UNKNOWN", file=sys.stderr)
+        print("GEMINI_REVIEW=UNKNOWN code=" + result["failure_code"], file=sys.stderr)
         return 2
     Path(args.output).write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
     print("GEMINI_REVIEW=REVIEW_RETURNED")

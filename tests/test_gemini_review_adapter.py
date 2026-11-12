@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from chatgpt_operation.controller.gemini_review_adapter import (
-    ReviewError, main, run_review, validate_packet, validate_reply,
+    ReviewError, main, run_review, safe_failure_code, validate_packet, validate_reply,
 )
 
 
@@ -182,6 +182,44 @@ class GeminiReviewTests(unittest.TestCase):
                 run_review(packet(), backend="api", model="gemini-2.5-flash", opener=failed)
         self.assertIn("429", str(ctx.exception))
         self.assertNotIn("secret", str(ctx.exception))
+
+    def test_safe_failure_codes_never_include_sensitive_provider_text(self):
+        examples = (
+            ("Gemini API HTTP status 400", "API_HTTP_400"),
+            ("Gemini API HTTP status 403", "API_HTTP_403"),
+            ("Gemini API HTTP status 429", "API_HTTP_429"),
+            ("Gemini API transport failure: URLError", "API_TRANSPORT_ERROR"),
+            ("GEMINI_API_KEY missing", "API_KEY_MISSING"),
+            ("Gemini response did not finish normally", "GENERATION_INCOMPLETE"),
+            ("Gemini returned no single text response", "MODEL_CONTENT_INVALID"),
+            ("model response is not JSON", "MODEL_JSON_INVALID"),
+            ("invalid Gemini review response fields", "REVIEW_SCHEMA_INVALID"),
+            ("unknown token=very-secret", "UNKNOWN_FAILURE"),
+            ("Gemini API HTTP status 403 secret=very-secret", "UNKNOWN_FAILURE"),
+        )
+        for failure, expected in examples:
+            with self.subTest(failure=failure):
+                code = safe_failure_code(ReviewError(failure))
+                self.assertEqual(code, expected)
+                self.assertNotIn("secret", code)
+
+    def test_adapter_persists_only_sanitized_failure_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "packet.json"
+            output = Path(tmp) / "result.json"
+            p.write_text(json.dumps(packet()), encoding="utf-8")
+            with patch("chatgpt_operation.controller.gemini_review_adapter.run_review",
+                       side_effect=ReviewError("Gemini API HTTP status 429")):
+                rc = main([
+                    "--input", str(p), "--output", str(output),
+                    "--backend", "api", "--model", "gemini-3.8-flash",
+                ])
+            result = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(rc, 2)
+            self.assertEqual(result["status"], "UNKNOWN")
+            self.assertEqual(result["failure_code"], "API_HTTP_429")
+            self.assertFalse(result["merge_authorized"])
+            self.assertFalse(result["mutation_authorized"])
 
     def test_cli_is_opt_in_and_does_not_receive_github_credentials(self):
         with patch.dict(os.environ, {}, clear=True):

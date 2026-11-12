@@ -100,6 +100,13 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(observed["review_verdict"], "UNKNOWN")
         self.assertEqual(observed["source_pr_number"], 300)
         self.assertFalse(observed["merge_authorized"])
+        r["failure_code"] = "API_HTTP_429"
+        observed = bind_review_receipt(p, r)
+        self.assertEqual(observed["model_result"]["failure_code"], "API_HTTP_429")
+        for forbidden in ("key=secret", "SOME_UNKNOWN_CODE", "API_HTTP_999", 403):
+            poisoned = {**r, "failure_code": forbidden}
+            with self.subTest(forbidden=forbidden), self.assertRaises(ReviewError):
+                bind_review_receipt(p, poisoned)
         r["merge_authorized"] = True
         with self.assertRaises(ReviewError):
             bind_review_receipt(p, r)
