@@ -39,13 +39,16 @@ class GeminiActivationProposalTests(unittest.TestCase):
             self.assertIn("github.run_attempt == 1", installed.read_text())
             self.assertIn("SAMUEL_GEMINI_API_KEY", installed.read_text())
             # Protected adoption must use the reviewed, pinned workflow body.
-            blueprint = self.workflow.split("name: Samuel Gemini Review", 1)[1]
+            blueprint = "name: Samuel Gemini Review" + self.workflow.split(
+                "name: Samuel Gemini Review", 1
+            )[1]
+            comparison = (ROOT / "model-37-comparison.proposed.yml").read_text()
             adopted = installed.read_text()
             self.assertTrue(adopted.startswith("name: Samuel Gemini Review"))
-            self.assertEqual(
-                adopted.split("name: Samuel Gemini Review", 1)[1].strip(),
-                blueprint.strip(),
-                "installed workflow differs from reviewed canonical blueprint",
+            self.assertIn(
+                adopted.strip(),
+                (blueprint.strip(), comparison.strip()),
+                "installed workflow differs from both reviewed, exact model variants",
             )
 
     def test_registry_install_blueprint_preserves_existing_capabilities(self):
@@ -106,6 +109,26 @@ class GeminiActivationProposalTests(unittest.TestCase):
             with self.subTest(ref=ref):
                 self.assertRegex(ref, r"^actions/[a-z-]+@[a-f0-9]{40}$")
         self.assertNotIn("@v4", self.workflow)
+
+    def test_comparison_variant_changes_only_review_model(self):
+        canonical = "name: Samuel Gemini Review" + self.workflow.split(
+            "name: Samuel Gemini Review", 1
+        )[1]
+        comparison = (ROOT / "model-37-comparison.proposed.yml").read_text()
+        self.assertEqual(canonical.count("--model gemini-3.8-flash"), 1)
+        self.assertEqual(comparison.count("--model gemini-3.7-flash"), 1)
+        self.assertEqual(
+            comparison,
+            canonical.replace("--model gemini-3.8-flash",
+                              "--model gemini-3.7-flash"),
+        )
+        self.assertEqual(comparison.count("samuel/gemini-review-approved"),
+                         canonical.count("samuel/gemini-review-approved"))
+        self.assertIn("github.run_attempt == 1", comparison)
+        self.assertIn("persist-credentials: false", comparison)
+        self.assertIn("retention-days: 7", comparison)
+        self.assertIn("--timeout 90", comparison)
+        self.assertNotIn("--model gemini-3.8-flash", comparison)
 
     def test_model_has_no_github_or_merge_authority(self):
         self.assertFalse(self.plan["authority"]["gemini_can_access_github"])
