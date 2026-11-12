@@ -34,7 +34,13 @@
     "run_concurrency": "one run at a time per Issue",
     "pin_actions_to_immutable_shas_before_production": true,
     "api_secret": "SAMUEL_GEMINI_API_KEY",
-    "api_secret_location": "chatgpt-operation Actions repository secret, never PR/issue/chat text"
+    "api_secret_location": "chatgpt-operation Actions repository secret, never PR/issue/chat text",
+    "model": "gemini-3.8-flash",
+    "exact_action_shas": {
+      "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+      "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093"
+    }
   },
   "proposed_registry_entry": {
     "capability": "EXTERNAL_LLM_REVIEW",
@@ -62,13 +68,15 @@
       ".github/workflows/**"
     ],
     "auto_override": false,
-    "owner_approved_privileged_installation_required": true
+    "owner_approved_privileged_installation_required": true,
+    "human_only_adoption_reference": "https://github.com/HyungseonSong-plasma/chatgpt-operation/issues/254",
+    "owner_install_runbook": "automation/gemini-review/OWNER-ACTIVATION.md",
+    "proposed_registry_snapshot": "automation/gemini-review/capability-registry.proposed.json"
   },
   "unresolved": [
     "actual secret provisioning",
     "approval label creation",
     "workflow/registry installation through privileged governance",
-    "immutable pinning of Actions implementations",
     "quota/billing limit beyond per-call output/one-time label gate",
     "real Google API smoke test",
     "GitHub artifact readback and human adjudication",
