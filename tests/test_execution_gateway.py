@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from chatgpt_operation.controller.action_lifecycle import DispatchIntent
 from chatgpt_operation.controller.action_plan import ActionPlan
@@ -74,7 +75,7 @@ class ExecutionGatewayTests(unittest.TestCase):
     def test_mutation_dispatch_rejects_forbidden_branch_before_workflow(self, dispatch):
         candidate = repository_mutation_plan("feat/document-consistency-badges")
         with self.assertRaisesRegex(ExecutionGatewayError, "canonical branch policy"):
-            ExecutionGateway(object())._dispatch_action_plan(
+            ExecutionGateway(SimpleNamespace(repository="HyungseonSong-plasma/chatgpt-operation"))._dispatch_action_plan(
                 candidate,
                 intent(candidate.idempotency_key, "samuel-repository-mutation.yml"),
             )
@@ -84,7 +85,7 @@ class ExecutionGatewayTests(unittest.TestCase):
     def test_mutation_dispatch_allows_valid_branch_and_uses_existing_route(self, dispatch):
         candidate = repository_mutation_plan("samuel/docs-251")
         dispatch.return_value = {"workflow_run_id": 51}
-        value = ExecutionGateway(object())._dispatch_action_plan(
+        value = ExecutionGateway(SimpleNamespace(repository="HyungseonSong-plasma/chatgpt-operation"))._dispatch_action_plan(
             candidate,
             intent(candidate.idempotency_key, "samuel-repository-mutation.yml"),
         )

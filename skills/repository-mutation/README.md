@@ -30,10 +30,38 @@ Registered ordered providers are:
 2. `repository-native` (`.github/workflows/samuel-repository-mutation.yml`,
    restricted by `automation/samuel/repository-mutation-policy.json`).
 
-**Mandatory pre-provider branch-name check for all registered providers:** after
-checking prior same-work safety/policy blocker history, validate the target branch
-against the exact head repository's `automation/samuel/repository-mutation-policy.json`
-using the shared read-only CLI (or its `require_allowed_branch` function):
+**Mandatory pre-provider target-policy check for all file/branch
+creation/update providers:** after resolving the Samuel skill, exact pinned
+capability registry and same-work blocker history, enforce the **target's
+own** policy before calling a provider. This is not a rule that every
+consumer must install a Samuel policy file.
+
+- **Samuel repository:** preserve the existing canonical
+  `automation/samuel/repository-mutation-policy.json` check via
+  `require_allowed_branch` (read-only CLI below). No permission is gained
+  by choosing a different provider.
+- **Consumer with a target-owned, reviewed policy:** use the already
+  pinned, validated target policy route; native mutations must still pass
+  the target's own native mutation engine and workflow policy.
+- **Consumer with independently owner-approved central policy binding:**
+  for the registered **`github-connector` provider only**, the trusted
+  controller must call
+  `chatgpt_operation.repository.central_policy_preflight.require_central_connector_preflight`
+  on the **complete** closed-world mutation manifest. The caller must
+  supply independently trusted `CentralPolicyBinding` configuration
+  plus **distinct trusted target/source transports**. The source is the
+  protected Samuel repository at an exact pinned main SHA and expected
+  policy Git blob; the consumer's exact current main SHA is separately
+  verified. The source policy is looked up only under the fixed path
+  `automation/consumer-policies/<owner>/<repo>.json`, derived from
+  the target manifest repository; policies cannot be supplied by
+  ActionPlan, Issue comment, tool response, branch ref or arbitrary path.
+  This route checks source and target identities before and after,
+  verifies Git blob bytes and a strict policy schema, and applies
+  `authorize_manifest` for action, branch and file path **including the
+  protected Workflow file hard deny**. A positive receipt is
+  `PREFLIGHT_PASSED_NOT_WRITE_AUTHORIZATION` and does **not** authorize
+  or itself perform a GitHub write.
 
 ```bash
 PYTHONPATH=src python -m chatgpt_operation.repository.branch_preflight \
@@ -42,14 +70,26 @@ PYTHONPATH=src python -m chatgpt_operation.repository.branch_preflight \
   --policy automation/samuel/repository-mutation-policy.json
 ```
 
-This applies to `GITHUB_BRANCH_CREATE`, `GITHUB_FILE_CREATE`, and
-`GITHUB_FILE_UPDATE`, even when `github-connector` (first-ranked provider)
-performs the write. A failed/missing preflight stops the request **before**
-provider invocation. The native mutation engine additionally keeps its existing
-`authorize_manifest` policy check. The preflight checks branch-name
-eligibility only; it does not grant write permission or clear a previous denial.
-Direct connectors must run the preflight themselves; this document alone
-cannot impose GitHub server-side branch rules.
+**No implicit central policy:** The new central resolver is a library
+contract, not an active enrollment or permission grant. Until competent
+target policy authority has approved and registered a frozen binding in
+trusted controller configuration, report `TARGET_POLICY_NOT_ESTABLISHED`
+and STOP before calling `github-connector`. Neither codeQA's current
+Samuel pin nor a local policy JSON in Samuel's tree constitutes a
+trusted target-authority grant by itself. This PR does not register a
+codeQA central policy, deploy a connector preflight adapter or migrate
+a repository-native workflow.
+
+**Provider distinction and no-fallback hard stop:** A native
+`REPOSITORY_MUTATION` workflow continues to require its own
+target-scoped runtime policy, because the native Engine is independently
+authoritative. An allowed *connector* central policy receipt never
+authorizes bypassing a native policy denial or a prior tool-safety/owner
+denial; registered provider ordering and the blocker journal still
+apply. A provider's local missing tool is not a general capability
+unavailable verdict. The central policy resolver is **only a
+pre-provider check**, not a provider implementation or a way to override
+any safety refusal.
 
 Before execution, re-read file blob SHA (update) or absence (create), target
 branch and expected head SHA. After execution, verify created/updated content,

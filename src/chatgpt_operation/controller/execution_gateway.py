@@ -173,7 +173,9 @@ class ExecutionGateway:
             # mutation engine still checks its complete manifest and policy
             # independently before any GitHub write.
             from chatgpt_operation.repository.action_plan_adapter import to_repository_manifest
-            from chatgpt_operation.repository.branch_preflight import require_allowed_branch
+            from chatgpt_operation.repository.target_policy_preflight import (
+                require_target_mutation_policy,
+            )
             from chatgpt_operation.repository.mutation import PolicyError
             from .action_plan import ActionPlanError
             try:
@@ -182,14 +184,18 @@ class ExecutionGateway:
                     manifest.target["name"] if manifest.resource == "branch"
                     else manifest.target["branch"]
                 )
-                require_allowed_branch(
-                    repository=manifest.repository,
+                require_target_mutation_policy(
+                    manifest=manifest,
+                    transport=self.transport,
                     branch=target_branch,
-                    policy_path="automation/samuel/repository-mutation-policy.json",
+                    expected_main_sha=intent.expected_head_sha,
+                    dispatch_ref=intent.ref,
+                    workflow=intent.workflow,
                 )
             except (ActionPlanError, PolicyError, KeyError, TypeError) as exc:
                 raise ExecutionGatewayError(
-                    "repository mutation dispatch blocked by canonical branch policy"
+                    "repository mutation dispatch blocked by canonical branch policy: "
+                    + str(exc)
                 ) from exc
             payload={
                 "schema_version":1,

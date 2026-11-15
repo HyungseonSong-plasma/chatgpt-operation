@@ -1,5 +1,6 @@
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from chatgpt_operation.controller.action_plan import (
@@ -133,7 +134,7 @@ class RepositoryActionSurfaceTests(unittest.TestCase):
             "chatgpt_operation.controller.execution_gateway.dispatch_workflow",
             return_value=receipt,
         ) as dispatch:
-            result=ExecutionGateway(object()).execute(
+            result=ExecutionGateway(SimpleNamespace(repository="HyungseonSong-plasma/chatgpt-operation")).execute(
                 cycle.execution_command,
                 state=intent_state,
             )
