@@ -1,0 +1,79 @@
+# NOT INSTALLED. Owner-controlled adoption candidate, read-only qualification only.
+name: Samuel Adoption Qualification
+run-name: adoption:${{ inputs.request_sha }}:${{ inputs.candidate_digest }}
+on:
+  workflow_dispatch:
+    inputs:
+      expected_base:
+        description: Exact deployed trusted main SHA
+        type: string
+        required: true
+      request_sha:
+        description: Exact data-only request commit SHA
+        type: string
+        required: true
+      candidate_digest:
+        description: SHA256 of canonical candidate manifest
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: samuel-adoption-qualification
+  cancel-in-progress: false
+env:
+  EXPECTED_BASE: ${{ inputs.expected_base }}
+  REQUEST_SHA: ${{ inputs.request_sha }}
+  CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+  ADOPTION_ENV_ID: ${{ vars.SAMUEL_ADOPTION_ENV_ID }}
+  PYTHONPATH: src
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Fetch request as data (do not check out)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_BASE" == "$GITHUB_SHA" ]]
+          git fetch --no-tags --depth=2 origin "$REQUEST_SHA"
+          test "$(git rev-parse FETCH_HEAD)" = "$REQUEST_SHA"
+      - name: Inspect candidate and print exact approval comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADOPTION_PHASE: preflight
+        run: python3 -m chatgpt_operation.adoption.qualify
+  approval:
+    needs: preflight
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: samuel-registry-adoption
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Fetch same request as data
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_BASE" == "$GITHUB_SHA" ]]
+          git fetch --no-tags --depth=2 origin "$REQUEST_SHA"
+          test "$(git rev-parse FETCH_HEAD)" = "$REQUEST_SHA"
+      - name: Verify exact environment approval and candidate again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADOPTION_PHASE: approval
+        run: python3 -m chatgpt_operation.adoption.qualify
