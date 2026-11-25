@@ -77,25 +77,33 @@ class CapabilityRegistryTests(unittest.TestCase):
         with self.assertRaises(CapabilityRegistryError):
             resolve_providers("UNBOUND_CAPABILITY")
 
-    def test_create_write_capabilities_are_explicitly_registered(self):
-        expected = ("GITHUB_FILE_CREATE", "GITHUB_FILE_UPDATE", "GITHUB_BRANCH_CREATE")
-        for capability in expected:
+    def test_connector_only_create_and_comment_capabilities(self):
+        for capability in ("GITHUB_FILE_CREATE", "GITHUB_BRANCH_CREATE",
+                           "GITHUB_PR_CREATE", "GITHUB_COMMENT_CREATE"):
             with self.subTest(capability=capability):
                 providers = resolve_providers(capability)
-                self.assertEqual([p.name for p in providers], ["github-connector", "repository-native"])
-                self.assertEqual(providers[1].workflow, ".github/workflows/samuel-repository-mutation.yml")
-        self.assertEqual([p.name for p in resolve_providers("GITHUB_PR_CREATE")], ["github-connector"])
+                self.assertEqual([(p.name, p.kind, p.priority) for p in providers],
+                                 [("github-connector", "external", 10)])
+                self.assertIsNone(providers[0].workflow)
+                self.assertIsNone(providers[0].executor_workflow)
+                self.assertIn(capability + ":github-connector", validate_registry()["checked"])
+                with self.assertRaises(CapabilityRegistryError):
+                    assert_capability_exhausted(capability, {})
+                with self.assertRaises(CapabilityRegistryError):
+                    assert_capability_exhausted(
+                        capability, {"repository-native": "not registered"})
+                result = assert_capability_exhausted(
+                    capability, {"github-connector": "verified provider failure"})
+                self.assertEqual(result["failed_providers"], ["github-connector"])
 
-    def test_create_provider_route_is_validated_and_awaits_all_failures(self):
-        validated = validate_registry()
-        self.assertEqual(validated["status"], "PASS")
-        for capability in ("GITHUB_FILE_CREATE", "GITHUB_FILE_UPDATE",
-                           "GITHUB_BRANCH_CREATE", "GITHUB_PR_CREATE"):
-            self.assertIn(capability + ":github-connector", validated["checked"])
+    def test_file_update_retains_native_fallback(self):
+        providers = resolve_providers("GITHUB_FILE_UPDATE")
+        self.assertEqual([p.name for p in providers],
+                         ["github-connector", "repository-native"])
+        self.assertEqual(providers[1].workflow, ".github/workflows/samuel-repository-mutation.yml")
         with self.assertRaisesRegex(CapabilityRegistryError, "unexhausted providers"):
             assert_capability_exhausted(
-                "GITHUB_FILE_CREATE", {"github-connector": "temporary connector failure"}
-            )
+                "GITHUB_FILE_UPDATE", {"github-connector": "temporary failure"})
 
     def test_pr_create_connector_only_and_no_native_fallback(self):
         providers = resolve_providers("GITHUB_PR_CREATE")
