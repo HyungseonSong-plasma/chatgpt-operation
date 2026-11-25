@@ -156,6 +156,28 @@ Desired post-state is recognized before stale identity rejection where applicabl
 
 This makes retry safe after remote success followed by local result-persistence failure.
 
+## Legacy work identity and history observation (read-only)
+
+For previously active work whose controller-issued ID is not directly available,
+use `repository.legacy_mutation_preflight.observe_history` with a trusted runtime
+reader and independent scope/coverage verifiers, or `observe_github_history`
+with the bounded GitHub collector and separately authenticated resolver.
+`IDENTITY_UNVERIFIED` and `HISTORY_INCOMPLETE` identify missing evidence,
+not an observed denial or authorization. Restore only the missing source;
+never reset the work ID or infer clean history from an empty search.
+`BLOCKER_PRESENT` retains the original record and enters the existing blocker
+triage/clearance route. `HISTORY_VERIFIED` continues ordinary branch preflight;
+it never authorizes a mutation. Authenticate any derived legacy ID before enrollment.
+
+Optional `repository.legacy_history_reuse.VerifiedHistoryReuse` may reuse a
+positive observation only with a fresh authoritative version of the complete
+history and verification authority, exact request and central revision.
+Without a trusted version probe, use ordinary full verification. Do not cache
+failed, incomplete or blocked observations as clean, or use a GitHub HEAD,
+comment digest or TTL alone as a history version. This cache is process-local;
+no new persistent service is required. Existing gates and provider order remain.
+See `docs/legacy-mutation-preflight-reuse.md` for the trust boundary.
+
 ## Mutation blocker classification and no-fallback safety
 
 Before retrying or switching registered providers after any failed repository mutation,
