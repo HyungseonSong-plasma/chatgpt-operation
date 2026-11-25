@@ -1,9 +1,52 @@
 from dataclasses import replace
 import unittest
-from chatgpt_operation.repository.legacy_work_identity import HistoricalRecord, RecoveryStatus
+from chatgpt_operation.repository.legacy_work_identity import (
+    LegacyWorkScope, RecoveryRequest, HistoryEvidence, HistoricalRecord, RecoveryStatus,
+)
 from chatgpt_operation.repository.legacy_mutation_preflight import HistoryDisposition, observe_history, observe_github_history
-from test_legacy_work_identity import BASE, REQUEST, fail
-from test_legacy_github_history import Fake, REQ, reader, evidence
+
+SCOPE = LegacyWorkScope('example/repo', 10, 20, 'trusted-work-package-1')
+REQUEST = RecoveryRequest(SCOPE, 'a'*40)
+BASE = HistoryEvidence(REQUEST, 'scope-proof', 'source', 'coverage-proof', 'old-1', ('old-1', 'old-2'), ())
+
+
+
+def fail(_):
+    raise OSError('unavailable')
+
+from copy import deepcopy
+from chatgpt_operation.repository.legacy_github_history import GitHubHistoryReader
+
+ROOT = '/repos/example/repo'
+HEAD = 'a'*40
+REQ = RecoveryRequest(LegacyWorkScope('example/repo', 10, 20, 'anchor'), HEAD)
+P = ROOT + '/pulls/8'
+I = ROOT + '/issues/7'
+C = ROOT + '/issues/8/comments'
+
+class Fake:
+    def __init__(self):
+        self.rows = {ROOT:{'id':10,'full_name':'example/repo'}, I:{'id':20,'number':7,'comments':1},
+            I+'/comments':[{'id':1,'body':'work evidence'}],
+            P:{'id':80,'number':8,'head':{'sha':HEAD,'repo':{'id':10}},
+               'base':{'sha':'b'*40,'repo':{'id':10}},'commits':1,'comments':1,'review_comments':0},
+            P+'/commits':[{'sha':HEAD,'commit':{'message':'change'}}],
+            C:[{'id':2,'body':'not authoritative'}], P+'/comments':[], P+'/reviews':[]}
+        self.calls = []
+    def __call__(self,path,query):
+        self.calls.append((path,query))
+        val = deepcopy(self.rows[path])
+        return val[(query['page']-1)*100:query['page']*100] if isinstance(val,list) else val
+
+def reader(f, **kwargs):
+    return GitHubHistoryReader(f,issue_number=7,target_pr=8,**kwargs)
+
+def evidence(snapshot, **kwargs):
+    data = dict(request=REQ, scope_ref='verified-scope', source_ref=snapshot.source_ref,
+                coverage_ref=None, original_work_id=None,historical_work_ids=(),blockers=())
+    data.update(kwargs)
+    return HistoryEvidence(**data)
+
 
 
 class LegacyTests(unittest.TestCase):
