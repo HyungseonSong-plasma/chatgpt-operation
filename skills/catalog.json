@@ -37,7 +37,8 @@
         "GITHUB_FILE_CREATE",
         "GITHUB_FILE_UPDATE",
         "GITHUB_BRANCH_CREATE",
-        "GITHUB_BRANCH_FAST_FORWARD"
+        "GITHUB_BRANCH_FAST_FORWARD",
+        "GITHUB_COMMENT_CREATE"
       ],
       "activation": "trigger",
       "contracts": [
@@ -48,7 +49,8 @@
         "GITHUB_FILE_CREATE",
         "GITHUB_FILE_UPDATE",
         "GITHUB_BRANCH_CREATE",
-        "GITHUB_BRANCH_FAST_FORWARD"
+        "GITHUB_BRANCH_FAST_FORWARD",
+        "GITHUB_COMMENT_CREATE"
       ]
     },
     {

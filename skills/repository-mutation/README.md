@@ -24,11 +24,17 @@ Samuel's `MUTATE` trigger selects this skill; concrete operations additionally r
 `GITHUB_FILE_CREATE`, `GITHUB_FILE_UPDATE`, or `GITHUB_BRANCH_CREATE`
 from the **exact pinned** `skills/capability-registry.json`.
 
-Registered ordered providers are:
+`GITHUB_FILE_CREATE` and `GITHUB_BRANCH_CREATE` are **connector-only**.
+Resolve exactly one registered `github-connector` provider (external API;
+caller holds no GitHub token). Do not dispatch native mutation, use a different
+API, or invoke git as fallback for these capabilities. Discover the live
+Connector action schema before execution. `GITHUB_PR_CREATE` is also
+connector-only and remains owned by `pull-request-create`.
 
-1. `github-connector` (external API; caller holds no GitHub token);
-2. `repository-native` (`.github/workflows/samuel-repository-mutation.yml`,
-   restricted by `automation/samuel/repository-mutation-policy.json`).
+`GITHUB_FILE_UPDATE` retains its ordered `github-connector` then
+`repository-native` provider chain (`.github/workflows/samuel-repository-mutation.yml`,
+restricted by `automation/samuel/repository-mutation-policy.json`). Existing
+native execution contracts are not a fallback for connector-only capabilities.
 
 **Mandatory pre-provider branch-name check for all registered providers:** after
 checking prior same-work safety/policy blocker history, validate the target branch
@@ -43,8 +49,7 @@ PYTHONPATH=src python -m chatgpt_operation.repository.branch_preflight \
 ```
 
 This applies to `GITHUB_BRANCH_CREATE`, `GITHUB_FILE_CREATE`, and
-`GITHUB_FILE_UPDATE`, even when `github-connector` (first-ranked provider)
-performs the write. A failed/missing preflight stops the request **before**
+`GITHUB_FILE_UPDATE`, including when `github-connector` performs the write. A failed/missing preflight stops the request **before**
 provider invocation. The native mutation engine additionally keeps its existing
 `authorize_manifest` policy check. The preflight checks branch-name
 eligibility only; it does not grant write permission or clear a previous denial.
@@ -64,6 +69,23 @@ changes must proceed by an explicitly authorized, reviewable change through
 an eligible privileged execution route; no scheduler or consumer may silently
 rewrite its own trusted routing authority. Pin upgrades in consumers remain
 separate explicit repository changes.
+
+## Ordinary Issue / PR comments
+
+The `GITHUB_COMMENT_CREATE` trigger resolves this skill and the exact pinned
+registry's single `github-connector` provider. Discover the live comment-create
+action and confirm that its schema supports the actual Issue or PR target.
+No native, alternate API or git fallback is authorized.
+
+Before writing, verify repository, existing thread identity, authorized task
+scope, permissions, and any prior blocker for the same work identity. Bind a
+Controller message to its task, cycle and message ID. Inspect the complete
+relevant thread for duplicate message IDs; identical existing content requires
+no write, while a conflicting body stops the operation. After writing, read back
+the comment ID, thread and body. On uncertain delivery read the thread before
+any bounded retry. Missing action, denial or unverified readback is not task
+completion. Comment creation is not review approval, comment update/delete,
+assignment, issue closure or merge authority.
 
 ## Negative capability verdict hard guard
 
@@ -103,6 +125,7 @@ This guard applies even when no mutation has yet executed. Capability-unavailabi
 |---|---|
 | file | create, update, delete |
 | branch | create, delete |
+| ordinary Issue / PR comment | create (Connector only; separate trigger) |
 
 All other resource/action pairs fail closed.
 
