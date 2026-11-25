@@ -1,8 +1,19 @@
 from dataclasses import replace
 import unittest
-from chatgpt_operation.repository.legacy_work_identity import HistoricalRecord, RecoveryStatus
+from chatgpt_operation.repository.legacy_work_identity import (
+    LegacyWorkScope, RecoveryRequest, HistoryEvidence, HistoricalRecord, RecoveryStatus,
+)
 from chatgpt_operation.repository.legacy_history_reuse import HistoryVersion, VerifiedHistoryReuse, evidence_digest
-from test_legacy_work_identity import BASE, REQUEST, fail
+
+SCOPE = LegacyWorkScope('example/repo', 10, 20, 'trusted-work-package-1')
+REQUEST = RecoveryRequest(SCOPE, 'a'*40)
+BASE = HistoryEvidence(REQUEST, 'scope-proof', 'source', 'coverage-proof', 'old-1', ('old-1', 'old-2'), ())
+
+
+
+def fail(_):
+    raise OSError('unavailable')
+
 
 PIN = 'a'*40
 
