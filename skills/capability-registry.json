@@ -61,15 +61,6 @@
           "name": "github-connector",
           "kind": "external",
           "priority": 10
-        },
-        {
-          "name": "repository-native",
-          "kind": "workflow",
-          "priority": 20,
-          "workflow": ".github/workflows/samuel-repository-mutation.yml",
-          "required_permissions": {
-            "contents": "write"
-          }
         }
       ],
       "exhaustion_policy": "all_registered_providers_must_fail"
@@ -99,15 +90,6 @@
           "name": "github-connector",
           "kind": "external",
           "priority": 10
-        },
-        {
-          "name": "repository-native",
-          "kind": "workflow",
-          "priority": 20,
-          "workflow": ".github/workflows/samuel-repository-mutation.yml",
-          "required_permissions": {
-            "contents": "write"
-          }
         }
       ],
       "exhaustion_policy": "all_registered_providers_must_fail"
@@ -144,6 +126,16 @@
             "issues": "read",
             "pull-requests": "read"
           }
+        }
+      ],
+      "exhaustion_policy": "all_registered_providers_must_fail"
+    },
+    "GITHUB_COMMENT_CREATE": {
+      "providers": [
+        {
+          "name": "github-connector",
+          "kind": "external",
+          "priority": 10
         }
       ],
       "exhaustion_policy": "all_registered_providers_must_fail"
