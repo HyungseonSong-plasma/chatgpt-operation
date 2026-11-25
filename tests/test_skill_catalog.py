@@ -128,6 +128,16 @@ class SkillCatalogTests(unittest.TestCase):
             ],
         )
 
+    def test_comment_create_resolves_repository_mutation(self):
+        catalog = self.catalog()
+        result = resolve_triggers(catalog, ["GITHUB_COMMENT_CREATE"])
+        self.assertEqual(result["status"], "RESOLVED")
+        self.assertEqual([item["name"] for item in result["skills"]],
+                         ["repository-mutation"])
+        owner = next(item for item in catalog["skills"]
+                     if item["name"] == "repository-mutation")
+        self.assertIn("GITHUB_COMMENT_CREATE", owner["capabilities"])
+
     def test_scheduled_controller_resolves_composed_skills(self):
         result = resolve_triggers(
             self.catalog(), ["SCHEDULED_CONTROLLER"]
