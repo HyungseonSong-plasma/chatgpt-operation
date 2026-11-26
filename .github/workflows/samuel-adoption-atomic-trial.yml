@@ -1,0 +1,405 @@
+name: Samuel Adoption Atomic Trial
+run-name: atomic-trial:${{ inputs.expected_base }}
+on:
+  workflow_dispatch:
+    inputs:
+      expected_base:
+        description: Exact current main SHA (40 hex characters)
+        required: true
+        type: string
+      expected_ruleset_version:
+        description: Connector-observed Ruleset 28142778 updated_at
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: samuel-adoption-atomic-trial
+  cancel-in-progress: false
+env:
+  EXPECTED_BASE: ${{ inputs.expected_base }}
+  EXPECTED_RULESET_VERSION: ${{ inputs.expected_ruleset_version }}
+jobs:
+  preflight:
+    if: ${{ github.repository_id == '1343601410' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Verify trial context and print exact approval comment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIAL_PHASE: preflight
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          """D7 atomic admission trial only: two competing creates of one fixed test ref.
+          Never a registry writer. No retry, update, delete, PR creation, or merge.
+          """
+          import json
+          import os
+          import re
+          from concurrent.futures import ThreadPoolExecutor
+          from threading import Barrier
+          from urllib.error import HTTPError
+          from datetime import datetime, timedelta, timezone
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+          
+          REPO = 'HyungseonSong-plasma/chatgpt-operation'
+          REPO_ID = 1343601410
+          OWNER_ID = 189476866
+          ENV = 'samuel-registry-adoption'
+          ENV_ID = 28582976708
+          WORKFLOW = '.github/workflows/samuel-adoption-atomic-trial.yml'
+          RULESET = 28142778
+          PREFIX = 'refs/heads/samuel/adoption-reservations/'
+          SHA = re.compile(r'[0-9a-f]{40}\Z')
+          
+          class Hold(ValueError): pass
+          
+          def require(ok, reason):
+              if not ok: raise Hold(reason)
+          
+          def instant(value):
+              dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+              require(dt.tzinfo is not None and dt.utcoffset() is not None, 'BAD_TIME')
+              return dt
+          
+          def ref_for(base):
+              require(type(base) is str and SHA.fullmatch(base), 'BAD_BASE')
+              return PREFIX + 'trial-atomic-create-once-v1'
+          
+          def comment(base, run_id, version):
+              return f'APPROVE-ATOMIC-TRIAL {base} ruleset:{RULESET} version:{version} run:{run_id} attempt:1'
+          
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs): return None
+          
+          class Api:
+              def __init__(self, token):
+                  require(bool(token), 'MISSING_TOKEN')
+                  self.token = token
+              def _request(self, path, data=None):
+                  require(path.startswith('/') and '?' not in path and '..' not in path, 'BAD_API_PATH')
+                  # Only the exact create endpoint is ever writable.
+                  require(data is None or path == '/git/refs', 'BAD_WRITE_PATH')
+                  req = Request('https://api.github.com/repos/' + REPO + path,
+                                data=None if data is None else json.dumps(data).encode(),
+                                headers={'Authorization':'Bearer '+self.token,
+                                         'Accept':'application/vnd.github+json',
+                                         'Content-Type':'application/json',
+                                         'X-GitHub-Api-Version':'2026-03-10'},
+                                method='GET' if data is None else 'POST')
+                  with build_opener(NoRedirect()).open(req, timeout=20) as resp:
+                      require(resp.geturl() == req.full_url and not resp.headers.get('Link'), 'INCOMPLETE_RESPONSE')
+                      require(resp.status == (200 if data is None else 201), 'UNEXPECTED_HTTP_STATUS')
+                      raw = resp.read(2_000_001)
+                      require(len(raw) <= 2_000_000, 'API_LIMIT')
+                      return json.loads(raw)
+              def get(self, path): return self._request(path)
+              def create_trial(self, base, sha):
+                  require(SHA.fullmatch(sha), 'BAD_TARGET')
+                  return self._request('/git/refs', {'ref':ref_for(base), 'sha':sha})
+          
+          def verify_env(env, policies):
+              require(env.get('id') == ENV_ID and env.get('name') == ENV and env.get('can_admins_bypass') is False, 'BAD_ENV')
+              reviewers = [x for x in env.get('protection_rules',[]) if x.get('type') == 'required_reviewers']
+              require(len(reviewers) == 1 and len(reviewers[0].get('reviewers',[])) == 1, 'BAD_REVIEWERS')
+              reviewer = reviewers[0]['reviewers'][0]
+              require(reviewer.get('type') == 'User' and reviewer.get('reviewer',{}).get('id') == OWNER_ID, 'BAD_REVIEWER_ID')
+              require(env.get('deployment_branch_policy') == {'protected_branches':False,'custom_branch_policies':True}, 'BAD_BRANCH_POLICY')
+              require(policies.get('total_count') == 1 and len(policies.get('branch_policies',[])) == 1 and policies['branch_policies'][0].get('name') == 'main' and policies['branch_policies'][0].get('type') == 'branch', 'BAD_BRANCH_POLICY')
+          
+          def verify_rule(rule, version):
+              require(rule.get('id') == RULESET and rule.get('source') == REPO and rule.get('source_type') == 'Repository' and rule.get('target') == 'branch' and rule.get('enforcement') == 'active', 'BAD_RULESET')
+              require(rule.get('conditions') == {'ref_name':{'include':[PREFIX+'*'],'exclude':[]}}, 'BAD_RULE_SCOPE')
+              require(sorted(x.get('type','') for x in rule.get('rules',[])) == ['deletion','non_fast_forward','update'], 'BAD_RULES')
+              require(instant(rule['updated_at']) == instant(version), 'RULE_VERSION_CHANGED')
+              if 'bypass_actors' in rule: require(rule['bypass_actors'] == [], 'BYPASS_ENABLED')
+              # This experiment modifies no protected contents. Missing bypass evidence
+              # remains unknown, even with an owner-attested version; not production proof.
+              return 'LIVE_EMPTY' if 'bypass_actors' in rule else 'LIVE_BYPASS_UNOBSERVABLE'
+          
+          def exact_ref(value, base, sha):
+              require(type(value) is dict and value.get('ref') == ref_for(base) and value.get('object',{}).get('type') == 'commit' and value['object'].get('sha') == sha, 'REF_MISMATCH')
+          
+          def observe(api, base, run_id, version, now, *, approved, expect_absent, winner=None):
+              require(api.get('/branches/main')['commit']['sha'] == base, 'STALE_MAIN')
+              verify_env(api.get('/environments/'+ENV), api.get('/environments/'+ENV+'/deployment-branch-policies'))
+              run = api.get(f'/actions/runs/{run_id}')
+              title = 'atomic-trial:'+base
+              require(run.get('id') == run_id and run.get('run_attempt') == 1 and run.get('event') == 'workflow_dispatch' and run.get('path') == WORKFLOW and run.get('head_branch') == 'main' and run.get('head_sha') == base and run.get('repository',{}).get('id') == REPO_ID and run.get('head_repository',{}).get('id') == REPO_ID and run.get('status') == 'in_progress' and run.get('display_title') == title, 'RUN_MISMATCH')
+              require(timedelta(0) <= now - instant(run['created_at']) <= timedelta(hours=2), 'RUN_EXPIRED')
+              # Complete workflow-run inventory: no second attempt against the same base.
+              history = api.get('/actions/workflows/samuel-adoption-atomic-trial.yml/runs')
+              runs = history.get('workflow_runs')
+              require(type(runs) is list and history.get('total_count') == len(runs), 'HISTORY_INCOMPLETE')
+              matches = runs  # fixed trial intent; main changes cannot reset history
+              require(len(matches) == 1 and matches[0].get('id') == run_id and matches[0].get('run_attempt') == 1, 'PRIOR_ATTEMPT_OR_HISTORY_UNKNOWN')
+              if approved:
+                  reviews = api.get(f'/actions/runs/{run_id}/approvals')
+                  require(type(reviews) is list and len(reviews)==1, 'AMBIGUOUS_APPROVAL')
+                  review=reviews[0]
+                  require(review.get('state')=='approved' and review.get('user',{}).get('id')==OWNER_ID and review.get('user',{}).get('type')=='User' and review.get('comment')==comment(base,run_id,version), 'APPROVAL_MISMATCH')
+                  envs=review.get('environments')
+                  require(type(envs) is list and len(envs)==1 and envs[0].get('id')==ENV_ID and envs[0].get('name')==ENV and envs[0].get('can_admins_bypass') is False, 'APPROVAL_ENV_MISMATCH')
+              rule_status=verify_rule(api.get(f'/rulesets/{RULESET}'),version)
+              refs=api.get('/git/matching-refs/'+ref_for(base).removeprefix('refs/'))
+              require(type(refs) is list, 'AMBIGUOUS_REF')
+              if expect_absent: require(refs == [], 'EXISTING_REF_RECONCILE_ONLY')
+              else:
+                  require(len(refs)==1, 'REF_READBACK_AMBIGUOUS')
+                  exact_ref(refs[0],base,winner)
+              require(api.get('/branches/main')['commit']['sha']==base,'STALE_MAIN')
+              return rule_status
+          
+          def execute(api, base, run_id, version, *, phase, clock=lambda:datetime.now(timezone.utc)):
+              require(phase in ('preflight','trial'),'BAD_PHASE')
+              ref_for(base)
+              require(type(run_id) is int and run_id>0,'BAD_RUN_ID')
+              status=observe(api,base,run_id,version,clock(),approved=phase=='trial',expect_absent=True)
+              # Compete using two different existing commits, both in trusted main's
+              # first-parent lineage. No candidate bytes, updates, deletes or retries.
+              commit=api.get('/git/commits/'+base)
+              parents=commit.get('parents')
+              require(commit.get('sha')==base and type(parents) is list and len(parents)>=1,
+                      'BAD_BASE_PARENT')
+              parent=parents[0].get('sha')
+              require(type(parent) is str and SHA.fullmatch(parent) and parent!=base,'BAD_PARENT')
+              if phase=='preflight':
+                  return {'status':'TRIAL_PREFLIGHT_NON_AUTHORIZING','approval_comment':comment(base,run_id,version),'ref':ref_for(base),'targets':[base,parent],'ruleset_evidence':status,'registry_write_authorized':False}
+              gate=Barrier(2, timeout=10)
+              def competitor(sha):
+                  gate.wait()
+                  try:
+                      response=api.create_trial(base,sha)
+                      exact_ref(response,base,sha)
+                      return {'result':'CREATED','sha':sha}
+                  except HTTPError as e:
+                      # 422 alone is not proof of a conflict. Require a specific error.
+                      raw=e.read(20001)
+                      try: error=json.loads(raw)
+                      except Exception: error={}
+                      if e.code in (409,422) and (error.get('message')=='Reference already exists'
+                              or any(isinstance(v,dict) and v.get('code')=='already_exists'
+                                     and v.get('resource')=='Reference' for v in error.get('errors',[]))):
+                          return {'result':'EXISTS','sha':sha,'http_status':e.code}
+                      return {'result':'UNKNOWN','sha':sha,'http_status':e.code}
+                  except Exception:
+                      return {'result':'UNKNOWN','sha':sha}
+              try:
+                  with ThreadPoolExecutor(max_workers=2) as pool:
+                      outcomes=list(pool.map(competitor,(base,parent)))
+                  print(json.dumps({'atomic_trial_outcomes':outcomes},sort_keys=True))
+                  require(sorted(x['result'] for x in outcomes)==['CREATED','EXISTS'],'ATOMIC_OUTCOME_UNPROVEN')
+                  winner=next(x['sha'] for x in outcomes if x['result']=='CREATED')
+                  after=observe(api,base,run_id,version,clock(),approved=True,expect_absent=False,winner=winner)
+                  require(after==status,'RULE_OBSERVABILITY_CHANGED')
+              except Exception as exc:
+                  raise Hold('ATOMIC_TRIAL_RECONCILE_ONLY: '+str(exc)) from None
+              return {'status':'ATOMIC_TRIAL_ONE_CREATE_ONE_CONFLICT','ref':ref_for(base),'sha':winner,
+                      'ruleset_evidence':status,'registry_write_authorized':False}
+          
+          def main():
+              e=os.environ
+              base=e['EXPECTED_BASE']
+              require(e['GITHUB_REPOSITORY']==REPO and e['GITHUB_REPOSITORY_ID']==str(REPO_ID) and e['GITHUB_REF']=='refs/heads/main' and e['GITHUB_SHA']==base and e['GITHUB_EVENT_NAME']=='workflow_dispatch' and e['GITHUB_RUN_ATTEMPT']=='1','UNTRUSTED_RUNNER')
+              print(json.dumps(execute(Api(e['GH_TOKEN']),base,int(e['GITHUB_RUN_ID']),e['EXPECTED_RULESET_VERSION'],phase=e['TRIAL_PHASE']),sort_keys=True))
+          
+          if __name__=='__main__': main()
+          PYTHON
+  trial:
+    if: ${{ github.repository_id == '1343601410' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    needs: preflight
+    environment: samuel-registry-adoption
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Compete two create-only requests and verify the unique winner
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIAL_PHASE: trial
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          """D7 atomic admission trial only: two competing creates of one fixed test ref.
+          Never a registry writer. No retry, update, delete, PR creation, or merge.
+          """
+          import json
+          import os
+          import re
+          from concurrent.futures import ThreadPoolExecutor
+          from threading import Barrier
+          from urllib.error import HTTPError
+          from datetime import datetime, timedelta, timezone
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+          
+          REPO = 'HyungseonSong-plasma/chatgpt-operation'
+          REPO_ID = 1343601410
+          OWNER_ID = 189476866
+          ENV = 'samuel-registry-adoption'
+          ENV_ID = 28582976708
+          WORKFLOW = '.github/workflows/samuel-adoption-atomic-trial.yml'
+          RULESET = 28142778
+          PREFIX = 'refs/heads/samuel/adoption-reservations/'
+          SHA = re.compile(r'[0-9a-f]{40}\Z')
+          
+          class Hold(ValueError): pass
+          
+          def require(ok, reason):
+              if not ok: raise Hold(reason)
+          
+          def instant(value):
+              dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+              require(dt.tzinfo is not None and dt.utcoffset() is not None, 'BAD_TIME')
+              return dt
+          
+          def ref_for(base):
+              require(type(base) is str and SHA.fullmatch(base), 'BAD_BASE')
+              return PREFIX + 'trial-atomic-create-once-v1'
+          
+          def comment(base, run_id, version):
+              return f'APPROVE-ATOMIC-TRIAL {base} ruleset:{RULESET} version:{version} run:{run_id} attempt:1'
+          
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs): return None
+          
+          class Api:
+              def __init__(self, token):
+                  require(bool(token), 'MISSING_TOKEN')
+                  self.token = token
+              def _request(self, path, data=None):
+                  require(path.startswith('/') and '?' not in path and '..' not in path, 'BAD_API_PATH')
+                  # Only the exact create endpoint is ever writable.
+                  require(data is None or path == '/git/refs', 'BAD_WRITE_PATH')
+                  req = Request('https://api.github.com/repos/' + REPO + path,
+                                data=None if data is None else json.dumps(data).encode(),
+                                headers={'Authorization':'Bearer '+self.token,
+                                         'Accept':'application/vnd.github+json',
+                                         'Content-Type':'application/json',
+                                         'X-GitHub-Api-Version':'2026-03-10'},
+                                method='GET' if data is None else 'POST')
+                  with build_opener(NoRedirect()).open(req, timeout=20) as resp:
+                      require(resp.geturl() == req.full_url and not resp.headers.get('Link'), 'INCOMPLETE_RESPONSE')
+                      require(resp.status == (200 if data is None else 201), 'UNEXPECTED_HTTP_STATUS')
+                      raw = resp.read(2_000_001)
+                      require(len(raw) <= 2_000_000, 'API_LIMIT')
+                      return json.loads(raw)
+              def get(self, path): return self._request(path)
+              def create_trial(self, base, sha):
+                  require(SHA.fullmatch(sha), 'BAD_TARGET')
+                  return self._request('/git/refs', {'ref':ref_for(base), 'sha':sha})
+          
+          def verify_env(env, policies):
+              require(env.get('id') == ENV_ID and env.get('name') == ENV and env.get('can_admins_bypass') is False, 'BAD_ENV')
+              reviewers = [x for x in env.get('protection_rules',[]) if x.get('type') == 'required_reviewers']
+              require(len(reviewers) == 1 and len(reviewers[0].get('reviewers',[])) == 1, 'BAD_REVIEWERS')
+              reviewer = reviewers[0]['reviewers'][0]
+              require(reviewer.get('type') == 'User' and reviewer.get('reviewer',{}).get('id') == OWNER_ID, 'BAD_REVIEWER_ID')
+              require(env.get('deployment_branch_policy') == {'protected_branches':False,'custom_branch_policies':True}, 'BAD_BRANCH_POLICY')
+              require(policies.get('total_count') == 1 and len(policies.get('branch_policies',[])) == 1 and policies['branch_policies'][0].get('name') == 'main' and policies['branch_policies'][0].get('type') == 'branch', 'BAD_BRANCH_POLICY')
+          
+          def verify_rule(rule, version):
+              require(rule.get('id') == RULESET and rule.get('source') == REPO and rule.get('source_type') == 'Repository' and rule.get('target') == 'branch' and rule.get('enforcement') == 'active', 'BAD_RULESET')
+              require(rule.get('conditions') == {'ref_name':{'include':[PREFIX+'*'],'exclude':[]}}, 'BAD_RULE_SCOPE')
+              require(sorted(x.get('type','') for x in rule.get('rules',[])) == ['deletion','non_fast_forward','update'], 'BAD_RULES')
+              require(instant(rule['updated_at']) == instant(version), 'RULE_VERSION_CHANGED')
+              if 'bypass_actors' in rule: require(rule['bypass_actors'] == [], 'BYPASS_ENABLED')
+              # This experiment modifies no protected contents. Missing bypass evidence
+              # remains unknown, even with an owner-attested version; not production proof.
+              return 'LIVE_EMPTY' if 'bypass_actors' in rule else 'LIVE_BYPASS_UNOBSERVABLE'
+          
+          def exact_ref(value, base, sha):
+              require(type(value) is dict and value.get('ref') == ref_for(base) and value.get('object',{}).get('type') == 'commit' and value['object'].get('sha') == sha, 'REF_MISMATCH')
+          
+          def observe(api, base, run_id, version, now, *, approved, expect_absent, winner=None):
+              require(api.get('/branches/main')['commit']['sha'] == base, 'STALE_MAIN')
+              verify_env(api.get('/environments/'+ENV), api.get('/environments/'+ENV+'/deployment-branch-policies'))
+              run = api.get(f'/actions/runs/{run_id}')
+              title = 'atomic-trial:'+base
+              require(run.get('id') == run_id and run.get('run_attempt') == 1 and run.get('event') == 'workflow_dispatch' and run.get('path') == WORKFLOW and run.get('head_branch') == 'main' and run.get('head_sha') == base and run.get('repository',{}).get('id') == REPO_ID and run.get('head_repository',{}).get('id') == REPO_ID and run.get('status') == 'in_progress' and run.get('display_title') == title, 'RUN_MISMATCH')
+              require(timedelta(0) <= now - instant(run['created_at']) <= timedelta(hours=2), 'RUN_EXPIRED')
+              # Complete workflow-run inventory: no second attempt against the same base.
+              history = api.get('/actions/workflows/samuel-adoption-atomic-trial.yml/runs')
+              runs = history.get('workflow_runs')
+              require(type(runs) is list and history.get('total_count') == len(runs), 'HISTORY_INCOMPLETE')
+              matches = runs  # fixed trial intent; main changes cannot reset history
+              require(len(matches) == 1 and matches[0].get('id') == run_id and matches[0].get('run_attempt') == 1, 'PRIOR_ATTEMPT_OR_HISTORY_UNKNOWN')
+              if approved:
+                  reviews = api.get(f'/actions/runs/{run_id}/approvals')
+                  require(type(reviews) is list and len(reviews)==1, 'AMBIGUOUS_APPROVAL')
+                  review=reviews[0]
+                  require(review.get('state')=='approved' and review.get('user',{}).get('id')==OWNER_ID and review.get('user',{}).get('type')=='User' and review.get('comment')==comment(base,run_id,version), 'APPROVAL_MISMATCH')
+                  envs=review.get('environments')
+                  require(type(envs) is list and len(envs)==1 and envs[0].get('id')==ENV_ID and envs[0].get('name')==ENV and envs[0].get('can_admins_bypass') is False, 'APPROVAL_ENV_MISMATCH')
+              rule_status=verify_rule(api.get(f'/rulesets/{RULESET}'),version)
+              refs=api.get('/git/matching-refs/'+ref_for(base).removeprefix('refs/'))
+              require(type(refs) is list, 'AMBIGUOUS_REF')
+              if expect_absent: require(refs == [], 'EXISTING_REF_RECONCILE_ONLY')
+              else:
+                  require(len(refs)==1, 'REF_READBACK_AMBIGUOUS')
+                  exact_ref(refs[0],base,winner)
+              require(api.get('/branches/main')['commit']['sha']==base,'STALE_MAIN')
+              return rule_status
+          
+          def execute(api, base, run_id, version, *, phase, clock=lambda:datetime.now(timezone.utc)):
+              require(phase in ('preflight','trial'),'BAD_PHASE')
+              ref_for(base)
+              require(type(run_id) is int and run_id>0,'BAD_RUN_ID')
+              status=observe(api,base,run_id,version,clock(),approved=phase=='trial',expect_absent=True)
+              # Compete using two different existing commits, both in trusted main's
+              # first-parent lineage. No candidate bytes, updates, deletes or retries.
+              commit=api.get('/git/commits/'+base)
+              parents=commit.get('parents')
+              require(commit.get('sha')==base and type(parents) is list and len(parents)>=1,
+                      'BAD_BASE_PARENT')
+              parent=parents[0].get('sha')
+              require(type(parent) is str and SHA.fullmatch(parent) and parent!=base,'BAD_PARENT')
+              if phase=='preflight':
+                  return {'status':'TRIAL_PREFLIGHT_NON_AUTHORIZING','approval_comment':comment(base,run_id,version),'ref':ref_for(base),'targets':[base,parent],'ruleset_evidence':status,'registry_write_authorized':False}
+              gate=Barrier(2, timeout=10)
+              def competitor(sha):
+                  gate.wait()
+                  try:
+                      response=api.create_trial(base,sha)
+                      exact_ref(response,base,sha)
+                      return {'result':'CREATED','sha':sha}
+                  except HTTPError as e:
+                      # 422 alone is not proof of a conflict. Require a specific error.
+                      raw=e.read(20001)
+                      try: error=json.loads(raw)
+                      except Exception: error={}
+                      if e.code in (409,422) and (error.get('message')=='Reference already exists'
+                              or any(isinstance(v,dict) and v.get('code')=='already_exists'
+                                     and v.get('resource')=='Reference' for v in error.get('errors',[]))):
+                          return {'result':'EXISTS','sha':sha,'http_status':e.code}
+                      return {'result':'UNKNOWN','sha':sha,'http_status':e.code}
+                  except Exception:
+                      return {'result':'UNKNOWN','sha':sha}
+              try:
+                  with ThreadPoolExecutor(max_workers=2) as pool:
+                      outcomes=list(pool.map(competitor,(base,parent)))
+                  print(json.dumps({'atomic_trial_outcomes':outcomes},sort_keys=True))
+                  require(sorted(x['result'] for x in outcomes)==['CREATED','EXISTS'],'ATOMIC_OUTCOME_UNPROVEN')
+                  winner=next(x['sha'] for x in outcomes if x['result']=='CREATED')
+                  after=observe(api,base,run_id,version,clock(),approved=True,expect_absent=False,winner=winner)
+                  require(after==status,'RULE_OBSERVABILITY_CHANGED')
+              except Exception as exc:
+                  raise Hold('ATOMIC_TRIAL_RECONCILE_ONLY: '+str(exc)) from None
+              return {'status':'ATOMIC_TRIAL_ONE_CREATE_ONE_CONFLICT','ref':ref_for(base),'sha':winner,
+                      'ruleset_evidence':status,'registry_write_authorized':False}
+          
+          def main():
+              e=os.environ
+              base=e['EXPECTED_BASE']
+              require(e['GITHUB_REPOSITORY']==REPO and e['GITHUB_REPOSITORY_ID']==str(REPO_ID) and e['GITHUB_REF']=='refs/heads/main' and e['GITHUB_SHA']==base and e['GITHUB_EVENT_NAME']=='workflow_dispatch' and e['GITHUB_RUN_ATTEMPT']=='1','UNTRUSTED_RUNNER')
+              print(json.dumps(execute(Api(e['GH_TOKEN']),base,int(e['GITHUB_RUN_ID']),e['EXPECTED_RULESET_VERSION'],phase=e['TRIAL_PHASE']),sort_keys=True))
+          
+          if __name__=='__main__': main()
+          PYTHON
