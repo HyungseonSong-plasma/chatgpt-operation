@@ -19,7 +19,8 @@ def verify_reservation_ruleset(rule):
     require(rule.get('bypass_actors') == [], 'RESERVATION_BYPASS_UNKNOWN_OR_ENABLED')
     rules = rule.get('rules')
     require(type(rules) is list and all(type(x) is dict for x in rules)
-            and sorted(x.get('type','') for x in rules) == ['deletion','update'],
+            and sorted(x.get('type','') for x in rules) in (
+                ['deletion','update'], ['deletion','non_fast_forward','update']),
             'RESERVATION_NOT_IMMUTABLE')
     return True
 
