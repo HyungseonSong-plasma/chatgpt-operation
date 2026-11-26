@@ -22,8 +22,9 @@ SHA = "a" * 40
 def policy_with_reviewed_scoped_exception() -> dict:
     p = copy.deepcopy(ORIGINAL)
     paths = p["mutation"]["file_paths"]
-    if PATH not in paths["allow"]:
-        paths["allow"].append(PATH)
+    # This fixture models the old exact-path DEA contract, not generic authoring.
+    paths["allow"] = [x for x in paths["allow"] if not x.startswith(".github/workflows/")]
+    paths["allow"].append(PATH)
     paths["deny"] = [x for x in paths["deny"] if x != ".github/workflows/**"]
     return p
 
@@ -117,9 +118,7 @@ class WorkflowDraftIntentTests(unittest.TestCase):
         for content in (b"", REF + b"\n", b"forged", b"A" * 65000):
             with self.subTest(content=content[:15]):
                 out = inspect(replace(proposal(), content=content))
-                self.assertIn(
-                    "WORKFLOW_BYTES_NOT_EXACT_REVIEWED_SOURCE", out.reasons
-                )
+                self.assertIn("WORKFLOW_BYTES_NOT_EXACT_REVIEWED_SOURCE", out.reasons)
         out = inspect(source=b"forged")
         self.assertIn("WORKFLOW_BYTES_NOT_EXACT_REVIEWED_SOURCE", out.reasons)
 
@@ -136,14 +135,10 @@ class WorkflowDraftIntentTests(unittest.TestCase):
     def test_deny_override_and_main_mutation_bypass_rejected(self):
         p = policy_with_reviewed_scoped_exception()
         p["mutation"]["file_paths"]["deny"].append(".github/workflows/**")
-        self.assertIn(
-            "EXACT_PATH_POLICY_NOT_ADOPTED", inspect(policy=p).reasons
-        )
+        self.assertIn("EXACT_PATH_POLICY_NOT_ADOPTED", inspect(policy=p).reasons)
         p = policy_with_reviewed_scoped_exception()
         p["mutation"]["branch_names"]["deny"] = []
-        self.assertIn(
-            "PROTECTED_MAIN_DENY_NOT_PRESERVED", inspect(policy=p).reasons
-        )
+        self.assertIn("PROTECTED_MAIN_DENY_NOT_PRESERVED", inspect(policy=p).reasons)
 
     def test_malformed_or_foreign_policy_not_authorization(self):
         for p in ({}, None, {"repository": "elsewhere"}):

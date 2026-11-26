@@ -19,7 +19,8 @@
         "docs/**",
         "schemas/**",
         "skills/**",
-        "automation/**"
+        "automation/**",
+        ".github/workflows/**"
       ],
       "deny": [
         "automation/samuel/decisions.json",
@@ -27,7 +28,29 @@
         "src/chatgpt_operation/controller/decisions.py",
         "skills/capability-registry.json",
         ".github/workflows/samuel-native-github.yml",
-        ".github/workflows/**"
+        ".github/workflows/ci.yml",
+        ".github/workflows/cleanup-cancelled-runs.yml",
+        ".github/workflows/samuel-adoption-*",
+        ".github/workflows/samuel-agent-child-*",
+        ".github/workflows/samuel-bootstrap.yml",
+        ".github/workflows/samuel-branch-history-cleanup.yml",
+        ".github/workflows/samuel-chatgpt-proposal-ingress.yml",
+        ".github/workflows/samuel-closed-work-reconcile.yml",
+        ".github/workflows/samuel-codeqa-*",
+        ".github/workflows/samuel-controller.yml",
+        ".github/workflows/samuel-diagnostic-recovery.yml",
+        ".github/workflows/samuel-evidence-acquisition.yml",
+        ".github/workflows/samuel-gemini-review.yml",
+        ".github/workflows/samuel-journal-*",
+        ".github/workflows/samuel-luna-shadow.yml",
+        ".github/workflows/samuel-native-*",
+        ".github/workflows/samuel-reasoning-*",
+        ".github/workflows/samuel-repository-mutation.yml",
+        ".github/workflows/samuel-task-watchdog.yml",
+        ".github/workflows/samuel-trusted-pr-validation.yml",
+        ".github/workflows/samuel-worker-completion-wake.yml",
+        ".github/workflows/samuel-write-blocker-qualification.yml",
+        ".github/workflows/samuel-foreign-issuer.yml"
       ]
     },
     "branch_names": {
