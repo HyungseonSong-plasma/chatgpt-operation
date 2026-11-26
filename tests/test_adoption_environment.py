@@ -6,7 +6,7 @@ from chatgpt_operation.adoption.qualify import verify_environment
 class EnvironmentTests(unittest.TestCase):
     def setUp(self):
         self.binding=Binding('a'*40,'b'*40,'c'*64,123,456)
-        self.env={'id':456,'name':ENV,'protection_rules':[{'type':'required_reviewers','reviewers':[{'type':'User','reviewer':{'id':OWNER_ID}}]}], 'deployment_branch_policy':{'protected_branches':False,'custom_branch_policies':True}}
+        self.env={'id':456,'name':ENV,'can_admins_bypass':False,'protection_rules':[{'type':'required_reviewers','reviewers':[{'type':'User','reviewer':{'id':OWNER_ID}}]}], 'deployment_branch_policy':{'protected_branches':False,'custom_branch_policies':True}}
         self.rules={'total_count':1,'branch_policies':[{'name':'main','type':'branch'}]}
     def check(self):
         return verify_environment(self.binding,self.env,self.rules)
@@ -32,3 +32,13 @@ class EnvironmentTests(unittest.TestCase):
     def test_incomplete(self):
         self.rules['total_count']=2
         with self.assertRaises(ValueError): self.check()
+
+    def test_admin_bypass_enabled(self):
+        self.env['can_admins_bypass']=True
+        with self.assertRaisesRegex(ValueError,'ADMIN_BYPASS_NOT_DISABLED'): self.check()
+    def test_admin_bypass_missing(self):
+        del self.env['can_admins_bypass']
+        with self.assertRaisesRegex(ValueError,'ADMIN_BYPASS_NOT_DISABLED'): self.check()
+    def test_admin_bypass_not_boolean(self):
+        self.env['can_admins_bypass']=0
+        with self.assertRaisesRegex(ValueError,'ADMIN_BYPASS_NOT_DISABLED'): self.check()
