@@ -2,7 +2,7 @@
 from dataclasses import replace
 import json
 import unittest
-from chatgpt_operation.controller.foreign_work_admission import ForeignAdmissionBinding, EnrollmentRecord
+from chatgpt_operation.controller.foreign_work_admission import ForeignAdmissionBinding, EnrollmentRecord, AdmissionStatus
 from chatgpt_operation.controller.foreign_enrollment_contract import (
     ForeignEnrollmentAuthority, ForeignEnrollmentAttestation, IntentRegistration, EnrollmentError,
 )
@@ -31,6 +31,7 @@ class Scenario:
         self.attestation=ForeignEnrollmentAttestation(self.record,PIN,5,'fixture-authority',self.regs)
         self.rows=[]; self.head=HEAD; self.writes=0; self.valid_authority=True; self.valid_anchor=True
         self.technical=False; self.authority_clear=False; self.mutate=lambda path,x:x
+        self.original_blockers = {}
         # Fixture only: populate real journal implementation in-memory; production read path never writes.
         self.fixture_journal=GitHubIssueBlockerJournal(self,issue_number=44,trusted_actor=self.jb.actor_login)
         for r in self.regs:
@@ -62,11 +63,26 @@ class Scenario:
     def authority(self,**kwargs):
         return ForeignEnrollmentAuthority(read=kwargs.get('read',lambda _:self.attestation),verify_authority=kwargs.get('verify',lambda *_:self.valid_authority),minimum_generation=kwargs.get('floor',5))
     def journal(self,**kwargs):
-        return AnchoredForeignJournal(binding=self.jb,transport=self,read_anchor=kwargs.get('read',lambda _:self.anchor),verify_anchor=kwargs.get('verify',lambda *_:self.valid_anchor),durable_floor=kwargs.get('floor',self.floor),technical_verifier=lambda _:self.technical,authority_verifier=lambda _:self.authority_clear,read_head=lambda:self.head)
+        return AnchoredForeignJournal(binding=self.jb,transport=self,read_anchor=kwargs.get('read',lambda _:self.anchor),verify_anchor=kwargs.get('verify',lambda *_:self.valid_anchor),durable_floor=kwargs.get('floor',self.floor),technical_verifier=lambda _:self.technical,authority_verifier=lambda _:self.authority_clear,read_head=lambda:self.head,
+                                      verify_historical_blocker=kwargs.get('verify_history', self.verify_original_blocker))
     def runtime(self,**kwargs):
-        return ForeignInitRuntime(binding=self.binding,authority=kwargs.get('authority',self.authority()),journal=kwargs.get('journal',self.journal()),transport=self,history_reader=lambda _:self.history,verify_scope=lambda _:True,verify_coverage=lambda _:True,paths=PATHS)
+        return ForeignInitRuntime(binding=self.binding,authority=kwargs.get('authority',self.authority()),journal=kwargs.get('journal',self.journal()),transport=self,history_reader=lambda _:self.history,verify_scope=lambda _:True,verify_coverage=kwargs.get('verify_coverage', lambda _:True),paths=PATHS)
     def blocker(self,source=BlockerSource.CI):
         self.fixture_journal.record_blocker(BlockerObservation(source,self.regs[1].intent_id,'fixture','original-denial'));self.refresh_anchor()
+    def verify_original_blocker(self, original, typed):
+        return self.original_blockers.get(original.evidence_ref) == typed
+    def historical_blocker(self, source=BlockerSource.CI, *, http_status=None, migrate=True):
+        typed=BlockerObservation(source,self.regs[1].intent_id,'original-provider','historical-denial',http_status)
+        self.original_blockers[typed.evidence_ref]=typed
+        original=HistoricalRecord(typed.evidence_ref,typed.logical_intent_id,source.name)
+        self.history=replace(self.history,blockers=(original,))
+        if migrate:
+            self.fixture_journal.record_blocker(typed)
+            self.refresh_anchor()
+        return typed
+    def clearance(self, typed, kind=ClearanceKind.EXACT_HEAD_CI_PASS, *, head=HEAD):
+        self.fixture_journal.record_clearance(ClearanceEvidence(typed.logical_intent_id,typed.evidence_ref,kind,head,'clearance-proof'))
+        self.refresh_anchor()
 
 
 class TestForeignInitRuntimeTests(unittest.TestCase):
@@ -230,18 +246,18 @@ class TestForeignInitRuntimeTests(unittest.TestCase):
         assert s.journal().observe(s.attestation,branch=s.binding.target_branch,paths=PATHS,head=HEAD).endswith(s.anchor.checkpoint.tip)
 
     def test_runtime_composition(self):
-        s=Scenario();r=s.runtime();a=r.observe_enrollment(s.request_data);assert a==s.attestation
+        s=Scenario();r=s.runtime();a=r.observe_enrollment(s.request_data);assert a.attestation==s.attestation
         assert r.observe_blockers(s.request_data,a).startswith('journal:')
 
     _cases_test_runtime_refuses_unresolved_history = ['wrong_work','wrong_branch','historical_blocker','incomplete_history','enrollment_changed']
 
     def _check_test_runtime_refuses_unresolved_history(self, case):
-        s=Scenario();r=s.runtime();q=dict(s.request_data);a=s.attestation
+        s=Scenario();r=s.runtime();q=dict(s.request_data);a=r.observe_enrollment(q)
         if case=='wrong_work':q['work_id']='replacement'
         if case=='wrong_branch':q['target_branch']='other'
         if case=='historical_blocker':s.history=replace(s.history,blockers=(HistoricalRecord('old-denial',s.regs[1].intent_id,'TOOL_SAFETY'),))
         if case=='incomplete_history':s.history=replace(s.history,coverage_ref=None)
-        if case=='enrollment_changed':s.attestation=replace(a,generation=6)
+        if case=='enrollment_changed':s.attestation=replace(a.attestation,generation=6)
         with self.assertRaises(ValueError):r.observe_blockers(q,a)
 
     def test_runtime_refuses_unresolved_history_01(self):
@@ -258,3 +274,128 @@ class TestForeignInitRuntimeTests(unittest.TestCase):
 
     def test_runtime_refuses_unresolved_history_05(self):
         self._check_test_runtime_refuses_unresolved_history(self._cases_test_runtime_refuses_unresolved_history[4])
+
+    def test_historical_ci_clearance_reaches_existing_gate(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True
+        r=s.runtime(); a=r.observe_enrollment(s.request_data); before=s.writes
+        self.assertIs(a.admission.status, AdmissionStatus.ENROLLMENT_OBSERVED_BLOCKER_CHECK_REQUIRED)
+        self.assertIsNone(a.admission.work_id)
+        self.assertFalse(a.admission.mutation_authorized)
+        self.assertFalse(a.admission.controller_execution_approved)
+        self.assertEqual(a.admission.recovery.blockers, s.history.blockers)
+        self.assertTrue(r.observe_blockers(s.request_data,a).endswith(s.anchor.checkpoint.tip))
+        self.assertEqual(s.writes,before)
+        events=[e['payload']['event'] for e in s.fixture_journal.read().matching(typed.logical_intent_id)]
+        self.assertEqual(events,['REGISTERED','BLOCKED','CLEARED'])
+
+    def test_historical_active_ci_still_blocks(self):
+        s=Scenario(); s.historical_blocker(); s.technical=True; r=s.runtime()
+        a=r.observe_enrollment(s.request_data); before=s.writes
+        with self.assertRaisesRegex(RuntimeError,'ACTIVE_BLOCKER_CI'):
+            r.observe_blockers(s.request_data,a)
+        self.assertEqual(s.writes,before)
+
+    def test_historical_unverified_ci_clearance_still_blocks(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); r=s.runtime()
+        a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(RuntimeError,'ACTIVE_BLOCKER_CI'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_stale_clearance_still_blocks(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed,head='c'*40); s.technical=True; r=s.runtime()
+        a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(RuntimeError,'ACTIVE_BLOCKER_CI'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_safety_cannot_use_technical_clearance(self):
+        s=Scenario(); typed=s.historical_blocker(BlockerSource.TOOL_SAFETY); s.clearance(typed); s.technical=True; s.authority_clear=True
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(RuntimeError,'ACTIVE_BLOCKER_TOOL_SAFETY'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_safety_requires_original_authority(self):
+        s=Scenario(); typed=s.historical_blocker(BlockerSource.TOOL_SAFETY)
+        s.clearance(typed,ClearanceKind.UPSTREAM_SAFETY_CLEARED); s.technical=True
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(RuntimeError,'ACTIVE_BLOCKER_TOOL_SAFETY'):
+            r.observe_blockers(s.request_data,a)
+        # Synthetic originating-authority verification, not actual clearance.
+        s.authority_clear=True
+        self.assertTrue(r.observe_blockers(s.request_data,a).endswith(s.anchor.checkpoint.tip))
+
+    def test_historical_policy_requires_owner_authority(self):
+        s=Scenario(); typed=s.historical_blocker(BlockerSource.REPOSITORY_POLICY)
+        s.clearance(typed,ClearanceKind.OWNER_POLICY_AUTHORIZED); s.technical=True
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(RuntimeError,'ACTIVE_BLOCKER_REPOSITORY_POLICY'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_blocker_missing_from_anchored_journal(self):
+        s=Scenario(); s.historical_blocker(migrate=False); s.technical=True
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(JournalBindingError,'missing or ambiguous'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_blocker_wrong_original_intent(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True
+        s.history=replace(s.history,blockers=(replace(s.history.blockers[0],original_intent_id=s.regs[0].intent_id),))
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(JournalBindingError,'intent mismatch'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_safety_source_cannot_be_reclassified(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True
+        s.history=replace(s.history,blockers=(replace(s.history.blockers[0],source='TOOL_SAFETY'),))
+        r=s.runtime(journal=s.journal(verify_history=lambda *_:True)); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(JournalBindingError,'source mismatch'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_duplicate_reference_across_aliases(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True
+        s.fixture_journal.record_blocker(replace(typed,logical_intent_id=s.regs[0].intent_id)); s.refresh_anchor()
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(JournalBindingError,'missing or ambiguous'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_provider_and_http_status_authenticated(self):
+        s=Scenario(); typed=s.historical_blocker(BlockerSource.GITHUB_HTTP,http_status=403,migrate=False)
+        # A fabricated transient error cannot replace the original access denial.
+        fake=replace(typed,provider='other-provider',http_status=503)
+        s.fixture_journal.record_blocker(fake); s.clearance(fake,ClearanceKind.TRANSIENT_RECOVERED); s.technical=True
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(JournalBindingError,'not authenticated'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_original_proof_required(self):
+        for verifier in (None,lambda *_:False,lambda *_:1):
+            with self.subTest(verifier=verifier):
+                s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True
+                r=s.runtime(journal=s.journal(verify_history=verifier)); a=r.observe_enrollment(s.request_data)
+                with self.assertRaises(JournalBindingError): r.observe_blockers(s.request_data,a)
+
+    def test_historical_coverage_and_original_id_still_required(self):
+        for case in ('missing_coverage','false_coverage','truthy_coverage','missing_id'):
+            with self.subTest(case=case):
+                s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True; kw={}
+                if case=='missing_coverage': s.history=replace(s.history,coverage_ref=None)
+                if case=='false_coverage': kw['verify_coverage']=lambda _:False
+                if case=='truthy_coverage': kw['verify_coverage']=lambda _:1
+                if case=='missing_id': s.history=replace(s.history,original_work_id=None)
+                r=s.runtime(**kw)
+                with self.assertRaisesRegex(ValueError,'BLOCKER_PRESENT'): r.observe_enrollment(s.request_data)
+
+    def test_historical_evidence_cannot_disappear_between_init_checks(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True
+        r=s.runtime(); a=r.observe_enrollment(s.request_data)
+        s.history=replace(s.history,blockers=())
+        with self.assertRaisesRegex(ValueError,'history changed within INIT'):
+            r.observe_blockers(s.request_data,a)
+
+    def test_historical_coverage_receipt_cannot_change_during_resolution(self):
+        s=Scenario(); typed=s.historical_blocker(); s.clearance(typed); s.technical=True
+        def verify(original, observed):
+            s.history=replace(s.history,coverage_ref='changed')
+            return s.verify_original_blocker(original,observed)
+        r=s.runtime(journal=s.journal(verify_history=verify)); a=r.observe_enrollment(s.request_data)
+        with self.assertRaisesRegex(ValueError,'history changed after blocker observation'):
+            r.observe_blockers(s.request_data,a)
