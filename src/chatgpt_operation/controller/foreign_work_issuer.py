@@ -184,10 +184,10 @@ class ProtectedIssuanceStore:
         return commit
 
 
-def issue_first(*, binding, request, store, paths, approval_ref, publisher_ref,
+def _create_first(*, binding, request, store, paths, approval_ref, publisher_ref,
                 read_history, verify_scope, verify_coverage, verify_approval,
-                verify_lease, verify_ruleset, read_head, verify_publication):
-    """Persist a verified first issuance; never repair or replace a prior ID.
+                verify_lease, verify_ruleset, read_head):
+    """Create immutable first-issuance storage with all prewrite gates intact.
 
     History completeness and the original no-issuance assertion must come
     from the responsible authority, not a negative ledger search. A known
@@ -219,6 +219,41 @@ def issue_first(*, binding, request, store, paths, approval_ref, publisher_ref,
 
     require(current() is True, 'ISSUER_BOUNDARY_UNVERIFIED')
     commit = store.create_once(ref=record.ref, raw=raw, before_write=current)
+    return record, commit, raw, boundary
+
+
+def stage_first_issuance(*, binding, request, store, paths, approval_ref, publisher_ref,
+                         read_history, verify_scope, verify_coverage, verify_approval,
+                         verify_lease, verify_ruleset, read_head):
+    """Publish storage during a protected run; returned pair is UNVERIFIED.
+
+    This is not an authority or an enrollment receipt. The caller may emit a
+    publication_receipt artifact, but must not consume this pair as a verified
+    identity. Only a separate completed-run verifier may authenticate it via
+    ProtectedIssuanceStore.read_attestation. Reconcile uncertain writes; never
+    repeat publication merely because the run or its receipt was lost.
+    """
+    record, commit, raw, boundary = _create_first(
+        binding=binding, request=request, store=store, paths=paths,
+        approval_ref=approval_ref, publisher_ref=publisher_ref,
+        read_history=read_history, verify_scope=verify_scope,
+        verify_coverage=verify_coverage, verify_approval=verify_approval,
+        verify_lease=verify_lease, verify_ruleset=verify_ruleset, read_head=read_head)
+    require(boundary() is True and store.read(record.ref) == (commit, raw),
+            'STAGED_ISSUANCE_READBACK_UNVERIFIED')
+    return record, commit
+
+
+def issue_first(*, binding, request, store, paths, approval_ref, publisher_ref,
+                read_history, verify_scope, verify_coverage, verify_approval,
+                verify_lease, verify_ruleset, read_head, verify_publication):
+    """Preserve the synchronous, independently verified legacy contract."""
+    record, commit, raw, boundary = _create_first(
+        binding=binding, request=request, store=store, paths=paths,
+        approval_ref=approval_ref, publisher_ref=publisher_ref,
+        read_history=read_history, verify_scope=verify_scope,
+        verify_coverage=verify_coverage, verify_approval=verify_approval,
+        verify_lease=verify_lease, verify_ruleset=verify_ruleset, read_head=read_head)
     require(boundary() is True and verify_publication(record, commit, raw) is True
             and store.read(record.ref) == (commit, raw), 'ISSUANCE_PROVENANCE_UNVERIFIED')
     return record, commit
