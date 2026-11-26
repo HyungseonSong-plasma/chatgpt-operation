@@ -95,6 +95,14 @@ def main():
         reviews=get(f'/actions/runs/{binding.run_id}/approvals')
         print(json.dumps(verify_approval(binding,run=run,reviews=reviews,
                  current_main=get('/branches/main')['commit']['sha'],now=datetime.now(timezone.utc)),sort_keys=True))
+        # The hosted job remains read-only: local Git object construction and
+        # authenticated GET observations do not publish a ref or grant authority.
+        from .github_observation import observe
+        from .git_candidate import build_detached_candidate
+        observed = observe(binding)
+        print(json.dumps(observed, sort_keys=True))
+        if observed['reservation']['status'] == 'RESERVATION_ABSENT_NON_AUTHORIZING':
+            print(json.dumps(build_detached_candidate(binding), sort_keys=True))
     else:
         raise ValueError('BAD_PHASE')
 
