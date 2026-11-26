@@ -38,3 +38,20 @@ class GitRequestTests(unittest.TestCase):
         p=Path(REQUEST_PATH);p.parent.mkdir(parents=True);p.symlink_to('../../README.md')
         self.git('add','.');self.git('commit','-qm','symlink');req=self.git('rev-parse','HEAD')
         with self.assertRaisesRegex(ValueError,'NOT_REGULAR_FILE'): candidate_from_git(self.base,req)
+
+    def test_v2_snapshot_request_preserves_candidate(self):
+        self.request['schema_version']=2
+        self.request['ruleset_snapshot']={'schema_version':1,'observed_at':'2026-11-26T07:30:00Z','ruleset':{}}
+        req=self.commit_request()
+        old,new=candidate_from_git(self.base,req)
+        self.assertEqual(new,self.new)
+        receipt=inspect_candidate(expected_base=self.base,observed_base=self.base,baseline=old,proposed=new,approved_candidate_sha256=candidate_digest(self.base,self.new))
+        self.assertFalse(receipt.write_authorized)
+    def test_v2_missing_snapshot(self):
+        self.request['schema_version']=2
+        req=self.commit_request()
+        with self.assertRaisesRegex(ValueError,'BAD_REQUEST'): candidate_from_git(self.base,req)
+    def test_v1_extra_snapshot(self):
+        self.request['ruleset_snapshot']={}
+        req=self.commit_request()
+        with self.assertRaisesRegex(ValueError,'BAD_REQUEST'): candidate_from_git(self.base,req)
