@@ -169,6 +169,14 @@ never reset the work ID or infer clean history from an empty search.
 triage/clearance route. `HISTORY_VERIFIED` continues ordinary branch preflight;
 it never authorizes a mutation. Authenticate any derived legacy ID before enrollment.
 
+For irrecoverable incident-related evidence loss, follow the owner-governed
+incident recovery section of `docs/mutation-blocker-recovery-v1.md`. The
+historical workload stays incomplete and blocked as applicable. A separately
+approved bounded recovery change may proceed through ordinary authorization
+without proving the damaged workload's complete history. This is not a bypass
+of same-effect denials, a new work ID for denied work, or a grant of production
+issuance, enrollment, clearance or controller authority.
+
 Optional `repository.legacy_history_reuse.VerifiedHistoryReuse` may reuse a
 positive observation only with a fresh authoritative version of the complete
 history and verification authority, exact request and central revision.
