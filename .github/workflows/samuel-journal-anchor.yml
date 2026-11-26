@@ -1,0 +1,379 @@
+# OWNER INSTALL ONLY. Live genesis of an empty journal; NOT a Work ID issuer.
+# No automatic scheduling, no mutation of main or existing refs/comments.
+name: Samuel Journal Anchor — Genesis
+run-name: journal-anchor-genesis:${{ inputs.expected_main_sha }}
+'on':
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: Exact current central main SHA after installation PR merge
+        required: true
+        type: string
+      writer_run_id:
+        description: Successful first-attempt Journal Writer Genesis run ID at the same main SHA
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: samuel-journal-329-genesis
+  cancel-in-progress: false
+jobs:
+  genesis:
+    if: ${{ github.repository_id == '1343601410' && github.actor_id == '189476866' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      issues: read
+      actions: read
+    steps:
+      - name: Checkout exact trusted main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify writer artifact and publish immutable genesis anchor
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+          SAMUEL_ROLE: anchor
+          PYTHONPATH: src
+          WRITER_RUN_ID: ${{ inputs.writer_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'SAMUEL_GENESIS_PY'
+          """Owner-installed live genesis only. Never enroll, clear or activate a controller."""
+          import base64
+          import hashlib
+          import io
+          import json
+          import os
+          import re
+          import subprocess
+          import zipfile
+          from datetime import datetime
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+
+          from chatgpt_operation.controller.central_admission_readback import CentralAdmissionReadback, CentralLedgerConfig
+          from chatgpt_operation.repository.blocker_journal import MARKER, ZERO
+
+          REPO = 'HyungseonSong-plasma/chatgpt-operation'
+          CONSUMER = 'HyungseonSong-plasma/moose-test-repo'
+          REPO_ID, CONSUMER_ID, OWNER_ID = 1343601410, 1346502851, 189476866
+          ISSUE_NUMBER, ISSUE_ID, TARGET_ISSUE_ID = 329, 6624795458, 6592821787
+          BOT, BOT_ID = 'github-actions[bot]', 41898282
+          RULESET = 28156551
+          RULE_VERSION = '2026-11-26T10:37:14.558+00:00'
+          ROOT = '/repos/' + REPO
+          ISSUE = ROOT + '/issues/329'
+          PREFIX = 'refs/heads/samuel/journal-anchors/6624795458-'
+          GENESIS_REF = PREFIX + 'genesis-v1'
+          GENESIS_MARKER = '<!-- samuel-journal-genesis-v1 -->\n'
+          WRITER = '.github/workflows/samuel-journal-writer.yml'
+          ANCHOR = '.github/workflows/samuel-journal-anchor.yml'
+          SHA = re.compile(r'[0-9a-f]{40}\Z')
+          MAX = 4_000_000
+
+          class Hold(RuntimeError): pass
+
+
+          def require(ok, code):
+              if ok is not True: raise Hold(code)
+
+
+          def unique(pairs):
+              out = {}
+              for k, v in pairs:
+                  require(k not in out, 'DUPLICATE_JSON_KEY')
+                  out[k] = v
+              return out
+
+
+          def decode(raw): return json.loads(raw, object_pairs_hook=unique)
+
+
+          def canon(x): return json.dumps(x, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False)
+
+
+          def digest(raw): return hashlib.sha256(raw).hexdigest()
+
+
+          def instant(s):
+              d = datetime.fromisoformat(s.replace('Z', '+00:00'))
+              require(d.utcoffset() is not None, 'INVALID_TIMESTAMP')
+              return d
+
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs): return None
+
+
+          class Api:
+              def __init__(self):
+                  token = os.environ['GH_TOKEN']
+                  require(bool(token), 'MISSING_GITHUB_TOKEN')
+                  self.headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
+                                  'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28',
+                                  'User-Agent': 'samuel-journal-genesis-v1'}
+                  self.opener = build_opener(NoRedirect())
+
+              def _request(self, path, *, query=None, payload=None):
+                  require(path.startswith('/repos/') and '..' not in path and '?' not in path, 'INVALID_API_PATH')
+                  role = os.environ['SAMUEL_ROLE']
+                  allowed = {ISSUE + '/comments'} if role == 'writer' else {ROOT + '/git/blobs', ROOT + '/git/trees', ROOT + '/git/commits', ROOT + '/git/refs'}
+                  require(payload is None or path in allowed, 'WRITE_OUTSIDE_ROLE')
+                  url = 'https://api.github.com' + path + ('?' + urlencode(query) if query else '')
+                  req = Request(url, headers=self.headers, data=None if payload is None else canon(payload).encode(), method='GET' if payload is None else 'POST')
+                  try:
+                      with self.opener.open(req, timeout=30) as response:
+                          require(response.status == (200 if payload is None else 201), 'UNEXPECTED_API_STATUS')
+                          raw = response.read(MAX + 1)
+                          require(len(raw) <= MAX, 'API_RESPONSE_TOO_LARGE')
+                          # All enumerations except explicit paged comment collection must fit one response.
+                          require(not response.headers.get('Link') or (query and 'page' in query), 'API_ENUMERATION_INCOMPLETE')
+                          return decode(raw)
+                  except HTTPError as e:
+                      # No token, presigned URL, request body or untrusted API text in logs.
+                      raise Hold('GITHUB_HTTP_' + str(e.code) + ':' + path) from None
+
+              def get(self, path, *, query=None): return self._request(path, query=query)
+              def post(self, path, payload): return self._request(path, payload=payload)
+
+              def artifact_zip(self, artifact_id):
+                  path = ROOT + f'/actions/artifacts/{artifact_id}/zip'
+                  req = Request('https://api.github.com' + path, headers=self.headers)
+                  try:
+                      with self.opener.open(req, timeout=30) as response:
+                          require(response.status == 200, 'ARTIFACT_DOWNLOAD_STATUS')
+                          data = response.read(MAX + 1)
+                  except HTTPError as e:
+                      require(e.code in (302, 303, 307), 'ARTIFACT_DOWNLOAD_UNAVAILABLE')
+                      url = e.headers.get('Location', '')
+                      u = urlsplit(url)
+                      require(u.scheme == 'https' and bool(u.hostname) and u.username is None and u.password is None, 'UNSAFE_ARTIFACT_REDIRECT')
+                      # Download the GitHub-provided expiring URL without forwarding ANY GitHub auth header.
+                      try:
+                          with self.opener.open(Request(url, headers={'User-Agent': 'samuel-journal-genesis-v1'}), timeout=30) as response:
+                              require(response.status == 200, 'ARTIFACT_STORAGE_STATUS')
+                              data = response.read(MAX + 1)
+                      except Exception:
+                          raise Hold('ARTIFACT_STORAGE_UNAVAILABLE') from None
+                  require(len(data) <= MAX, 'ARTIFACT_TOO_LARGE')
+                  return data
+
+
+          def main_head(api, expected):
+              require(bool(SHA.fullmatch(expected)), 'EXPECTED_MAIN_SHA_INVALID')
+              r = api.get(ROOT + '/git/ref/heads/main')
+              require(r.get('ref') == 'refs/heads/main' and r.get('object', {}).get('type') == 'commit'
+                      and r.get('object', {}).get('sha') == expected, 'MAIN_REF_CHANGED')
+
+
+          def run_identity(api, run_id, workflow, expected, status):
+              r = api.get(ROOT + '/actions/runs/' + str(run_id))
+              require(r.get('id') == run_id and r.get('run_attempt') == 1 and r.get('event') == 'workflow_dispatch'
+                      and r.get('path') in (workflow, workflow + '@refs/heads/main') and r.get('head_branch') == 'main'
+                      and r.get('head_sha') == expected and r.get('repository', {}).get('id') == REPO_ID
+                      and r.get('head_repository', {}).get('id') == REPO_ID and r.get('actor', {}).get('id') == OWNER_ID
+                      and r.get('triggering_actor', {}).get('id') == OWNER_ID and r.get('status') == status,
+                      'RUN_PROVENANCE_MISMATCH')
+              if status == 'completed': require(r.get('conclusion') == 'success', 'WRITER_RUN_NOT_SUCCESSFUL')
+              return r
+
+
+          def ruleset(api):
+              r = api.get(ROOT + '/rulesets/' + str(RULESET))
+              require(r.get('id') == RULESET and r.get('name') == 'Samuel Journal Anchor Protection'
+                      and r.get('source') == REPO and r.get('source_type') == 'Repository' and r.get('target') == 'branch'
+                      and r.get('enforcement') == 'active' and instant(r['updated_at']) == instant(RULE_VERSION)
+                      and r.get('conditions') == {'ref_name': {'include': ['refs/heads/samuel/journal-anchors/*'], 'exclude': []}}
+                      and sorted(x.get('type') for x in r.get('rules', [])) == ['deletion', 'non_fast_forward', 'update'], 'RULESET_CHANGED')
+              # GITHUB_TOKEN may not see this field. Missing is UNKNOWN, not an empty list.
+              require(r.get('bypass_actors') == [], 'RULESET_BYPASS_UNKNOWN_OR_ENABLED')
+              return r['updated_at']
+
+
+          def identities(api):
+              for name, rid in ((REPO, REPO_ID), (CONSUMER, CONSUMER_ID)):
+                  x = api.get('/repos/' + name)
+                  require(x.get('id') == rid and x.get('full_name') == name, 'REPOSITORY_IDENTITY_MISMATCH')
+              x = api.get('/repos/' + CONSUMER + '/issues/888')
+              require(x.get('id') == TARGET_ISSUE_ID and x.get('number') == 888 and x.get('state') == 'open'
+                      and 'pull_request' not in x, 'CONSUMER_ISSUE_IDENTITY_MISMATCH')
+
+
+          def comments(api):
+              def issue():
+                  d = api.get(ISSUE)
+                  require(d.get('id') == ISSUE_ID and d.get('number') == ISSUE_NUMBER and d.get('state') == 'open'
+                          and d.get('url') == 'https://api.github.com' + ISSUE and 'pull_request' not in d
+                          and type(d.get('comments')) is int and 0 <= d['comments'] <= 1
+                          and not any(x.get('name') == 'samuel' for x in d.get('labels', [])), 'GENESIS_JOURNAL_NOT_EMPTY_OR_IDENTITY_CHANGED')
+                  return d['comments']
+              n = issue()
+              rows = api.get(ISSUE + '/comments', query={'per_page': 100, 'page': 1})
+              require(isinstance(rows, list) and len(rows) == n == issue(), 'JOURNAL_READBACK_INCOMPLETE')
+              require(all(isinstance(x.get('body'), str) and not x['body'].startswith(MARKER) for x in rows), 'JOURNAL_ALREADY_HAS_EVENTS')
+              return rows
+
+
+          def no_anchors(api):
+              refs = api.get(ROOT + '/git/matching-refs/' + PREFIX.removeprefix('refs/'))
+              require(refs == [], 'ANCHOR_EXISTS_RECONCILE_ONLY')
+
+
+          def observe_ledger(api):
+              ledger = CentralAdmissionReadback(CentralLedgerConfig(REPO, REPO_ID, 44, 5592328676, BOT, BOT_ID, 5850382056), api).observe()
+              require(ledger.foreign_enrollment_attested is False, 'UNEXPECTED_LEDGER_CONTRACT')
+              return {'ledger_comment_id': ledger.comment_id, 'ledger_body_sha256': ledger.body_sha256,
+                      'domestic_entry_count': len(ledger.entries), 'foreign_enrollment_attested': False}
+
+
+          def live_context(api, expected, workflow):
+              require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('GITHUB_REPOSITORY') == REPO
+                      and os.environ.get('GITHUB_REPOSITORY_ID') == str(REPO_ID) and os.environ.get('GITHUB_ACTOR_ID') == str(OWNER_ID)
+                      and os.environ.get('GITHUB_REF') == 'refs/heads/main' and os.environ.get('GITHUB_SHA') == expected
+                      and os.environ.get('GITHUB_WORKFLOW_SHA') == expected
+                      and os.environ.get('GITHUB_WORKFLOW_REF') == REPO + '/' + workflow + '@refs/heads/main'
+                      and os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'TRUSTED_MAIN_OWNER_FIRST_ATTEMPT_REQUIRED')
+              require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == expected, 'CHECKOUT_MISMATCH')
+              run_id = int(os.environ['GITHUB_RUN_ID'])
+              require(run_id > 0, 'INVALID_RUN_ID')
+              run_identity(api, run_id, workflow, expected, 'in_progress')
+              main_head(api, expected)
+              identities(api)
+              ruleset(api)
+              return run_id
+
+
+          def verify_comment(row, data, run):
+              require(type(row.get('id')) is int and row['id'] > 0 and row.get('user', {}).get('id') == BOT_ID
+                      and row.get('user', {}).get('login') == BOT and row.get('body') == GENESIS_MARKER + canon(data)
+                      and row.get('created_at') == row.get('updated_at')
+                      and instant(run['run_started_at']) <= instant(row['created_at']), 'GENESIS_COMMENT_PROVENANCE_MISMATCH')
+              if run['status'] == 'completed':
+                  require(instant(row['created_at']) <= instant(run['updated_at']), 'GENESIS_COMMENT_OUTSIDE_RUN')
+
+
+          def genesis_data(expected, writer_run, ledger):
+              return {'schema': 'samuel.journal.genesis.v1', 'repository_id': REPO_ID, 'journal_issue_id': ISSUE_ID,
+                      'consumer_repository_id': CONSUMER_ID, 'consumer_issue_id': TARGET_ISSUE_ID,
+                      'writer_run_id': writer_run, 'writer_head_sha': expected, 'ruleset_id': RULESET,
+                      'ruleset_version': RULE_VERSION, 'event_count': 0, 'tip': ZERO,
+                      'ledger_observation': ledger, 'work_enrolled': False, 'clearance_granted': False,
+                      'controller_execution_approved': False, 'status': 'GENESIS_ONLY_IDENTITY_NOT_ATTESTED'}
+
+
+          def writer(api, expected):
+              run = live_context(api, expected, WRITER)
+              ledger = observe_ledger(api)
+              no_anchors(api)
+              require(comments(api) == [], 'GENESIS_ALREADY_EXISTS_RECONCILE_ONLY')
+              data = genesis_data(expected, run, ledger)
+              main_head(api, expected); ruleset(api); no_anchors(api)
+              require(comments(api) == [], 'GENESIS_PRECONDITION_CHANGED')
+              # The only Issue mutation. This marker is NOT a REGISTERED/BLOCKED/CLEARED event.
+              written = api.post(ISSUE + '/comments', {'body': GENESIS_MARKER + canon(data)})
+              rows = comments(api)
+              require(len(rows) == 1 and rows[0]['id'] == written.get('id'), 'GENESIS_COMMENT_READBACK_FAILED')
+              verify_comment(rows[0], data, run_identity(api, run, WRITER, expected, 'in_progress'))
+              main_head(api, expected); ruleset(api); no_anchors(api)
+              require(comments(api) == rows, 'GENESIS_CHANGED_DURING_WRITE')
+              # Immutable artifact from this exact run is required by the separate anchor workflow.
+              receipt = {'genesis': data, 'comment_id': rows[0]['id'], 'comment_body_sha256': digest(rows[0]['body'].encode())}
+              with Path('genesis-receipt.json').open('x', encoding='utf-8') as f: f.write(canon(receipt))
+              print('GENESIS_COMMENT_RECORDED id=' + str(rows[0]['id']) + ' run=' + str(run) + ' WORK_ENROLLED=false')
+
+
+          def writer_artifact(api, writer_run, expected):
+              run = run_identity(api, writer_run, WRITER, expected, 'completed')
+              info = api.get(ROOT + f'/actions/runs/{writer_run}/artifacts', query={'per_page': 100})
+              arts = info.get('artifacts')
+              require(isinstance(arts, list) and info.get('total_count') == len(arts) == 1, 'WRITER_ARTIFACT_INVENTORY_MISMATCH')
+              a = arts[0]
+              require(a.get('name') == 'samuel-journal-genesis-' + str(writer_run) and a.get('expired') is False
+                      and type(a.get('id')) is int and a['id'] > 0 and a.get('workflow_run', {}).get('id') == writer_run
+                      and a.get('workflow_run', {}).get('head_sha') == expected
+                      and a.get('workflow_run', {}).get('repository_id') == REPO_ID
+                      and a.get('workflow_run', {}).get('head_repository_id') == REPO_ID
+                      and a.get('workflow_run', {}).get('head_branch') == 'main', 'ARTIFACT_RUN_BINDING_MISMATCH')
+              raw = api.artifact_zip(a['id'])
+              require(a.get('digest') == 'sha256:' + digest(raw), 'ARTIFACT_DIGEST_MISMATCH_OR_MISSING')
+              with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                  members = z.infolist()
+                  require(len(members) == 1 and members[0].filename == 'genesis-receipt.json' and members[0].file_size <= 16384, 'ARTIFACT_CONTENT_INVALID')
+                  content = z.read(members[0])
+              rec = decode(content)
+              require(canon(rec).encode() == content and set(rec) == {'genesis', 'comment_id', 'comment_body_sha256'}, 'WRITER_RECEIPT_INVALID')
+              data = rec['genesis']
+              ledger = data.get('ledger_observation', {})
+              require(set(ledger) == {'ledger_comment_id','ledger_body_sha256','domestic_entry_count','foreign_enrollment_attested'}
+                      and ledger['ledger_comment_id'] == 5850382056 and ledger['foreign_enrollment_attested'] is False
+                      and bool(re.fullmatch(r'[0-9a-f]{64}', ledger['ledger_body_sha256'])) and type(ledger['domestic_entry_count']) is int,
+                      'LEDGER_OBSERVATION_INVALID')
+              require(data == genesis_data(expected, writer_run, ledger), 'GENESIS_SCOPE_MISMATCH')
+              return run, rec, {'artifact_id': a['id'], 'artifact_zip_sha256': digest(raw), 'receipt_sha256': digest(content)}
+
+
+          def anchor(api, expected):
+              run_id = live_context(api, expected, ANCHOR)
+              raw_id = os.environ.get('WRITER_RUN_ID', '')
+              require(bool(re.fullmatch(r'[1-9][0-9]{0,19}', raw_id)), 'WRITER_RUN_ID_INVALID')
+              writer_run = int(raw_id)
+              require(writer_run != run_id, 'WRITER_ANCHOR_RUN_COLLISION')
+              run, rec, artifact = writer_artifact(api, writer_run, expected)
+              rows = comments(api)
+              require(len(rows) == 1 and rows[0].get('id') == rec['comment_id'] and digest(rows[0]['body'].encode()) == rec['comment_body_sha256'], 'GENESIS_RECEIPT_COMMENT_MISMATCH')
+              verify_comment(rows[0], rec['genesis'], run)
+              no_anchors(api)
+              payload = {'schema': 'samuel.journal.genesis-anchor.v1', 'ref': GENESIS_REF, 'writer_receipt': rec,
+                         'writer_artifact': artifact, 'anchor_run_id': run_id, 'anchor_head_sha': expected,
+                         'work_enrolled': False, 'controller_execution_approved': False}
+              data = canon(payload).encode()
+              main_head(api, expected); ruleset(api); no_anchors(api)
+              require(comments(api) == rows, 'JOURNAL_CHANGED_BEFORE_ANCHOR')
+              # Only isolated Git objects and a single create-once ref; no branch update or delete.
+              blob = api.post(ROOT + '/git/blobs', {'content': base64.b64encode(data).decode(), 'encoding': 'base64'})['sha']
+              require(blob == hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest(), 'ANCHOR_BLOB_SHA_MISMATCH')
+              tree = api.post(ROOT + '/git/trees', {'tree': [{'path': 'genesis-anchor.json', 'mode': '100644', 'type': 'blob', 'sha': blob}]})['sha']
+              require(bool(SHA.fullmatch(tree)), 'ANCHOR_TREE_SHA_INVALID')
+              commit = api.post(ROOT + '/git/commits', {'message': 'Samuel journal genesis anchor v1 (no work enrolled)', 'tree': tree, 'parents': []})['sha']
+              require(bool(SHA.fullmatch(commit)), 'ANCHOR_COMMIT_SHA_INVALID')
+              main_head(api, expected); ruleset(api); no_anchors(api)
+              require(comments(api) == rows, 'JOURNAL_CHANGED_BEFORE_REF_CREATE')
+              # Unknown POST outcome is HOLD. Never automatically retry or update.
+              out = api.post(ROOT + '/git/refs', {'ref': GENESIS_REF, 'sha': commit})
+              ref = api.get(ROOT + '/git/ref/' + GENESIS_REF.removeprefix('refs/'))
+              require(out.get('ref') == ref.get('ref') == GENESIS_REF and ref.get('object', {}).get('type') == 'commit'
+                      and ref['object']['sha'] == out.get('object', {}).get('sha') == commit, 'ANCHOR_REF_READBACK_FAILED')
+              observed_commit = api.get(ROOT + '/git/commits/' + commit)
+              observed_tree = api.get(ROOT + '/git/trees/' + tree)
+              observed_blob = api.get(ROOT + '/git/blobs/' + blob)
+              require(observed_commit.get('sha') == commit and observed_commit.get('tree', {}).get('sha') == tree
+                      and observed_commit.get('parents') == [] and observed_tree.get('sha') == tree and observed_tree.get('truncated') is False
+                      and len(observed_tree.get('tree', [])) == 1 and observed_tree['tree'][0].get('path') == 'genesis-anchor.json'
+                      and observed_tree['tree'][0].get('sha') == blob and observed_blob.get('sha') == blob
+                      and base64.b64decode(''.join(observed_blob['content'].split()), validate=True) == data, 'ANCHOR_PAYLOAD_READBACK_FAILED')
+              main_head(api, expected); ruleset(api)
+              require(comments(api) == rows, 'JOURNAL_CHANGED_AFTER_ANCHOR')
+              refs = api.get(ROOT + '/git/matching-refs/' + PREFIX.removeprefix('refs/'))
+              require(len(refs) == 1 and refs[0].get('ref') == GENESIS_REF and refs[0].get('object', {}).get('sha') == commit, 'ANCHOR_NAMESPACE_CHANGED')
+              print('GENESIS_ANCHOR_CREATED ref=' + GENESIS_REF + ' commit=' + commit + ' WORK_ENROLLED=false')
+
+
+          if __name__ == '__main__':
+              try:
+                  role = os.environ['SAMUEL_ROLE']
+                  require(role in ('writer', 'anchor'), 'INVALID_ROLE')
+                  (writer if role == 'writer' else anchor)(Api(), os.environ['EXPECTED_MAIN_SHA'])
+              except Hold as e:
+                  raise SystemExit('HOLD: ' + str(e)) from None
+              except Exception as e:
+                  # Avoid accidentally printing credential-bearing exception URLs or raw payloads.
+                  raise SystemExit('HOLD: ' + type(e).__name__ + '; inspect readback before any retry') from None
+          SAMUEL_GENESIS_PY
