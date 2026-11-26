@@ -1,0 +1,183 @@
+# Read-only readiness probe. NOT an issuance or enrollment workflow.
+name: Samuel Foreign Issuer Readiness
+run-name: foreign-issuer-readiness:${{ inputs.expected_main_sha }}
+'on':
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: Exact current central main SHA
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: samuel-foreign-issuer-readiness-329
+  cancel-in-progress: false
+jobs:
+  readiness:
+    if: ${{ github.repository_id == '1343601410' && github.actor_id == '189476866' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    steps:
+      - name: Checkout exact trusted main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Execute existing issuer unittest contract
+        env:
+          PYTHONPATH: src
+        run: python3 -m unittest discover -s tests -p test_foreign_work_issuer.py -v
+      - name: Read actual issuance storage and genesis boundaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+          PYTHONPATH: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'ISSUER_READINESS_PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.parse import urlencode
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+
+          from chatgpt_operation.controller.central_admission_readback import CentralAdmissionReadback, CentralLedgerConfig
+          from chatgpt_operation.controller.foreign_work_issuer import ProtectedIssuanceStore, PREFIX
+
+          REPO = 'HyungseonSong-plasma/chatgpt-operation'
+          ROOT = '/repos/' + REPO
+          REPO_ID, OWNER_ID = 1343601410, 189476866
+          CONSUMER = 'HyungseonSong-plasma/moose-test-repo'
+          TARGET_REPO_ID, TARGET_ISSUE_ID = 1346502851, 6592821787
+          GENESIS_COMMIT = '958a72d0ff5b41ce184bb5ce9e8cad2259f0c7d6'
+          GENESIS_BLOB = '10fbbb21a5c899e4b6308f24f1025285653ef875'
+          GENESIS_REF = 'refs/heads/samuel/journal-anchors/6624795458-genesis-v1'
+          GENESIS_COMMENT = 7191263308
+          GENESIS_BODY_HASH = 'dde86fa55923de47cd4ce16411124c16e38962bad093880752a9116382ced35a'
+          EXPECTED_ISSUER_BLOB = '021ff550832d7a33862719d3351b42c153f52134'
+          WORKFLOW = '.github/workflows/samuel-foreign-issuer-readiness.yml'
+
+          def require(ok, reason):
+              if ok is not True:
+                  raise RuntimeError(reason)
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          class ReadOnlyGitHub:
+              def __init__(self):
+                  self.opener = build_opener(NoRedirect())
+                  self.headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                                  'Accept': 'application/vnd.github+json',
+                                  'X-GitHub-Api-Version': '2022-11-28',
+                                  'User-Agent': 'samuel-foreign-issuer-readiness-v1'}
+              def get(self, path, *, query=None):
+                  require(path.startswith(ROOT + '/') or path == ROOT or
+                          path in ('/repos/' + CONSUMER, '/repos/' + CONSUMER + '/issues/888'),
+                          'READ_OUTSIDE_FIXED_SCOPE')
+                  require('?' not in path and '..' not in path and '\\' not in path,
+                          'INVALID_API_PATH')
+                  url = 'https://api.github.com' + path + ('?' + urlencode(query) if query else '')
+                  try:
+                      with self.opener.open(Request(url, headers=self.headers, method='GET'), timeout=30) as response:
+                          require(response.status == 200 and response.geturl() == url, 'UNEXPECTED_HTTP_RESPONSE')
+                          raw = response.read(4_000_001)
+                          require(len(raw) <= 4_000_000, 'RESPONSE_LIMIT')
+                          require(not response.headers.get('Link') or bool(query and 'page' in query),
+                                  'ENUMERATION_INCOMPLETE')
+                          return json.loads(raw)
+                  except HTTPError as exc:
+                      raise RuntimeError('GITHUB_HTTP_' + str(exc.code) + ':' + path) from None
+              def post(self, *args, **kwargs):
+                  raise RuntimeError('READ_ONLY_NO_ISSUANCE_PUBLICATION')
+
+          api = ReadOnlyGitHub()
+          expected = os.environ['EXPECTED_MAIN_SHA']
+          run_id = int(os.environ['GITHUB_RUN_ID'])
+          require(bool(re.fullmatch(r'[0-9a-f]{40}', expected)) and expected == os.environ['GITHUB_SHA'], 'EXPECTED_MAIN_MISMATCH')
+          require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == expected, 'CHECKOUT_MISMATCH')
+          require(subprocess.check_output(['git', 'hash-object', 'src/chatgpt_operation/controller/foreign_work_issuer.py'], text=True).strip() == EXPECTED_ISSUER_BLOB, 'ISSUER_SOURCE_CHANGED_REVIEW_REQUIRED')
+
+          def main_head():
+              ref = api.get(ROOT + '/git/ref/heads/main')
+              require(ref.get('ref') == 'refs/heads/main' and ref.get('object', {}).get('type') == 'commit'
+                      and ref['object']['sha'] == expected, 'MAIN_CHANGED')
+
+          def run_identity():
+              run = api.get(ROOT + '/actions/runs/' + str(run_id))
+              require(run.get('id') == run_id and run.get('run_attempt') == 1 and run.get('event') == 'workflow_dispatch'
+                      and run.get('path') in (WORKFLOW, WORKFLOW + '@refs/heads/main')
+                      and run.get('head_branch') == 'main' and run.get('head_sha') == expected
+                      and run.get('repository', {}).get('id') == REPO_ID and run.get('head_repository', {}).get('id') == REPO_ID
+                      and run.get('actor', {}).get('id') == OWNER_ID and run.get('triggering_actor', {}).get('id') == OWNER_ID
+                      and run.get('status') == 'in_progress', 'RUN_IDENTITY_MISMATCH')
+
+          main_head()
+          run_identity()
+          consumer = api.get('/repos/' + CONSUMER)
+          target = api.get('/repos/' + CONSUMER + '/issues/888')
+          require(consumer.get('id') == TARGET_REPO_ID and consumer.get('full_name') == CONSUMER
+                  and target.get('id') == TARGET_ISSUE_ID and target.get('number') == 888
+                  and target.get('state') == 'open' and 'pull_request' not in target, 'TARGET_IDENTITY_CHANGED')
+          ledger = CentralAdmissionReadback(CentralLedgerConfig(REPO, REPO_ID, 44, 5592328676,
+                   'github-actions[bot]', 41898282, 5850382056), api).observe()
+          require(ledger.foreign_enrollment_attested is False, 'DOMESTIC_LEDGER_CONTRACT_CHANGED')
+          journal = api.get(ROOT + '/issues/329')
+          require(journal.get('id') == 6624795458 and journal.get('number') == 329, 'JOURNAL_IDENTITY_CHANGED')
+          comment = api.get(ROOT + '/issues/comments/' + str(GENESIS_COMMENT))
+          require(comment.get('id') == GENESIS_COMMENT and comment.get('user', {}).get('id') == 41898282
+                  and comment.get('issue_url') == 'https://api.github.com' + ROOT + '/issues/329'
+                  and hashlib.sha256(comment['body'].encode()).hexdigest() == GENESIS_BODY_HASH, 'GENESIS_COMMENT_CHANGED')
+          ref = api.get(ROOT + '/git/ref/' + GENESIS_REF.removeprefix('refs/'))
+          require(ref.get('ref') == GENESIS_REF and ref.get('object', {}).get('sha') == GENESIS_COMMIT, 'GENESIS_REF_CHANGED')
+          commit = api.get(ROOT + '/git/commits/' + GENESIS_COMMIT)
+          require(commit.get('sha') == GENESIS_COMMIT and commit.get('parents') == [], 'GENESIS_COMMIT_CHANGED')
+          tree = api.get(ROOT + '/git/trees/' + commit['tree']['sha'])
+          require(tree.get('truncated') is False and len(tree['tree']) == 1 and tree['tree'][0].get('path') == 'genesis-anchor.json'
+                  and tree['tree'][0].get('sha') == GENESIS_BLOB, 'GENESIS_TREE_CHANGED')
+
+          store = ProtectedIssuanceStore(repository=REPO, repository_id=REPO_ID, transport=api)
+          def census():
+              rows = api.get(ROOT + '/git/matching-refs/' + PREFIX.removeprefix('refs/'))
+              require(isinstance(rows, list) and len(rows) <= 100, 'ISSUANCE_CENSUS_LIMIT')
+              out = []
+              for row in rows:
+                  name = row['ref']
+                  require(bool(re.fullmatch(re.escape(PREFIX) + r'[0-9a-f]{64}', name)), 'ISSUANCE_REF_INVALID')
+                  observed = store.read(name)
+                  require(observed is not None and observed[0] == row.get('object', {}).get('sha'), 'ISSUANCE_REF_CHANGED')
+                  out.append({'ref': name, 'commit': observed[0], 'content_sha256': hashlib.sha256(observed[1]).hexdigest()})
+              require(len({x['ref'] for x in out}) == len(out), 'DUPLICATE_REF')
+              return sorted(out, key=lambda item: item['ref'])
+          refs = census()
+          require(census() == refs, 'ISSUANCE_CENSUS_CHANGED')
+          main_head()
+          run_identity()
+          # Storage observations are not evidence of original issuance, history completeness,
+          # current revocation authority or the ruleset's full bypass list. Do not issue.
+          receipt = {'schema': 'samuel.foreign-issuer-readiness.v1', 'central_sha': expected,
+                     'run_id': run_id, 'consumer_repository_id': TARGET_REPO_ID, 'consumer_issue_id': TARGET_ISSUE_ID,
+                     'domestic_entries': len(ledger.entries), 'ledger_body_sha256': ledger.body_sha256,
+                     'genesis_commit_observed': GENESIS_COMMIT, 'journal_comment_count': journal['comments'],
+                     'issuance_storage_count': len(refs), 'issuance_storage_observations': refs,
+                     'original_issuance': 'UNKNOWN', 'history_coverage': 'UNVERIFIED',
+                     'issuer_authority': 'UNBOUND', 'status': 'HOLD_NO_AUTHENTICATED_ISSUER',
+                     'work_enrolled': False, 'write_authorized': False, 'controller_execution_approved': False}
+          print('ISSUER_READINESS_RECEIPT=' + json.dumps(receipt, sort_keys=True, separators=(',', ':')))
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          with summary.open('a', encoding='utf-8') as stream:
+              stream.write('## Foreign issuer readiness: HOLD\n\n')
+              stream.write('Actual GitHub readbacks completed. No issuer authority, enrollment, or execution permission is inferred.\n\n')
+              stream.write('\x60\x60\x60json\n' + json.dumps(receipt, indent=2, sort_keys=True) + '\n\x60\x60\x60\n')
+          ISSUER_READINESS_PY
