@@ -1,0 +1,287 @@
+name: Samuel Adoption Ruleset Probe
+run-name: ruleset-probe:${{ inputs.expected_base }}
+on:
+  workflow_dispatch:
+    inputs:
+      expected_base:
+        description: Exact current main SHA
+        required: true
+        type: string
+      expected_ruleset_version:
+        description: Connector-observed Ruleset version
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: samuel-adoption-ruleset-probe
+  cancel-in-progress: false
+env:
+  EXPECTED_BASE: ${{ inputs.expected_base }}
+  EXPECTED_RULESET_VERSION: ${{ inputs.expected_ruleset_version }}
+jobs:
+  preflight:
+    if: ${{ github.repository_id == '1343601410' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - name: Bind exact probe approval
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'SAMUEL_EOF'
+          import os, re, json
+          from datetime import datetime
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self,*a,**k): return None
+          e=os.environ
+          base=e['EXPECTED_BASE']; version=e['EXPECTED_RULESET_VERSION']
+          assert re.fullmatch(r'[0-9a-f]{40}',base) and e['GITHUB_SHA']==base
+          assert e['GITHUB_REPOSITORY_ID']=='1343601410' and e['GITHUB_REF']=='refs/heads/main' and e['GITHUB_RUN_ATTEMPT']=='1' and e['GITHUB_EVENT_NAME']=='workflow_dispatch'
+          assert datetime.fromisoformat(version).utcoffset() is not None
+          req=Request('https://api.github.com/repos/HyungseonSong-plasma/chatgpt-operation/branches/main',headers={'Authorization':'Bearer '+e['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          with build_opener(NoRedirect()).open(req,timeout=12) as r:
+              assert r.status==200 and json.load(r)['commit']['sha']==base
+          print(json.dumps({'status':'PROBE_PREFLIGHT_NON_AUTHORIZING','approval_comment':f"APPROVE-RULESET-PROBE {base} ruleset:28142778 version:{version} run:{e['GITHUB_RUN_ID']} attempt:1",'registry_write_authorized':False}))
+          SAMUEL_EOF
+  probe:
+    if: ${{ github.repository_id == '1343601410' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    needs: preflight
+    environment: samuel-registry-adoption
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Verify signed read-only Ruleset evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BROKER_URL: ${{ vars.SAMUEL_RULESET_BROKER_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          cd "$RUNNER_TEMP"
+          mkdir -m 700 samuel-probe
+          cd samuel-probe
+          cat > broker.py <<'SAMUEL_EOF'
+          """Read-only Ruleset probe broker; no registry publication capability.
+          Deploy behind HTTPS on a separately trusted host, never inside the writer.
+          """
+          import base64, hashlib, json, os, re, time
+          from datetime import datetime, timezone
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from pathlib import Path
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+          import jwt
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+          REPO='HyungseonSong-plasma/chatgpt-operation'
+          REPO_ID=1343601410
+          OWNER_ID=189476866
+          RULE=28142778
+          ENV='samuel-registry-adoption'
+          ENV_ID=28582976708
+          WORKFLOW='.github/workflows/samuel-adoption-ruleset-probe.yml'
+          ISS='https://token.actions.githubusercontent.com'
+          PREFIX='refs/heads/samuel/adoption-reservations/'
+          API='https://api.github.com'
+          FIELDS={'base','run_id','attempt','ruleset_version','nonce'}
+          SHA=re.compile(r'[0-9a-f]{40}\Z')
+          HEX=re.compile(r'[0-9a-f]{64}\Z')
+          class Denied(ValueError): pass
+          def require(ok, code):
+              if not ok: raise Denied(code)
+          def canonical(x): return json.dumps(x,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode('ascii')
+          def parse(raw):
+              def pairs(items):
+                  out={}
+                  for k,v in items:
+                      require(k not in out,'DUPLICATE_KEY'); out[k]=v
+                  return out
+              return json.loads(raw,object_pairs_hook=pairs,parse_constant=lambda _: (_ for _ in ()).throw(Denied('BAD_JSON')))
+          def instant(s):
+              require(type(s) is str,'BAD_TIME'); t=datetime.fromisoformat(s.replace('Z','+00:00'))
+              require(t.tzinfo is not None,'BAD_TIME'); return t
+          def validate(q):
+              require(type(q) is dict and set(q)==FIELDS,'BAD_REQUEST')
+              require(type(q['base']) is str and SHA.fullmatch(q['base']),'BAD_BASE')
+              require(type(q['run_id']) is int and q['run_id']>0 and type(q['attempt']) is int and q['attempt']==1,'BAD_RUN')
+              require(type(q['nonce']) is str and HEX.fullmatch(q['nonce']),'BAD_NONCE')
+              instant(q['ruleset_version']); return q
+          def audience(q): return 'urn:samuel:ruleset-probe:v1:'+hashlib.sha256(canonical(validate(q))).hexdigest()
+          def comment(q): return f"APPROVE-RULESET-PROBE {q['base']} ruleset:{RULE} version:{q['ruleset_version']} run:{q['run_id']} attempt:1"
+          def check_claims(c,q):
+              expected={'repository':REPO,'repository_id':str(REPO_ID),'repository_owner_id':str(OWNER_ID),'ref':'refs/heads/main','sha':q['base'],'workflow_ref':REPO+'/'+WORKFLOW+'@refs/heads/main','workflow_sha':q['base'],'event_name':'workflow_dispatch','environment':ENV,'run_id':str(q['run_id']),'run_attempt':'1'}
+              require(all(c.get(k)==v for k,v in expected.items()),'OIDC_BINDING')
+              require(type(c.get('jti')) is str and bool(c['jti']),'OIDC_JTI')
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self,*a,**kw): return None
+
+          def http_json(url, token, data=None):
+              req=Request(url,data=None if data is None else canonical(data),headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json','X-GitHub-Api-Version':'2026-03-10'},method='GET' if data is None else 'POST')
+              with build_opener(NoRedirect()).open(req,timeout=12) as r:
+                  require(r.geturl()==url and not r.headers.get('Link'),'INCOMPLETE_HTTP')
+                  require(r.status==(200 if data is None else 201),'BAD_HTTP')
+                  raw=r.read(2_000_001); require(len(raw)<=2_000_000,'RESPONSE_LIMIT'); return parse(raw)
+
+          class AppReader:
+              """Only fixed read paths and installation-token issuance; no generic proxy."""
+              def __init__(self, app_id, installation_id, app_key):
+                  self.app_id=int(app_id); self.installation_id=int(installation_id); self.app_key=app_key
+              def session(self):
+                  now=int(time.time()); assertion=jwt.encode({'iat':now-30,'exp':now+300,'iss':str(self.app_id)},self.app_key,algorithm='RS256')
+                  result=http_json(f'{API}/app/installations/{self.installation_id}/access_tokens',assertion,{'repository_ids':[REPO_ID],'permissions':{'administration':'write','actions':'read','contents':'read'}})
+                  require(result.get('permissions',{}).get('administration')=='write','APP_PERMISSION')
+                  perms=result['permissions']; require(set(perms)<= {'administration','actions','contents','metadata'} and all(perms.get(k)=='read' for k in ('actions','contents')),'APP_PERMISSION')
+                  token=result.get('token'); require(type(token) is str and token,'BAD_APP_TOKEN')
+                  return RepoRead(token)
+          class RepoRead:
+              def __init__(self,token): self._token=token
+              def get(self,path):
+                  allowed={'/branches/main',f'/rulesets/{RULE}',f'/environments/{ENV}',f'/environments/{ENV}/deployment-branch-policies','/contents/'+WORKFLOW+'?ref=main'}
+                  require(path in allowed or re.fullmatch(r'/actions/runs/[1-9][0-9]*(/approvals)?',path),'READ_PATH_DENIED')
+                  return http_json(API+'/repos/'+REPO+path,self._token)
+
+          def verify_ruleset(rule,q):
+              require(rule.get('id')==RULE and rule.get('source')==REPO and rule.get('source_type')=='Repository' and rule.get('target')=='branch' and rule.get('enforcement')=='active','RULE_ID')
+              require(rule.get('conditions')=={'ref_name':{'include':[PREFIX+'*'],'exclude':[]}},'RULE_SCOPE')
+              require(sorted(x.get('type') for x in rule.get('rules',[]))==['deletion','non_fast_forward','update'],'RULE_TYPES')
+              require('bypass_actors' in rule and rule['bypass_actors']==[],'BYPASS_UNKNOWN_OR_ENABLED')
+              require(instant(rule.get('updated_at'))==instant(q['ruleset_version']),'RULE_VERSION')
+
+          def observe(reader,q,workflow_blob,now):
+              require(reader.get('/branches/main')['commit']['sha']==q['base'],'STALE_MAIN')
+              require(reader.get('/contents/'+WORKFLOW+'?ref=main')['sha']==workflow_blob,'WORKFLOW_PIN')
+              env=reader.get('/environments/'+ENV)
+              require(env.get('id')==ENV_ID and env.get('name')==ENV and env.get('can_admins_bypass') is False,'ENV_ID')
+              rev=[x for x in env.get('protection_rules',[]) if x.get('type')=='required_reviewers']
+              require(len(rev)==1 and len(rev[0].get('reviewers',[]))==1,'ENV_REVIEWER')
+              reviewer=rev[0]['reviewers'][0]; require(reviewer.get('type')=='User' and reviewer.get('reviewer',{}).get('id')==OWNER_ID,'ENV_REVIEWER')
+              require(env.get('deployment_branch_policy')=={'protected_branches':False,'custom_branch_policies':True},'ENV_BRANCH')
+              p=reader.get('/environments/'+ENV+'/deployment-branch-policies'); require(p.get('total_count')==1 and len(p.get('branch_policies',[]))==1 and p['branch_policies'][0].get('name')=='main' and p['branch_policies'][0].get('type')=='branch','ENV_BRANCH')
+              path=f"/actions/runs/{q['run_id']}"; run=reader.get(path)
+              require(run.get('id')==q['run_id'] and run.get('run_attempt')==1 and run.get('head_sha')==q['base'] and run.get('head_branch')=='main' and run.get('path')==WORKFLOW and run.get('status')=='in_progress' and run.get('event')=='workflow_dispatch' and run.get('repository',{}).get('id')==REPO_ID and run.get('head_repository',{}).get('id')==REPO_ID and run.get('display_title')=='ruleset-probe:'+q['base'],'RUN_BINDING')
+              require(0<=now-instant(run['created_at']).timestamp()<=7200,'RUN_AGE')
+              reviews=reader.get(path+'/approvals'); require(type(reviews) is list and len(reviews)==1,'APPROVAL_COUNT')
+              a=reviews[0]; require(a.get('state')=='approved' and a.get('user',{}).get('id')==OWNER_ID and a.get('user',{}).get('type')=='User' and a.get('comment')==comment(q),'APPROVAL')
+              e=a.get('environments',[]); require(len(e)==1 and e[0].get('id')==ENV_ID and e[0].get('name')==ENV and e[0].get('can_admins_bypass') is False,'APPROVAL_ENV')
+              rule=reader.get(f'/rulesets/{RULE}'); verify_ruleset(rule,q)
+              require(reader.get('/branches/main')['commit']['sha']==q['base'],'STALE_MAIN')
+              return rule
+
+          class Broker:
+              def __init__(self,reader_factory,signing_key,workflow_blob,jwks,clock=time.time):
+                  require(type(workflow_blob) is str and SHA.fullmatch(workflow_blob),'BAD_WORKFLOW_PIN')
+                  self.reader_factory=reader_factory; self.key=signing_key; self.pin=workflow_blob; self.jwks=jwks; self.clock=clock
+              def issue(self,q,token):
+                  validate(q); require(type(token) is str and len(token)<=16000,'BAD_TOKEN')
+                  # Fixed issuer/JWKS URL, RS256 only, strict signature/issuer/audience/timestamps.
+                  h=jwt.get_unverified_header(token); require(h.get('alg')=='RS256' and type(h.get('kid')) is str and not any(x in h for x in ('jku','x5u','jwk','crit')),'JWT_HEADER')
+                  key=self.jwks.get_signing_key_from_jwt(token).key
+                  c=jwt.decode(token,key,algorithms=['RS256'],audience=audience(q),issuer=ISS,options={'require':['exp','iat','nbf','iss','aud','sub','jti'],'strict_aud':True},leeway=0)
+                  check_claims(c,q); started=int(self.clock()); require(c['iat']<=started<c['exp'] and started-c['iat']<=300,'JWT_AGE')
+                  rule=observe(self.reader_factory(),q,self.pin,started)
+                  finished=int(self.clock()); require(started<=finished<min(started+45,c['exp']),'STALE_OBSERVATION')
+                  body={'schema':1,'purpose':'RULESET_PROBE_NON_AUTHORIZING','request':q,'workflow_blob':self.pin,'observed_at':finished,'expires_at':min(finished+30,c['exp']),'ruleset':rule,'registry_write_authorized':False}
+                  return {'body':body,'signature':base64.b64encode(self.key.sign(canonical(body))).decode('ascii')}
+
+          def verify_response(response,q,key,pin,now=None):
+              now=int(time.time()) if now is None else now; validate(q)
+              require(type(response) is dict and set(response)=={'body','signature'},'RESPONSE_FIELDS'); b=response['body']
+              key.verify(base64.b64decode(response['signature'],validate=True),canonical(b))
+              require(set(b)=={'schema','purpose','request','workflow_blob','observed_at','expires_at','ruleset','registry_write_authorized'} and type(b['schema']) is int and b['schema']==1 and b['purpose']=='RULESET_PROBE_NON_AUTHORIZING' and b['registry_write_authorized'] is False,'RESPONSE_SCOPE')
+              require(b['request']==q and b['workflow_blob']==pin,'RESPONSE_BINDING')
+              require(type(b['observed_at']) is int and type(b['expires_at']) is int and b['observed_at']<=now<b['expires_at']<=b['observed_at']+30,'RESPONSE_FRESHNESS')
+              verify_ruleset(b['ruleset'],q); return b
+
+          def main():
+              # Secrets must be provisioned on the separate host, never in Git or chat.
+              reader=AppReader(os.environ['APP_ID'],os.environ['INSTALLATION_ID'],Path(os.environ['APP_KEY_FILE']).read_bytes())
+              key=serialization.load_pem_private_key(Path(os.environ['SIGNING_KEY_FILE']).read_bytes(),password=None)
+              require(isinstance(key,Ed25519PrivateKey),'BAD_SIGNING_KEY')
+              broker=Broker(reader.session,key,os.environ['WORKFLOW_BLOB'],jwt.PyJWKClient(ISS+'/.well-known/jwks',timeout=10))
+              class Handler(BaseHTTPRequestHandler):
+                  def log_message(self,*args): pass # never log JWT or request body
+                  def do_POST(self):
+                      try:
+                          require(self.path=='/v1/ruleset-probe','PATH'); require(not self.headers.get('Transfer-Encoding'),'TRANSFER_ENCODING')
+                          length=int(self.headers.get('Content-Length','0')); require(0<length<=8192,'REQUEST_LIMIT')
+                          auth=self.headers.get('Authorization',''); require(auth.startswith('Bearer '),'AUTH')
+                          response=broker.issue(parse(self.rfile.read(length)),auth[7:]); status=200
+                      except Exception:
+                          response={'error':'PROBE_DENIED'}; status=403
+                      raw=canonical(response); self.send_response(status); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(raw))); self.end_headers(); self.wfile.write(raw)
+                  def setup(self):
+                      super().setup(); self.connection.settimeout(15)
+              ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()
+          if __name__=='__main__': main()
+          SAMUEL_EOF
+          cat > probe_client.py <<'SAMUEL_EOF'
+          """Read-only probe caller. Runs only in the future pinned approved workflow."""
+          import json, os, secrets
+          from pathlib import Path
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import Request, build_opener
+          from cryptography.hazmat.primitives import serialization
+          from broker import NoRedirect, audience, canonical, parse, require, validate, verify_response, REPO, REPO_ID, WORKFLOW
+
+          def request_json(url, headers, data=None):
+              require(urlsplit(url).scheme=='https' and urlsplit(url).username is None and urlsplit(url).password is None and not urlsplit(url).fragment,'HTTPS_REQUIRED')
+              request=Request(url,headers=headers,data=data,method='POST' if data is not None else 'GET')
+              with build_opener(NoRedirect()).open(request,timeout=60) as response:
+                  require(response.status==200 and response.geturl()==url,'RESPONSE_HTTP')
+                  raw=response.read(2_000_001); require(len(raw)<=2_000_000,'RESPONSE_LIMIT'); return parse(raw)
+
+          def main():
+              e=os.environ
+              require(e['GITHUB_REPOSITORY']==REPO and e['GITHUB_REPOSITORY_ID']==str(REPO_ID) and e['GITHUB_REF']=='refs/heads/main' and e['GITHUB_EVENT_NAME']=='workflow_dispatch' and e['GITHUB_RUN_ATTEMPT']=='1' and e['GITHUB_SHA']==e['EXPECTED_BASE'] and e['GITHUB_WORKFLOW_REF']==REPO+'/'+WORKFLOW+'@refs/heads/main','RUNNER_BINDING')
+              q=validate({'base':e['EXPECTED_BASE'],'run_id':int(e['GITHUB_RUN_ID']),'attempt':1,'ruleset_version':e['EXPECTED_RULESET_VERSION'],'nonce':secrets.token_hex(32)})
+              oidc=e['ACTIONS_ID_TOKEN_REQUEST_URL']; sep='&' if '?' in oidc else '?'
+              token=request_json(oidc+sep+urlencode({'audience':audience(q)}),{'Authorization':'Bearer '+e['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})['value']
+              endpoint=e['BROKER_URL'].rstrip('/')+'/v1/ruleset-probe'
+              response=request_json(endpoint,{'Authorization':'Bearer '+token,'Content-Type':'application/json'},canonical(q))
+              public=serialization.load_pem_public_key(Path(e['BROKER_PUBLIC_KEY_FILE']).read_bytes())
+              result=verify_response(response,q,public,e['WORKFLOW_BLOB'])
+              print(json.dumps({'status':'AUTHENTICATED_RULESET_PROBE_NON_AUTHORIZING','run_id':q['run_id'],'ruleset_id':result['ruleset']['id'],'bypass_actors':result['ruleset']['bypass_actors'],'observed_at':result['observed_at'],'registry_write_authorized':False},sort_keys=True))
+          if __name__=='__main__': main()
+          SAMUEL_EOF
+          cat > requirements.txt <<'SAMUEL_EOF'
+          PyJWT[crypto]==2.13.0
+          cryptography==46.0.4
+          SAMUEL_EOF
+          cat > broker-public.pem <<'SAMUEL_EOF'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEApLhdxZKhfJBUeykWCN9wPjikGOf0mCsIhHOHdZ7ZWwg=
+          -----END PUBLIC KEY-----
+          SAMUEL_EOF
+          cat > bootstrap.py <<'SAMUEL_EOF'
+          import os,re,json,subprocess
+          from pathlib import Path
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self,*a,**k): return None
+          e=os.environ
+          base=e['EXPECTED_BASE']; url=e['BROKER_URL']
+          assert re.fullmatch(r'https://[a-z0-9-]+\.trycloudflare\.com',url), 'INVALID_BROKER_URL'
+          assert re.fullmatch(r'[0-9a-f]{40}',base) and e['GITHUB_SHA']==base
+          req=Request('https://api.github.com/repos/HyungseonSong-plasma/chatgpt-operation/contents/.github/workflows/samuel-adoption-ruleset-probe.yml?ref='+base,headers={'Authorization':'Bearer '+e['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          with build_opener(NoRedirect()).open(req,timeout=12) as r:
+              assert r.status==200
+              blob=json.load(r)['sha']
+          assert re.fullmatch(r'[0-9a-f]{40}',blob)
+          e['WORKFLOW_BLOB']=blob
+          e['BROKER_PUBLIC_KEY_FILE']=str(Path('broker-public.pem').resolve())
+          # Do not pass the GitHub contents token into the network client.
+          env=dict(e);env.pop('GH_TOKEN',None)
+          subprocess.run(['.venv/bin/python','probe_client.py'],env=env,check=True,timeout=100)
+          SAMUEL_EOF
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+          .venv/bin/python bootstrap.py
