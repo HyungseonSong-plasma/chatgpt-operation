@@ -15,7 +15,7 @@ import re
 from .foreign_work_admission import ForeignAdmissionBinding, EnrollmentRecord
 from .foreign_enrollment_contract import ForeignEnrollmentAttestation, IntentRegistration, ForeignEnrollmentAuthority
 from .foreign_issuance import IssuanceHold, require
-from ..repository.legacy_work_identity import HistoryEvidence, RecoveryRequest, recover_work_identity, RecoveryStatus
+from ..repository.legacy_work_identity import HistoryEvidence, LegacyWorkScope, RecoveryRequest, recover_work_identity, RecoveryStatus
 from ..repository.blocker_triage import logical_intent_id
 
 PREFIX = 'refs/heads/samuel/journal-anchors/issuance-'
@@ -83,7 +83,7 @@ class ProtectedIssuanceStore:
 
     def _identity(self):
         repo = self.transport.get(self.root)
-        require(repo.get('id') == self.repo_id and repo.get('full_name') == self.root[7:],
+        require(type(repo.get('id')) is int and repo.get('id') == self.repo_id and repo.get('full_name') == self.root[7:],
                 'ISSUER_REPOSITORY_MISMATCH')
 
     def _ref(self, ref):
@@ -98,10 +98,7 @@ class ProtectedIssuanceStore:
                 'ISSUANCE_REF_MISMATCH')
         return obj['sha']
 
-    def read(self, ref):
-        commit = self._ref(ref)
-        if commit is None:
-            return None
+    def _read_commit(self, commit):
         c = self.transport.get(self.root + '/git/commits/' + commit)
         tree = c.get('tree', {}).get('sha')
         require(c.get('sha') == commit and c.get('parents') == [] and valid_sha(tree),
@@ -121,8 +118,46 @@ class ProtectedIssuanceStore:
                 and sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == blob,
                 'ISSUANCE_CONTENT_MISMATCH')
         data = json.loads(raw)
-        require(canonical(data) == raw and self._ref(ref) == commit, 'ISSUANCE_CHANGED_OR_NONCANONICAL')
+        require(canonical(data) == raw, 'ISSUANCE_NONCANONICAL')
+        return raw
+
+    def read(self, ref):
+        commit = self._ref(ref)
+        if commit is None:
+            return None
+        raw = self._read_commit(commit)
+        require(self._ref(ref) == commit, 'ISSUANCE_CHANGED_DURING_READ')
         return commit, raw
+
+    def read_attestation(self, binding, paths, verify_publication):
+        """Decode only exact canonical data and independently authenticate it."""
+        try:
+            found = self.read(issuance_ref(binding.scope))
+            if found is None:
+                return None
+            commit, raw = found
+            data = json.loads(raw)
+            fields = dict(data['issuance'])
+            fixed = dict(fields.pop('binding'))
+            fixed['scope'] = LegacyWorkScope(**fixed['scope'])
+            record = FirstIssuance(ForeignAdmissionBinding(**fixed), **fields)
+            require(record.binding == binding and canonical(record.payload(paths)) == raw
+                    and verify_publication(record, commit, raw) is True
+                    and self.read(record.ref) == found, 'ISSUANCE_AUTHORITY_UNVERIFIED')
+            return record.attestation(paths)
+        except IssuanceHold:
+            raise
+        except Exception as exc:
+            raise IssuanceHold('ISSUANCE_READ_UNAVAILABLE') from exc
+
+    def authority(self, *, paths, verify_publication, verify_current_authority):
+        """Existing enrollment authority enforces freshness/revocation separately."""
+        require(callable(verify_publication) and callable(verify_current_authority),
+                'TRUSTED_ISSUER_VERIFIERS_REQUIRED')
+        return ForeignEnrollmentAuthority(
+            read=lambda binding: self.read_attestation(binding, paths, verify_publication),
+            verify_authority=verify_current_authority, minimum_generation=1)
+
 
     def create_once(self, *, ref, raw, before_write):
         require(isinstance(raw, bytes) and len(raw) <= 65536 and canonical(json.loads(raw)) == raw,
@@ -141,7 +176,8 @@ class ProtectedIssuanceStore:
         tree = post('/git/trees', {'tree': [{'path': FILENAME, 'mode': '100644', 'type': 'blob', 'sha': blob}]}).get('sha')
         require(valid_sha(tree), 'ISSUANCE_TREE_WRITE_MISMATCH')
         commit = post('/git/commits', {'message': 'Samuel immutable Work issuance', 'tree': tree, 'parents': []}).get('sha')
-        require(valid_sha(commit) and self.read(ref) is None, 'ISSUANCE_EXISTS_OR_COMMIT_INVALID')
+        require(valid_sha(commit) and self._read_commit(commit) == raw
+                and self.read(ref) is None, 'ISSUANCE_EXISTS_OR_COMMIT_INVALID')
         result = post('/git/refs', {'ref': ref, 'sha': commit})
         require(result.get('ref') == ref and result.get('object', {}).get('sha') == commit
                 and self.read(ref) == (commit, raw), 'ISSUANCE_READBACK_FAILED')
@@ -173,14 +209,16 @@ def issue_first(*, binding, request, store, paths, approval_ref, publisher_ref,
                            approval_ref, publisher_ref)
     raw = canonical(record.payload(paths))
 
-    def current():
+    def boundary():
         return (verify_lease() is True and verify_ruleset() is True
-                and read_head() == request.target_head and read_history(request) == evidence
-                and verify_scope(evidence) is True and verify_coverage(evidence) is True
-                and verify_approval(record, evidence) is True)
+                and read_head() == request.target_head and verify_approval(record, evidence) is True)
+
+    def current():
+        return (boundary() is True and read_history(request) == evidence
+                and verify_scope(evidence) is True and verify_coverage(evidence) is True)
 
     require(current() is True, 'ISSUER_BOUNDARY_UNVERIFIED')
     commit = store.create_once(ref=record.ref, raw=raw, before_write=current)
-    require(current() is True and verify_publication(record, commit, raw) is True
+    require(boundary() is True and verify_publication(record, commit, raw) is True
             and store.read(record.ref) == (commit, raw), 'ISSUANCE_PROVENANCE_UNVERIFIED')
     return record, commit
