@@ -55,5 +55,6 @@ def verify_approval(binding, *, run, reviews, current_main, now):
     require(type(environments) is list and len(environments) == 1
             and environments[0].get('id') == binding.environment_id
             and environments[0].get('name') == ENV, 'ENVIRONMENT_MISMATCH')
+    require(environments[0].get('can_admins_bypass') is False, 'ADMIN_BYPASS_NOT_DISABLED')
     return {'status':'APPROVAL_EVIDENCE_MATCHED_NON_AUTHORIZING', 'run_id':binding.run_id,
             'candidate_sha256':binding.digest, 'write_authorized':False}
