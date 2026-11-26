@@ -1,7 +1,6 @@
 """Staging is not completed-run authority; all tests use synthetic ports."""
 import unittest
 from dataclasses import replace
-import test_foreign_work_issuer as fixture_module
 from chatgpt_operation.controller.foreign_work_issuer import stage_first_issuance
 from chatgpt_operation.controller.foreign_issuance import IssuanceHold
 from chatgpt_operation.repository.legacy_work_identity import HistoricalRecord
@@ -9,6 +8,7 @@ from chatgpt_operation.repository.legacy_work_identity import HistoricalRecord
 
 class TestStagedIssuer(unittest.TestCase):
     def setUp(self):
+        import test_foreign_work_issuer as fixture_module
         self.fixture = fixture_module.TestForeignWorkIssuer()
         self.fixture.setUp()
         self.args = dict(self.fixture.args)
