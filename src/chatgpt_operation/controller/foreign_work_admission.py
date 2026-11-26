@@ -88,6 +88,7 @@ class AdmissionStatus(str, Enum):
     BLOCKER_PRESENT = "BLOCKER_PRESENT"
     ENROLLMENT_NOT_ATTESTED = "ENROLLMENT_NOT_ATTESTED"
     EXISTING_ENROLLMENT_OBSERVED = "EXISTING_ENROLLMENT_OBSERVED"
+    ENROLLMENT_OBSERVED_BLOCKER_CHECK_REQUIRED = "ENROLLMENT_OBSERVED_BLOCKER_CHECK_REQUIRED"
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,7 @@ class ForeignAdmissionObservation:
     recovery: RecoveryResult | None = None
     enrollment: EnrollmentRecord | None = None
     reason: str = ""
+    history_evidence: HistoryEvidence | None = None
 
     @property
     def work_id(self) -> str | None:
@@ -166,6 +168,18 @@ class ForeignWorkAdmission:
         self._verify_enrollment = verify_enrollment
 
     def observe(self, request: RecoveryRequest) -> ForeignAdmissionObservation:
+        """Keep the original conservative admission interface."""
+        return self._observe(request, for_blocker_gate=False)
+
+    def observe_for_blocker_gate(self, request: RecoveryRequest) -> ForeignAdmissionObservation:
+        """Allow authenticated enrollment observation, not blocker clearance.
+
+        Known historical blockers remain visible and require the anchored
+        CommonPreWriteGate. Incomplete history never enters this handoff.
+        """
+        return self._observe(request, for_blocker_gate=True)
+
+    def _observe(self, request: RecoveryRequest, *, for_blocker_gate: bool) -> ForeignAdmissionObservation:
         if not isinstance(request, RecoveryRequest):
             raise TypeError("typed request required")
         if request.scope != self._binding.scope:
@@ -185,8 +199,20 @@ class ForeignWorkAdmission:
 
         recovery = recover_work_identity(request, trusted_reader=read,
                         verify_scope=self._verify_scope, verify_coverage=self._verify_coverage)
-        if recovery.status is not RecoveryStatus.HISTORY_VERIFIED:
-            # Keep original known blockers and aliases, even if evidence is incomplete.
+        pending_blockers = recovery.status is RecoveryStatus.BLOCKER_PRESENT
+        if pending_blockers and for_blocker_gate:
+            # S1 deliberately reports known blockers before checking coverage.
+            # Authenticate complete coverage on the SAME scope-verified evidence;
+            # do not strip its blockers or recast its verdict as HISTORY_VERIFIED.
+            try:
+                complete = (len(captured) == 1 and captured[0].coverage_ref is not None
+                            and self._verify_coverage(captured[0]) is True)
+            except Exception:
+                complete = False
+            if not complete or recovery.work_id is None:
+                return ForeignAdmissionObservation(AdmissionStatus.BLOCKER_PRESENT,
+                    request, recovery, reason="historical blocker with unresolved identity or coverage")
+        elif recovery.status is not RecoveryStatus.HISTORY_VERIFIED:
             return ForeignAdmissionObservation(AdmissionStatus(recovery.status.value),
                                                request, recovery, reason=recovery.reason)
         # A derived legacy candidate is not an existing controller-issued ID.
@@ -209,6 +235,8 @@ class ForeignWorkAdmission:
         except Exception:
             return ForeignAdmissionObservation(AdmissionStatus.TARGET_UNVERIFIED, request,
                                                recovery, reason="target changed during observation")
-        return ForeignAdmissionObservation(AdmissionStatus.EXISTING_ENROLLMENT_OBSERVED,
-                                           request, recovery, record,
-                                           "read-only observation; ordinary gates still required")
+        status = (AdmissionStatus.ENROLLMENT_OBSERVED_BLOCKER_CHECK_REQUIRED if pending_blockers
+                  else AdmissionStatus.EXISTING_ENROLLMENT_OBSERVED)
+        return ForeignAdmissionObservation(status, request, recovery, record,
+            "read-only observation; anchored blocker gate and ordinary gates still required",
+            history_evidence=captured[0])
