@@ -54,9 +54,10 @@ def get(path):
         return parse(raw)
 
 def verify_environment(binding, environment, branch_policies):
-    """Check observable settings; admin bypass is a separate owner check."""
+    """Require explicit no-bypass evidence; missing fields fail closed."""
     require(environment.get('id')==binding.environment_id and environment.get('name')==ENV,
             'ENVIRONMENT_MISMATCH')
+    require(environment.get('can_admins_bypass') is False, 'ADMIN_BYPASS_NOT_DISABLED')
     rules=[r for r in environment.get('protection_rules',[]) if r.get('type')=='required_reviewers']
     require(len(rules)==1 and len(rules[0].get('reviewers',[]))==1
             and rules[0]['reviewers'][0].get('type')=='User'
