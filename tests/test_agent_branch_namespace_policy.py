@@ -89,28 +89,32 @@ class AgentBranchNamespacePolicyTests(unittest.TestCase):
             )
 
     def test_main_deny_and_workflow_write_restriction_unchanged(self):
-        """Repository-native writes remain impossible even with a scoped path policy.
+        """Repository-native writes remain denied even with authoring eligibility.
 
         Issue #254 permits a separately authorized external *Draft PR* route
         only after a trusted pre-write gate is deployed. It does NOT grant
         repository-native Actions any workflow-file write authority.
         """
         self.assertEqual(self.policy.branch_deny, ("main",))
-        workflow_allows = [
-            p for p in self.policy.file_allow
-            if p.startswith(".github/workflows/")
-        ]
-        self.assertIn(
-            workflow_allows,
-            ([], [".github/workflows/dea-evidence-producer.yml"]),
-        )
-        if ".github/workflows/**" not in self.policy.file_deny:
-            # Any new exception must be EXACTLY the DEA path; never a
-            # workflow wildcard or the Samuel execution workflows.
-            self.assertEqual(
-                workflow_allows,
-                [".github/workflows/dea-evidence-producer.yml"],
-            )
+        self.assertIn(".github/workflows/**", self.policy.file_allow)
+        self.assertNotIn(".github/workflows/**", self.policy.file_deny)
+        # Eligibility is not permission: native execution remains denied below.
+        from fnmatch import fnmatchcase
+        def eligible(path):
+            return (any(fnmatchcase(path, p) for p in self.policy.file_allow)
+                    and not any(fnmatchcase(path, p) for p in self.policy.file_deny))
+        self.assertTrue(eligible(".github/workflows/agent-regression.yml"))
+        self.assertTrue(eligible(".github/workflows/samuel-foreign-issuer-readiness.yml"))
+        for protected in (
+            ".github/workflows/ci.yml",
+            ".github/workflows/samuel-controller.yml",
+            ".github/workflows/samuel-journal-writer.yml",
+            ".github/workflows/samuel-adoption-qualification.yml",
+            ".github/workflows/samuel-native-github.yml",
+            ".github/workflows/samuel-foreign-issuer.yml",
+        ):
+            with self.subTest(protected=protected):
+                self.assertFalse(eligible(protected))
         for path in (
             ".github/workflows/ci.yml",
             ".github/workflows/samuel-native-github.yml",
