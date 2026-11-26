@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from fnmatch import fnmatchcase
 from pathlib import Path
 import unittest
 
@@ -19,7 +20,13 @@ class GeminiActivationProposalTests(unittest.TestCase):
     def test_policy_still_blocks_privileged_mutations(self):
         denied = self.policy["mutation"]["file_paths"]["deny"]
         self.assertIn("skills/capability-registry.json", denied)
-        self.assertIn(".github/workflows/**", denied)
+        # Preserve the actual privileged Gemini workflow boundary under either
+        # the old blanket deny or the owner-adopted selective deny policy.
+        self.assertTrue(
+            any(fnmatchcase(".github/workflows/samuel-gemini-review.yml", pattern)
+                for pattern in denied),
+            "Gemini workflow must remain explicitly protected",
+        )
         self.assertEqual(self.plan["status"], "PROPOSED_ONLY_NOT_EXECUTABLE")
         self.assertFalse(self.plan["policy_gate"]["auto_override"])
         self.assertTrue(self.plan["policy_gate"]["owner_approved_privileged_installation_required"])
