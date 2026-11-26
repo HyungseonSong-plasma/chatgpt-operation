@@ -34,6 +34,12 @@ See `docs/mutation-blocker-recovery-v1.md` for evidence-based triage.
 5. Confirm the proposed changes are source-scoped, compatible with consumer-owned policies, and reviewed for secrets or unwanted writes.
 6. PR creation is not semantic acceptance. Use draft PRs for unresolved human policy decisions and preserve frozen public contracts.
 
+For a separately authorized incident recovery change, use the bounded scope
+in `docs/mutation-blocker-recovery-v1.md`. Irrecoverable gaps in the damaged
+workload's history do not by themselves prevent a recovery-only PR. All
+ordinary preconditions for the recovery change itself remain mandatory;
+this never allows a denied original PR to be retried under another identity.
+
 ## Execution and verification
 
 Invoke the ordered registered provider for `GITHUB_PR_CREATE`, then read back the new PR's number, head SHA, base SHA, draft/state, diff and required CI trigger. A changed head/base requires fresh validation. A claimed creation is valid only when a PR exists at the verified exact head.
