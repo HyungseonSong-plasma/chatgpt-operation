@@ -43,3 +43,12 @@ class ReservationTests(unittest.TestCase):
     def test_wrong_repo(self):
         self.rule['source']='other/repo'
         with self.assertRaises(ValueError): self.check()
+    def test_optional_non_fast_forward(self):
+        self.rule['rules'].append({'type':'non_fast_forward'})
+        self.assertFalse(self.check()['write_authorized'])
+    def test_force_protection_does_not_replace_update_restriction(self):
+        self.rule['rules']=[{'type':'deletion'},{'type':'non_fast_forward'}]
+        with self.assertRaises(ValueError): self.check()
+    def test_unexpected_rule_rejected(self):
+        self.rule['rules'].append({'type':'creation'})
+        with self.assertRaises(ValueError): self.check()
