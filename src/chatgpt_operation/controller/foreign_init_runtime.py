@@ -1,9 +1,24 @@
 """Trusted composition of existing foreign enrollment and anchored journal ports."""
 from __future__ import annotations
-from .foreign_work_admission import ForeignAdmissionBinding, ForeignWorkAdmission, AdmissionStatus
-from .foreign_enrollment_contract import ForeignEnrollmentAuthority
+from dataclasses import dataclass
+from .foreign_work_admission import (
+    ForeignAdmissionBinding, ForeignWorkAdmission, AdmissionStatus, ForeignAdmissionObservation,
+)
+from .foreign_enrollment_contract import ForeignEnrollmentAuthority, ForeignEnrollmentAttestation
 from .foreign_anchored_journal import AnchoredForeignJournal
 from ..repository.legacy_work_identity import RecoveryRequest
+
+
+@dataclass(frozen=True)
+class InitEnrollmentObservation:
+    """Cycle-local evidence, not a clearance or execution permission."""
+    attestation: ForeignEnrollmentAttestation
+    admission: ForeignAdmissionObservation
+
+    @property
+    def record(self):
+        # Preserve the Moose consumer's evidence-ref interface.
+        return self.attestation.record
 
 
 class ForeignInitRuntime:
@@ -21,13 +36,14 @@ class ForeignInitRuntime:
     def _enrollment(self, request):
         if request['repository'] != self.binding.scope.repository or request['target_branch'] != self.binding.target_branch:
             raise ValueError('runtime scope mismatch')
-        observation=self._admission.observe(RecoveryRequest(self.binding.scope,request['target_sha']))
-        if observation.status is not AdmissionStatus.EXISTING_ENROLLMENT_OBSERVED:
+        observation=self._admission.observe_for_blocker_gate(RecoveryRequest(self.binding.scope,request['target_sha']))
+        if observation.status not in (AdmissionStatus.EXISTING_ENROLLMENT_OBSERVED,
+                                      AdmissionStatus.ENROLLMENT_OBSERVED_BLOCKER_CHECK_REQUIRED):
             raise ValueError(observation.status.value)
         attestation=self._authority.observe(self.binding)
         if attestation.record != observation.enrollment or request['work_id'] != attestation.record.work_id:
             raise ValueError('request/enrollment identity mismatch')
-        return attestation
+        return InitEnrollmentObservation(attestation, observation)
 
     def observe_enrollment(self,request):
         return self._enrollment(request)
@@ -35,8 +51,9 @@ class ForeignInitRuntime:
     def observe_blockers(self,request,expected):
         before=self._enrollment(request)
         if before != expected:
-            raise ValueError('enrollment changed within INIT')
-        ref=self._journal.observe(before,branch=self.binding.target_branch,paths=self._paths,head=request['target_sha'])
+            raise ValueError('enrollment or history changed within INIT')
+        ref=self._journal.observe(before.attestation,branch=self.binding.target_branch,paths=self._paths,
+                                  head=request['target_sha'],historical_blockers=before.admission.recovery.blockers)
         if self._enrollment(request) != before:
-            raise ValueError('enrollment changed after blocker observation')
+            raise ValueError('enrollment or history changed after blocker observation')
         return ref
