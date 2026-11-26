@@ -12,9 +12,13 @@ class IssuePlanningTests(unittest.TestCase):
             registry=registry,
         )
         self.assertEqual(result.outcome,GuardOutcome.CONTINUE)
-        self.assertEqual(
-            result.envelope.locked_decisions[0].decision_id,
+        self.assertIn(
             "github_execution_authority",
+            {decision.decision_id for decision in result.envelope.locked_decisions},
+        )
+        self.assertCountEqual(
+            result.envelope.locked_decisions,
+            registry.accepted(),
         )
         self.assertIn("no_raw_issue_execution",result.envelope.escalation_constraints)
 

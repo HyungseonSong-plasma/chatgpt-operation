@@ -3,10 +3,64 @@
     {
       "accepted_at": "2026-09-26T00:00:00Z",
       "decision_id": "github_execution_authority",
-      "evidence": ["issue-44", "pr-83"],
-      "invariants": ["repository_native_execution", "host_bootstrap_only", "typed_execution_evidence"],
+      "evidence": [
+        "issue-44",
+        "pr-83"
+      ],
+      "invariants": [
+        "repository_native_execution",
+        "host_bootstrap_only",
+        "typed_execution_evidence"
+      ],
       "revision_policy": "explicit_revision",
       "statement": "Repository-native Samuel execution owns repository mutation; external hosts only wake the bootstrap boundary.",
+      "status": "accepted",
+      "supersedes": null,
+      "version": 1
+    }
+  ],
+  "checkpoint_cas_adoption_bounded_history": [
+    {
+      "accepted_at": "2026-11-26T09:20:43Z",
+      "decision_id": "checkpoint_cas_adoption_bounded_history",
+      "evidence": [
+        "repository:HyungseonSong-plasma/chatgpt-operation",
+        "observed-main:21c22c90ca8ba574b6f82508210ed4d51bf22bfe",
+        "original-policy-blob:f3ed77af341f92adbb8c3b3f8012b275552f2f17",
+        "history-evidence-sha256:1d3030970fc4801a53f077b5362a72c9ab108927a740799e009108fb53964f76",
+        "HyungseonSong-plasma/moose-test-repo#888",
+        "HyungseonSong-plasma/moose-test-repo#913",
+        "pr-321",
+        "pr-322",
+        "pr-323",
+        "pr-324",
+        "pr-325",
+        "pr-326",
+        "pr-327",
+        "run-45725087906",
+        "run-45725469324",
+        "run-45725730754",
+        "run-45776080740",
+        "run-45777228418",
+        "run-45778626775",
+        "run-45780918424",
+        "run-45788554129"
+      ],
+      "invariants": [
+        "bounded_repository_owner_history_sufficiency_only",
+        "no_assertion_of_complete_deleted_or_external_history",
+        "no_fabricated_or_replaced_original_work_identity",
+        "preserve_all_known_prior_denials",
+        "external_safety_denials_require_original_authority_clearance",
+        "unknown_external_blocker_or_unverified_scope_remains_hold",
+        "ordinary_mutation_policy_unchanged",
+        "no_registry_write_authority",
+        "no_production_claim_or_writer_activation",
+        "separate_authenticated_owner_adoption_and_runtime_authorization_required",
+        "stable_intent_across_base_and_run_changes"
+      ],
+      "revision_policy": "explicit_revision",
+      "statement": "For the continuing GITHUB_CHECKPOINT_CAS registry-adoption work related to moose-test-repo #888/#913 only, accept the eight enumerated retained GitHub runs and PRs #321\u2013#327 as sufficient bounded repository-owned historical evidence for the separate privileged-adoption review, rather than demanding recovery of deleted repository records as a prerequisite to that review. This decision recognizes a limited repository-owner evidence boundary, not complete historical coverage, authenticated original work enrollment, clearance of an existing denial, or permission to publish. The existing policy denial remains active until a separately authorized and verified policy adoption. Any external tool-safety denial or unresolved external authority/scope remains a hard stop; only its originating authority can clear it. No provider substitution or new work identity may evade a prior denial. Production publication requires separate authenticated work binding, authority verification, runtime and claim gates, and exact run approval.",
       "status": "accepted",
       "supersedes": null,
       "version": 1
