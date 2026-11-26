@@ -28,8 +28,9 @@ def candidate_from_git(base, request):
             ==['A\t'+REQUEST_PATH],'BAD_REQUEST_DIFF')
     require(not git('ls-tree',base,'--',CONTRACT).strip(),'CONTRACT_ALREADY_EXISTS')
     raw = parse(read_blob(request,REQUEST_PATH))
-    require(type(raw) is dict and set(raw)=={'schema_version','base_sha','files'}
-            and type(raw['schema_version']) is int and raw['schema_version']==1
+    require(type(raw) is dict and type(raw.get('schema_version')) is int
+            and ((raw['schema_version']==1 and set(raw)=={'schema_version','base_sha','files'})
+                 or (raw['schema_version']==2 and set(raw)=={'schema_version','base_sha','files','ruleset_snapshot'}))
             and raw['base_sha']==base and type(raw['files']) is dict and set(raw['files'])==PATHS,'BAD_REQUEST')
     proposed = {p:base64.b64decode(v,validate=True) for p,v in raw['files'].items()}
     baseline = {p:read_blob(base,p) for p in PATHS-{CONTRACT}}
@@ -86,9 +87,19 @@ def main():
     baseline,proposed=candidate_from_git(base,request)
     result=inspect_candidate(expected_base=base, observed_base=current, baseline=baseline,
                              proposed=proposed, approved_candidate_sha256=digest)
+    # The immutable request SHA (also in the approval comment) binds the
+    # complete Ruleset snapshot, not only the four candidate file digests.
+    from .ruleset_evidence import RULESET_ID, compare_snapshot
+    raw = parse(read_blob(request, REQUEST_PATH))
+    require(raw['schema_version']==2, 'RULESET_SNAPSHOT_REQUIRED')
+    snapshot = raw['ruleset_snapshot']
+    evidence = compare_snapshot(snapshot, get(f'/rulesets/{RULESET_ID}'),
+                                now=datetime.now(timezone.utc))
     phase=os.environ['ADOPTION_PHASE']
     if phase=='preflight':
         print(result.status)
+        print(json.dumps({'owner_approval_scope': 'candidate and claimed ruleset snapshot',
+                          'ruleset_evidence': evidence, 'snapshot': snapshot}, sort_keys=True))
         print('Approval comment: '+binding.comment())
     elif phase=='approval':
         run=get(f'/actions/runs/{binding.run_id}')
@@ -99,9 +110,11 @@ def main():
         # authenticated GET observations do not publish a ref or grant authority.
         from .github_observation import observe
         from .git_candidate import build_detached_candidate
-        observed = observe(binding)
+        observed = observe(binding, snapshot=snapshot)
         print(json.dumps(observed, sort_keys=True))
-        if observed['reservation']['status'] == 'RESERVATION_ABSENT_NON_AUTHORIZING':
+        if observed['reservation']['status'] in (
+                'RESERVATION_ABSENT_NON_AUTHORIZING',
+                'SNAPSHOT_RESERVATION_ABSENT_NON_AUTHORIZING'):
             print(json.dumps(build_detached_candidate(binding), sort_keys=True))
     else:
         raise ValueError('BAD_PHASE')
