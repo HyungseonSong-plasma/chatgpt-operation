@@ -81,6 +81,56 @@ Persist source, provider, logical-intent ID, evidence reference and observed HTT
 
 After a legitimately authorized change, verify exact head, file contents, workflow census/provenance and current-head CI. Re-review the changed SHA and run Samuel exact-head merge preflight. Never treat parser syntax evidence as public ABI, MOOSE HIT DSL or automatic rename authority.
 
+## Incident recovery with irrecoverable historical gaps (owner-governed)
+
+An incident may destroy the evidence needed to prove historical completeness.
+Preserve `HISTORY_INCOMPLETE` (or `IDENTITY_UNVERIFIED` when applicable), the
+original work identity, all available records and the explicit missing intervals
+and sources. Never infer clean history, first issuance, or clearance from loss.
+Do not repeatedly request an impossible completeness proof as a prerequisite to
+repairing the incident's supporting software or documentation.
+
+A separately authorized recovery change may be reviewed on an eligible non-main
+branch without proving complete history of the damaged workload. This is a
+bounded **owner-governed recovery change**, not admission of that workload, an
+exception to an actual denial, or a new identity for the same denied operation.
+The responsible owner must approve a durable, reviewable recovery scope before
+execution. That scope records the incident reference, affected original work
+identities (including unresolved identities), known blockers and evidence gaps,
+target repository, exact base SHA, allowed paths and actions, intended repair,
+review/CI gates and expiry or closure condition. The recovery change's own
+identity and applicable blocker checks remain mandatory. Where these cannot be
+established, use the ordinary owner policy-authoring and review process; do not
+self-issue a work identity or treat this paragraph as bootstrap permission.
+
+Allowed scope is source, tests and documentation needed to repair or qualify
+recovery infrastructure, within existing path/branch permissions. Exclude the
+original denied effect, changes to provider routing or credentials, protected
+workflow or policy changes without separate privileged adoption, production
+issuance, enrollment, clearance, journal/checkpoint publication, lease grant,
+controller dispatch and automatic merge. The owner-approved recovery scope is
+not proof that the incident's historical inventory is complete. An observed
+`TOOL_SAFETY` or `REPOSITORY_POLICY` denial applicable to the requested effect
+continues to require its existing source-specific resolution; changing the
+label, work ID, branch, payload or provider cannot override it. Preserve any
+unknown new write outcome and reconcile before any retry.
+
+The normal capability registry, branch preflight, exact-head readbacks, access,
+CI, independent review where required and merge gates still apply to the
+recovery change. Use GitHub Connector for repository reads and the registered
+connector operations; validate Python changes through existing GitHub-hosted
+CI `unittest` and observe the exact run through the connector. Do not require
+local GitHub network access or substitute local test results for hosted CI.
+No existing CI workflow or required check is disabled by this policy.
+
+After recovery, append new incident and blocker evidence to the appropriate
+journal using its authorized writer and existing checkpoint rules. The legacy
+history remains incomplete until genuinely authenticated evidence proves
+otherwise. The existing first-issuance, enrollment, clearance and production
+CommonPreWriteGate requirements are unchanged. No runtime verifier or Boolean
+port is replaced by owner approval or by this policy. Policy adoption is not
+runtime deployment or authorization to execute a particular recovery change.
+
 ## Evidence-based lifecycle and automatic release (v1 contract)
 
 A durable blocker event is **append-only**: clearing its present effect does not erase the original denial. A new verified resolution event cites the original `logical_intent_id` and `blocker_evidence_ref`, the independently observed exact target HEAD and a **new, distinct evidence reference**.
