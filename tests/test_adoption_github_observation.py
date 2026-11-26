@@ -51,3 +51,42 @@ class ObservationTests(unittest.TestCase):
             if p=='/branches/main': self.responses[p]={'commit':{'sha':'e'*40}}
             return val
         with self.assertRaisesRegex(ValueError,'STALE_BASE'): observe(self.b,getter=get,clock=lambda:self.now)
+
+    def snapshot_fixture(self):
+        import copy
+        rule = copy.deepcopy(self.responses[f'/rulesets/{RULESET_ID}'])
+        rule['updated_at'] = self.now.isoformat()
+        snapshot = dict(schema_version=1, observed_at=self.now.isoformat(), ruleset=rule)
+        live = copy.deepcopy(rule)
+        del live['bypass_actors']
+        self.responses[f'/rulesets/{RULESET_ID}'] = live
+        return snapshot
+
+    def test_snapshot_only_is_not_live_gate(self):
+        snapshot = self.snapshot_fixture()
+        result = observe(self.b, snapshot=snapshot, getter=self.responses.__getitem__, clock=lambda:self.now)
+        self.assertEqual(result['reservation']['status'], 'SNAPSHOT_RESERVATION_ABSENT_NON_AUTHORIZING')
+        self.assertFalse(result['ruleset_evidence']['live_bypass_observable'])
+        self.assertFalse(result['write_authorized'])
+
+    def test_snapshot_existing_ref_no_new_publication(self):
+        snapshot = self.snapshot_fixture()
+        self.responses[self.ref_path] = [{'ref':reservation_ref(self.b),'object':{'type':'commit','sha':'d'*40}}]
+        result = observe(self.b, snapshot=snapshot, getter=self.responses.__getitem__, clock=lambda:self.now)
+        self.assertEqual(result['reservation']['status'], 'SNAPSHOT_RESERVATION_EXISTS_RECONCILE_ONLY')
+        self.assertFalse(result['reservation']['write_authorized'])
+
+    def test_missing_live_bypass_without_snapshot_fails(self):
+        self.snapshot_fixture()
+        with self.assertRaisesRegex(ValueError,'RESERVATION_BYPASS_UNKNOWN_OR_ENABLED'): self.check()
+
+    def test_snapshot_detects_change_during_read(self):
+        from datetime import timedelta
+        snapshot = self.snapshot_fixture()
+        def get(p):
+            val = self.responses[p]
+            if p == self.ref_path:
+                self.responses[f'/rulesets/{RULESET_ID}']['updated_at'] = (self.now + timedelta(seconds=1)).isoformat()
+            return val
+        with self.assertRaisesRegex(ValueError,'RULESET_VERSION_CHANGED'):
+            observe(self.b, snapshot=snapshot, getter=get, clock=lambda:self.now)

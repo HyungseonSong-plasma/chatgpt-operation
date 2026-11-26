@@ -10,10 +10,10 @@ from .candidate import require
 from .qualify import get, verify_environment
 from .reservation import reservation_ref, plan_reservation
 
-RULESET_ID = 28142778
+from .ruleset_evidence import RULESET_ID, compare_snapshot
 
 
-def observe(binding, *, getter=get, clock=lambda: datetime.now(timezone.utc)):
+def observe(binding, *, snapshot=None, getter=get, clock=lambda: datetime.now(timezone.utc)):
     binding.validate()
     main = getter('/branches/main')['commit']['sha']
     env = getter('/environments/' + ENV)
@@ -29,8 +29,22 @@ def observe(binding, *, getter=get, clock=lambda: datetime.now(timezone.utc)):
     expected = reservation_ref(binding)
     refs = getter('/git/matching-refs/' + expected.removeprefix('refs/'))
     require(type(refs) is list and len(refs) <= 1 and (not refs or refs[0].get('ref') == expected), 'AMBIGUOUS_REF_OBSERVATION')
-    reservation = plan_reservation(binding, current_main=main, ruleset=rule,
+    evidence = None
+    if snapshot is not None:
+        evidence = compare_snapshot(snapshot, rule, now=clock())
+    # Snapshot comparison does not make an omitted live field observable.
+    # Classify against the owner-attested snapshot only for this read-only
+    # trial, with a distinct status that is not a live publication gate.
+    snapshot_only = evidence is not None and not evidence['live_bypass_observable']
+    reservation = plan_reservation(binding, current_main=main,
+                                   ruleset=snapshot['ruleset'] if snapshot_only else rule,
                                    observed_ref=refs[0] if refs else None, observation_complete=True)
+    if snapshot_only:
+        reservation['status'] = 'SNAPSHOT_' + reservation['status']
+    if evidence is not None:
+        final_evidence = compare_snapshot(snapshot, getter(f'/rulesets/{RULESET_ID}'), now=clock())
+        require(final_evidence == evidence, 'RULESET_OBSERVATION_CHANGED')
     require(getter('/branches/main')['commit']['sha'] == main, 'STALE_BASE')
     return {'status': 'LIVE_OBSERVATION_NON_AUTHORIZING', 'approval': approval,
-            'reservation': reservation, 'write_authorized': False}
+            'reservation': reservation, 'ruleset_evidence': evidence,
+            'write_authorized': False}
