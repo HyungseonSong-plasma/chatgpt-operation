@@ -15,6 +15,12 @@ Baseline `20827ec81ab0eac4dd7560a22ee4212e274113a5`. The accompanying `qualifica
 
 All outputs have `mutation_authorized=False`. A verified legacy-derived ID remains a candidate until authenticated enrollment. Existing configured CommonPreWriteGate, blocker triage/clearance, branch preflight, exact HEAD, policy, permissions, current CI and applicable review are unchanged. The connector-only routing rules remain unchanged. The bridge is not wired into every provider, CLI, or production runner. The skill patch documents the intended caller integration only.
 
+When an incident makes historical coverage irrecoverable, do not reinterpret
+`HISTORY_INCOMPLETE` as `HISTORY_VERIFIED`. The owner-governed incident recovery
+policy in `docs/mutation-blocker-recovery-v1.md` allows separate bounded recovery
+changes without proving the damaged workload's historical completeness. It does
+not alter S3/S4 dispositions, cache eligibility or production admission gates.
+
 ## S4: bounded reuse, no mandatory new service
 
 `VerifiedHistoryReuse` holds one in-memory positive observation in a trusted runtime. It requires a fresh authenticated `HistoryVersion` before reuse, bound to the exact request (repository, issue, work anchor, HEAD), central pin, trusted authority, generation and canonical digest of complete evidence. A full read compares versions before and after verification and checks the evidence digest. Changed generation, scope, HEAD, authority, pin, digest, incomplete history or revocation reflected in the authoritative version invalidates reuse. Known blockers are never cached as clean. If the optional version probe is unavailable, discard the cache and run ordinary full verification; if a version changes during a full verified read, return HISTORY_INCOMPLETE rather than a positive result. Failed or incomplete observations are not reused.
